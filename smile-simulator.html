@@ -1484,8 +1484,11 @@ async function generateVideo() {
       const status   = (pollData.status || '').toUpperCase();
 
       // Update progress label
-      const pct = Math.min(12 + Math.round((elapsed / 90) * 82), 93);
-      setVideoProgress(pct, `AI generating… ${elapsed}s elapsed`);
+      const pct = Math.min(12 + Math.round((elapsed / 120) * 82), 93);
+      const label = status === 'THROTTLED'
+        ? `Queued by Runway — waiting… ${elapsed}s`
+        : `AI animating your smile… ${elapsed}s`;
+      setVideoProgress(pct, label);
 
       if (status === 'SUCCEEDED') {
         runwayVideoUrl = pollData.output && pollData.output[0];
@@ -1509,7 +1512,7 @@ async function generateVideo() {
       }
 
       // Still PENDING / RUNNING — keep polling
-      if (elapsed > 180) throw new Error('Video generation timed out after 3 minutes.');
+      if (elapsed > 300) throw new Error('Video generation timed out. Check your Runway credits at dev.runwayml.com');
     }
 
   } catch (err) {
