@@ -452,6 +452,64 @@
     .results-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
     .secondary-actions { display: flex; gap: 10px; }
 
+    /* ── Video generator ─────────────────────────────────────────── */
+    .btn-video {
+      display: flex; align-items: center; justify-content: center; gap: 8px;
+      background: linear-gradient(135deg, #1B3A5C 0%, #2a5280 100%);
+      color: var(--gold);
+      font-weight: 700; font-size: 0.96rem;
+      padding: 14px 20px;
+      border-radius: var(--radius-sm);
+      border: 2px solid var(--gold);
+      width: 100%;
+      transition: all var(--transition);
+      letter-spacing: 0.02em;
+    }
+    .btn-video:hover { background: linear-gradient(135deg, #122840 0%, #1B3A5C 100%); }
+    .btn-video:disabled { opacity: 0.55; cursor: not-allowed; }
+    .video-progress-wrap {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 8px;
+      padding: 14px;
+      background: var(--off-white);
+      border-radius: var(--radius-sm);
+      border: 1px solid var(--light-grey);
+    }
+    .video-progress-wrap.active { display: flex; }
+    .video-progress-label { font-size: 0.84rem; font-weight: 600; color: var(--navy); }
+    .video-progress-bar {
+      width: 100%; height: 6px;
+      background: var(--light-grey);
+      border-radius: 3px; overflow: hidden;
+    }
+    .video-progress-fill {
+      height: 100%; width: 0%;
+      background: linear-gradient(90deg, var(--navy), var(--gold));
+      border-radius: 3px;
+      transition: width 0.2s linear;
+    }
+    .video-ready-wrap {
+      display: none;
+      flex-direction: column; gap: 8px; align-items: center;
+      padding: 14px;
+      background: rgba(22,163,74,0.06);
+      border: 1px solid rgba(22,163,74,0.25);
+      border-radius: var(--radius-sm);
+    }
+    .video-ready-wrap.active { display: flex; }
+    .video-ready-label { font-size: 0.88rem; font-weight: 600; color: var(--success); }
+    .btn-video-download {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--success); color: #fff;
+      font-weight: 700; font-size: 0.9rem;
+      padding: 10px 22px; border-radius: var(--radius-sm);
+      transition: background var(--transition);
+    }
+    .btn-video-download:hover { background: #15803d; }
+    #videoCanvas { display: none; }
+
     /* ── Error banner ────────────────────────────────────────────── */
     .error-banner {
       background: rgba(220,38,38,0.07);
@@ -762,12 +820,24 @@
       <a href="#" id="bookBtn" class="btn-gold" target="_blank" rel="noopener">
         📅 Book Your Free Consultation
       </a>
+      <!-- Video generator -->
+      <button class="btn-video" id="createVideoBtn" type="button">🎬 Create Shareable Video</button>
+      <div class="video-progress-wrap" id="videoProgressWrap">
+        <div class="video-progress-label" id="videoProgressLabel">Rendering video… 0%</div>
+        <div class="video-progress-bar"><div class="video-progress-fill" id="videoProgressFill"></div></div>
+      </div>
+      <div class="video-ready-wrap" id="videoReadyWrap">
+        <div class="video-ready-label">✅ Your video is ready!</div>
+        <button class="btn-video-download" id="videoDownloadBtn" type="button">⬇ Download MP4</button>
+        <div style="font-size:0.74rem;color:var(--mid-grey);text-align:center;">Share on Instagram, Facebook &amp; TikTok</div>
+      </div>
       <div class="secondary-actions">
-        <button class="btn-outline" id="downloadBtn" type="button">⬇ Download</button>
+        <button class="btn-outline" id="downloadBtn" type="button">⬇ Download Photo</button>
         <button class="btn-ghost" id="tryAnotherBtn" type="button">↩ Try Another Photo</button>
       </div>
     </div>
   </div>
+  <canvas id="videoCanvas" width="1080" height="1920"></canvas>
 
 </main>
 
@@ -1169,12 +1239,167 @@ $('tryAnotherBtn').addEventListener('click', () => {
   $('previewImg').src = '';
   $('beforeImg').src = ''; $('afterImg').src = '';
   $('genBadge').style.display = 'none';
+  // Reset video state
+  $('createVideoBtn').style.display = '';
+  $('videoProgressWrap').classList.remove('active');
+  $('videoReadyWrap').classList.remove('active');
+  videoBlob = null;
   // Reset toggle
   showBefore();
   show($('uploadPrompt')); hide($('previewWrap'));
   hide($('resultsCard')); hide($('formCard'));
   $('uploadCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
+
+/* ── Video Generator ───────────────────────────────────────────── */
+let videoBlob = null;
+
+$('createVideoBtn').addEventListener('click', generateVideo);
+$('videoDownloadBtn').addEventListener('click', () => {
+  if (!videoBlob) return;
+  const ext = videoBlob.type.includes('mp4') ? 'mp4' : 'mp4';
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(videoBlob),
+    download: 'hallmark-dental-smile.' + ext,
+  });
+  document.body.appendChild(a); a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+});
+
+async function generateVideo() {
+  const beforeSrc = $('beforeImg').src;
+  const afterSrc  = $('afterImg').src;
+  if (!beforeSrc || !afterSrc) return;
+
+  $('createVideoBtn').style.display = 'none';
+  $('videoReadyWrap').classList.remove('active');
+  $('videoProgressWrap').classList.add('active');
+  setVideoProgress(0, 'Loading images…');
+
+  const [imgBefore, imgAfter] = await Promise.all([
+    loadImage(beforeSrc), loadImage(afterSrc),
+  ]);
+
+  setVideoProgress(8, 'Setting up canvas…');
+
+  const canvas = $('videoCanvas');
+  const ctx    = canvas.getContext('2d');
+  const W = 1080, H = 1920;
+  const FPS = 30, DURATION = 9;
+  const TOTAL_FRAMES = FPS * DURATION;
+
+  // Timing in frames
+  const FADE_IN_END  = FPS * 0.4;
+  const FADE_START   = FPS * 2.5;
+  const FADE_END     = FPS * 4.5;
+  const FADE_OUT_S   = FPS * 8;
+
+  const mimeType = MediaRecorder.isTypeSupported('video/mp4')
+    ? 'video/mp4'
+    : MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+      ? 'video/webm;codecs=vp9' : 'video/webm';
+
+  const stream   = canvas.captureStream(FPS);
+  const recorder = new MediaRecorder(stream, { mimeType, videoBitsPerSecond: 8_000_000 });
+  const chunks   = [];
+  recorder.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+  recorder.start(100);
+
+  let frame = 0;
+  function renderFrame() {
+    if (frame > TOTAL_FRAMES) { recorder.stop(); return; }
+
+    const afterAlpha = frame >= FADE_END   ? 1
+                     : frame >= FADE_START ? (frame - FADE_START) / (FADE_END - FADE_START)
+                     : 0;
+    const overall    = frame < FADE_IN_END  ? frame / FADE_IN_END
+                     : frame >= FADE_OUT_S  ? 1 - (frame - FADE_OUT_S) / (TOTAL_FRAMES - FADE_OUT_S)
+                     : 1;
+
+    // Background
+    ctx.globalAlpha = 1;
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#0d2234'); bg.addColorStop(0.5, '#1B3A5C'); bg.addColorStop(1, '#0d2234');
+    ctx.fillStyle = bg; ctx.fillRect(0, 0, W, H);
+
+    // Gold accent bars
+    ctx.globalAlpha = overall;
+    ctx.fillStyle = '#C9A84C';
+    ctx.fillRect(0, 0, W, 8); ctx.fillRect(0, H - 8, W, 8);
+
+    // Practice name
+    ctx.fillStyle = '#C9A84C';
+    ctx.font = 'bold 54px Georgia, serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('HALLMARK DENTAL', W / 2, 90);
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.font = '30px Arial, sans-serif';
+    ctx.fillText('AI SMILE SIMULATION', W / 2, 136);
+
+    // Images
+    const IMG_Y = 170, IMG_H = H - 170 - 320;
+    drawImageFit(ctx, imgBefore, 0, IMG_Y, W, IMG_H, 1 - afterAlpha, overall);
+    drawImageFit(ctx, imgAfter,  0, IMG_Y, W, IMG_H, afterAlpha,      overall);
+
+    // Label
+    const label  = afterAlpha < 0.5 ? 'BEFORE' : 'AFTER ✨';
+    const lColor = afterAlpha < 0.5 ? 'rgba(255,255,255,0.75)' : '#C9A84C';
+    ctx.globalAlpha = overall;
+    ctx.fillStyle = lColor;
+    ctx.font = 'bold 80px Arial, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(label, W / 2, IMG_Y + IMG_H + 70);
+
+    // CTA (fades in with after image)
+    if (afterAlpha > 0.3) {
+      ctx.globalAlpha = overall * Math.min(1, (afterAlpha - 0.3) / 0.4);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 42px Arial, sans-serif';
+      ctx.fillText('Book Your Free Consultation', W / 2, H - 210);
+      ctx.fillStyle = 'rgba(201,168,76,0.9)';
+      ctx.font = '34px Arial, sans-serif';
+      ctx.fillText('hallmarkdds.com', W / 2, H - 158);
+    }
+
+    frame++;
+    setVideoProgress(8 + Math.round((frame / TOTAL_FRAMES) * 88),
+      `Rendering… ${Math.round(frame / TOTAL_FRAMES * 100)}%`);
+    requestAnimationFrame(renderFrame);
+  }
+
+  recorder.onstop = () => {
+    videoBlob = new Blob(chunks, { type: mimeType });
+    $('videoProgressWrap').classList.remove('active');
+    $('videoReadyWrap').classList.add('active');
+  };
+
+  requestAnimationFrame(renderFrame);
+}
+
+function drawImageFit(ctx, img, x, y, w, h, alpha, overall) {
+  if (alpha <= 0) return;
+  const scale = Math.min(w / img.width, h / img.height);
+  const dw = img.width * scale, dh = img.height * scale;
+  const dx = x + (w - dw) / 2, dy = y + (h - dh) / 2;
+  ctx.globalAlpha = alpha * overall;
+  ctx.drawImage(img, dx, dy, dw, dh);
+}
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload  = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+function setVideoProgress(pct, label) {
+  $('videoProgressFill').style.width  = pct + '%';
+  $('videoProgressLabel').textContent = label;
+}
 
 /* ── Admin panel ───────────────────────────────────────────────── */
 document.addEventListener('keydown', e => {
