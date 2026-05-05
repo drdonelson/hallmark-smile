@@ -1,0 +1,1259 @@
+<!--
+================================================================================
+  HALLMARK DENTAL — SMILE SIMULATOR
+  Setup & Integration Guide
+================================================================================
+
+  1. GETTING AN OPENAI API KEY
+     ──────────────────────────
+     • Sign up or log in at https://platform.openai.com
+     • Go to Dashboard → API Keys → Create new secret key
+     • Copy the key (starts with sk-...)
+     • Add it as a secret named OPENAI_API_KEY in your
+       Cloudflare Worker settings (see section 4)
+
+  2. EMBEDDING ON WORDPRESS
+     ───────────────────────
+     • Host this HTML file on any web server or static host
+       (e.g., Cloudflare Pages, Netlify, GitHub Pages, or your own server)
+     • In WordPress, open the page/post editor
+     • Add a "Custom HTML" block and insert:
+
+         <iframe
+           src="https://YOUR-DOMAIN.com/smile-simulator.html"
+           width="100%"
+           height="980"
+           frameborder="0"
+           style="border:none; border-radius:10px;"
+         ></iframe>
+
+     • Adjust height to fit your layout (typically 900–1100px)
+
+  3. EMBEDDING ON WIX
+     ─────────────────
+     • Host the file externally (Wix does not serve standalone HTML files)
+     • In the Wix Editor: Add Elements → Embed & Social
+       → "Embed a Website" (HTML iFrame widget)
+     • Paste your hosted file URL into the element settings
+     • Resize the widget to fill your desired section
+
+  4. SECURITY — API KEY
+     ────────────────────
+     ⚠  The OpenAI API key is never stored in the browser.
+        It lives as a secret in your Cloudflare Worker environment
+        (env.OPENAI_API_KEY) and is injected server-side on every
+        request. Deploy worker.js and add the secret there.
+
+     • Worker receives requests from this app (no key in the browser)
+     • Worker attaches the key server-side and forwards to OpenAI
+     • Cloudflare Workers free tier handles ~100,000 requests/day
+     See: https://developers.cloudflare.com/workers/get-started/guide/
+
+  5. CONNECTING YOUR BOOKING / SCHEDULING LINK
+     ────────────────────────────────────────────
+     • Click the ⚙ gear icon (top-right corner)
+     • Paste your scheduling link into the "Booking URL" field
+     • Works with any scheduling platform:
+         – NexHealth:      https://nexhealth.com/yourpractice
+         – Dentrix Ascend: https://online.dentrixascend.com/...
+         – Zocdoc:         https://www.zocdoc.com/practice/...
+         – Calendly:       https://calendly.com/yourname
+         – Jane App:       https://yourpractice.janeapp.com
+     • Click Save — the "Book Your Consultation" button links there
+
+================================================================================
+-->
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smile Simulator — Hallmark Dental</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    /* ── Variables & Reset ───────────────────────────────────────── */
+    :root {
+      --navy:        #1B3A5C;
+      --navy-dark:   #122840;
+      --navy-light:  #2a5280;
+      --gold:        #C9A84C;
+      --gold-light:  #dbbf6e;
+      --gold-dark:   #a8882e;
+      --white:       #ffffff;
+      --off-white:   #f8f6f2;
+      --light-grey:  #f0eee9;
+      --mid-grey:    #9ca3af;
+      --dark-grey:   #4b5563;
+      --text:        #1a1a2e;
+      --error:       #dc2626;
+      --success:     #16a34a;
+      --shadow-sm:   0 1px 3px rgba(0,0,0,0.08);
+      --shadow-md:   0 4px 16px rgba(27,58,92,0.12);
+      --shadow-lg:   0 8px 32px rgba(27,58,92,0.18);
+      --radius:      12px;
+      --radius-sm:   8px;
+      --transition:  0.25s ease;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--off-white);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.6;
+    }
+    img { max-width: 100%; display: block; }
+    button { cursor: pointer; font-family: inherit; border: none; outline: none; }
+    input, select { font-family: inherit; }
+
+    /* ── Header ──────────────────────────────────────────────────── */
+    .header {
+      background: var(--navy);
+      padding: 18px 20px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      box-shadow: var(--shadow-md);
+    }
+    .logo-area { text-align: center; flex: 1; }
+    .logo-name {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.55rem;
+      font-weight: 700;
+      color: var(--gold);
+      letter-spacing: 0.04em;
+    }
+    .logo-tagline {
+      font-size: 0.75rem;
+      color: rgba(255,255,255,0.72);
+      letter-spacing: 0.09em;
+      text-transform: uppercase;
+      margin-top: 2px;
+    }
+    .gear-btn {
+      background: none;
+      color: rgba(255,255,255,0.55);
+      font-size: 1.25rem;
+      padding: 6px;
+      border-radius: 50%;
+      transition: color var(--transition), background var(--transition);
+      width: 38px; height: 38px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    .gear-btn:hover { color: var(--gold); background: rgba(201,168,76,0.12); }
+    .header-spacer { width: 38px; }
+
+    /* ── Main ────────────────────────────────────────────────────── */
+    .main { max-width: 780px; margin: 0 auto; padding: 28px 16px 64px; }
+
+    /* ── Cards ───────────────────────────────────────────────────── */
+    .card {
+      background: var(--white);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-md);
+      padding: 26px 22px;
+      margin-bottom: 18px;
+    }
+    .card-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.2rem;
+      color: var(--navy);
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .step-badge {
+      background: var(--navy);
+      color: var(--gold);
+      width: 28px; height: 28px;
+      border-radius: 50%;
+      font-size: 0.78rem;
+      font-weight: 600;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      font-family: 'Inter', sans-serif;
+    }
+
+    /* ── Upload ──────────────────────────────────────────────────── */
+    .upload-area {
+      border: 2px dashed #d1c9b8;
+      border-radius: var(--radius);
+      padding: 34px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all var(--transition);
+      background: var(--off-white);
+    }
+    .upload-area:hover, .upload-area.dragover {
+      border-color: var(--gold);
+      background: rgba(201,168,76,0.05);
+    }
+    .upload-icon { font-size: 2.4rem; margin-bottom: 10px; }
+    .upload-text { font-size: 0.93rem; color: var(--dark-grey); }
+    .upload-text strong { color: var(--navy); }
+    .upload-hint { font-size: 0.78rem; color: var(--mid-grey); margin-top: 6px; }
+    #fileInput { display: none; }
+
+    .preview-container {
+      position: relative;
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+      background: #000;
+    }
+    .preview-img {
+      width: 100%;
+      max-height: 300px;
+      object-fit: contain;
+      display: block;
+    }
+    .preview-overlay {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      background: linear-gradient(transparent, rgba(0,0,0,0.55));
+      padding: 14px;
+      display: flex;
+      justify-content: flex-end;
+    }
+    .change-photo-btn {
+      background: rgba(255,255,255,0.9);
+      color: var(--navy);
+      font-size: 0.78rem;
+      font-weight: 600;
+      padding: 5px 13px;
+      border-radius: 20px;
+      transition: background var(--transition);
+    }
+    .change-photo-btn:hover { background: var(--white); }
+
+    /* ── Form ────────────────────────────────────────────────────── */
+    .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
+    .form-group { display: flex; flex-direction: column; gap: 4px; }
+    .form-group.full-width { grid-column: 1 / -1; }
+    label { font-size: 0.81rem; font-weight: 600; color: var(--navy); letter-spacing: 0.02em; }
+    label .req { color: var(--gold-dark); }
+    input[type="text"], input[type="email"], input[type="tel"], select {
+      border: 1.5px solid #ddd6c8;
+      border-radius: var(--radius-sm);
+      padding: 10px 12px;
+      font-size: 0.91rem;
+      color: var(--text);
+      background: var(--white);
+      transition: border-color var(--transition), box-shadow var(--transition);
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    input[type="text"]:focus, input[type="email"]:focus,
+    input[type="tel"]:focus, select:focus {
+      outline: none;
+      border-color: var(--navy);
+      box-shadow: 0 0 0 3px rgba(27,58,92,0.1);
+    }
+    input.err, select.err { border-color: var(--error); }
+    .ferr { font-size: 0.74rem; color: var(--error); margin-top: 2px; }
+    select {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%231B3A5C' stroke-width='1.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 12px center;
+      padding-right: 34px;
+      cursor: pointer;
+    }
+    .checkbox-wrap {
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      padding: 13px;
+      background: rgba(27,58,92,0.04);
+      border-radius: var(--radius-sm);
+      border: 1.5px solid transparent;
+      transition: border-color var(--transition);
+    }
+    .checkbox-wrap.err { border-color: var(--error); }
+    .checkbox-wrap input[type="checkbox"] {
+      width: 17px; height: 17px;
+      flex-shrink: 0;
+      margin-top: 2px;
+      accent-color: var(--navy);
+      cursor: pointer;
+    }
+    .checkbox-label { font-size: 0.82rem; color: var(--dark-grey); line-height: 1.5; cursor: pointer; }
+
+    /* ── Buttons ─────────────────────────────────────────────────── */
+    .btn-primary {
+      background: linear-gradient(135deg, var(--navy), var(--navy-light));
+      color: var(--white);
+      font-size: 0.98rem;
+      font-weight: 600;
+      padding: 14px 24px;
+      border-radius: var(--radius);
+      width: 100%;
+      transition: all var(--transition);
+      letter-spacing: 0.02em;
+      margin-top: 14px;
+    }
+    .btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--shadow-lg); }
+    .btn-primary:active:not(:disabled) { transform: translateY(0); }
+    .btn-primary:disabled { opacity: 0.42; cursor: not-allowed; }
+
+    .btn-gold {
+      background: linear-gradient(135deg, var(--gold), var(--gold-light));
+      color: var(--navy-dark);
+      font-size: 1.02rem;
+      font-weight: 700;
+      padding: 15px 28px;
+      border-radius: var(--radius);
+      width: 100%;
+      transition: all var(--transition);
+      text-decoration: none;
+      display: block;
+      text-align: center;
+      letter-spacing: 0.03em;
+    }
+    .btn-gold:hover { transform: translateY(-2px); box-shadow: 0 6px 24px rgba(201,168,76,0.38); }
+
+    .btn-outline {
+      background: transparent;
+      color: var(--navy);
+      border: 2px solid var(--navy);
+      font-size: 0.9rem;
+      font-weight: 600;
+      padding: 10px 20px;
+      border-radius: var(--radius);
+      transition: all var(--transition);
+      flex: 1;
+    }
+    .btn-outline:hover { background: var(--navy); color: var(--white); }
+
+    .btn-ghost {
+      background: none;
+      color: var(--mid-grey);
+      font-size: 0.84rem;
+      padding: 10px 16px;
+      border-radius: var(--radius);
+      transition: all var(--transition);
+      flex: 1;
+    }
+    .btn-ghost:hover { background: var(--light-grey); color: var(--dark-grey); }
+
+    /* ── Progress ────────────────────────────────────────────────── */
+    .progress-section { text-align: center; padding: 30px 20px; }
+    .progress-spinner {
+      width: 54px; height: 54px;
+      border: 4px solid var(--light-grey);
+      border-top-color: var(--gold);
+      border-radius: 50%;
+      animation: spin 0.85s linear infinite;
+      margin: 0 auto 18px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .progress-message {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.1rem;
+      color: var(--navy);
+      min-height: 1.6em;
+      transition: opacity 0.35s ease;
+    }
+    .progress-sub { font-size: 0.8rem; color: var(--mid-grey); margin-top: 8px; }
+    .progress-bar-track {
+      background: var(--light-grey);
+      border-radius: 99px;
+      height: 4px;
+      margin: 14px auto;
+      max-width: 260px;
+      overflow: hidden;
+    }
+    .progress-bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--gold), var(--gold-light));
+      border-radius: 99px;
+      width: 0%;
+      animation: progAnim 50s ease-in-out forwards;
+    }
+    @keyframes progAnim {
+      0%   { width: 0%; }
+      15%  { width: 25%; }
+      40%  { width: 55%; }
+      70%  { width: 78%; }
+      100% { width: 91%; }
+    }
+
+    /* ── Results — Before/After Toggle ──────────────────────────── */
+    .ba-toggle-wrap {
+      position: relative;
+      margin-bottom: 16px;
+    }
+    .ba-img-slot {
+      position: relative;
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: #000;
+      box-shadow: var(--shadow-lg);
+    }
+    .ba-img {
+      width: 100%;
+      max-height: 420px;
+      object-fit: contain;
+      display: block;
+      border-radius: var(--radius);
+      transition: opacity 0.35s ease;
+    }
+    .ba-img.hidden-img { display: none; }
+    .ba-gen-badge {
+      position: absolute;
+      top: 12px; right: 12px;
+      background: rgba(0,0,0,0.62);
+      color: #fff;
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 20px;
+      letter-spacing: 0.03em;
+      backdrop-filter: blur(4px);
+    }
+    .ba-switch {
+      display: flex;
+      border-radius: 40px;
+      overflow: hidden;
+      border: 2px solid var(--navy);
+      width: fit-content;
+      margin: 14px auto 0;
+    }
+    .ba-switch-btn {
+      padding: 9px 32px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      background: transparent;
+      color: var(--navy);
+      transition: background var(--transition), color var(--transition);
+      border: none;
+      cursor: pointer;
+    }
+    .ba-switch-btn.active {
+      background: var(--navy);
+      color: var(--gold);
+    }
+    .disclaimer {
+      font-size: 0.74rem;
+      color: var(--mid-grey);
+      text-align: center;
+      line-height: 1.5;
+      padding: 11px 8px;
+      border-top: 1px solid var(--light-grey);
+      margin-top: 10px;
+    }
+    .results-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
+    .secondary-actions { display: flex; gap: 10px; }
+
+    /* ── Error banner ────────────────────────────────────────────── */
+    .error-banner {
+      background: rgba(220,38,38,0.07);
+      border: 1px solid rgba(220,38,38,0.22);
+      color: #991b1b;
+      border-radius: var(--radius-sm);
+      padding: 11px 14px;
+      font-size: 0.86rem;
+      margin-top: 14px;
+      line-height: 1.5;
+    }
+
+    /* ── Config slide-out ────────────────────────────────────────── */
+    .overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.38);
+      z-index: 900;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.28s ease;
+    }
+    .overlay.open { opacity: 1; pointer-events: all; }
+    .config-panel {
+      position: fixed;
+      top: 0; right: 0;
+      width: 330px; max-width: 100vw;
+      height: 100vh;
+      background: var(--white);
+      box-shadow: -4px 0 28px rgba(0,0,0,0.17);
+      z-index: 1000;
+      transform: translateX(100%);
+      transition: transform 0.28s ease;
+      display: flex; flex-direction: column;
+    }
+    .config-panel.open { transform: translateX(0); }
+    .cp-header {
+      background: var(--navy);
+      padding: 18px 18px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .cp-title { font-family: 'Playfair Display', serif; color: var(--gold); font-size: 1.05rem; }
+    .cp-close { color: rgba(255,255,255,0.65); font-size: 1.2rem; background: none; transition: color var(--transition); }
+    .cp-close:hover { color: var(--white); }
+    .cp-body { padding: 22px 18px; flex: 1; overflow-y: auto; }
+    .cp-section { font-size: 0.73rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--mid-grey); margin: 18px 0 9px; }
+    .cp-section:first-child { margin-top: 0; }
+    .cp-group { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+    .cp-group label { font-size: 0.81rem; font-weight: 600; color: var(--navy); }
+    .cp-group input {
+      border: 1.5px solid #ddd6c8;
+      border-radius: var(--radius-sm);
+      padding: 9px 12px;
+      font-size: 0.87rem;
+      width: 100%;
+    }
+    .cp-group input:focus { outline: none; border-color: var(--navy); box-shadow: 0 0 0 3px rgba(27,58,92,0.1); }
+    .cp-save {
+      background: var(--navy);
+      color: var(--white);
+      font-weight: 600;
+      padding: 10px 18px;
+      border-radius: var(--radius-sm);
+      width: 100%;
+      font-size: 0.9rem;
+      transition: background var(--transition);
+      margin-top: 6px;
+    }
+    .cp-save:hover { background: var(--navy-light); }
+    .cp-status { font-size: 0.78rem; color: var(--success); text-align: center; margin-top: 7px; min-height: 1.1em; }
+
+    /* ── Admin panel (full-screen) ───────────────────────────────── */
+    .admin-panel {
+      position: fixed; inset: 0;
+      z-index: 2000;
+      background: var(--off-white);
+      overflow-y: auto;
+      display: none;
+    }
+    .admin-panel.open { display: block; }
+    .admin-header {
+      background: var(--navy-dark);
+      padding: 15px 22px;
+      display: flex; align-items: center; justify-content: space-between;
+      position: sticky; top: 0; z-index: 10;
+    }
+    .admin-title { font-family: 'Playfair Display', serif; color: var(--gold); font-size: 1.15rem; }
+    .admin-close { color: rgba(255,255,255,0.65); font-size: 1.2rem; background: none; transition: color var(--transition); }
+    .admin-close:hover { color: var(--white); }
+    .admin-body { padding: 22px; }
+    .admin-stats { display: flex; gap: 14px; margin-bottom: 20px; flex-wrap: wrap; }
+    .stat-card {
+      background: var(--white);
+      border-radius: var(--radius-sm);
+      padding: 14px 18px;
+      box-shadow: var(--shadow-sm);
+      flex: 1; min-width: 110px;
+      text-align: center;
+    }
+    .stat-num { font-family: 'Playfair Display', serif; font-size: 1.9rem; color: var(--navy); line-height: 1; }
+    .stat-lbl { font-size: 0.73rem; color: var(--mid-grey); margin-top: 3px; }
+    .admin-actions { display: flex; gap: 10px; margin-bottom: 18px; flex-wrap: wrap; }
+    .btn-admin {
+      background: var(--navy); color: var(--white);
+      font-size: 0.83rem; font-weight: 600;
+      padding: 8px 16px; border-radius: var(--radius-sm);
+      transition: background var(--transition);
+    }
+    .btn-admin:hover { background: var(--navy-light); }
+    .btn-admin-danger {
+      background: #dc2626; color: var(--white);
+      font-size: 0.83rem; font-weight: 600;
+      padding: 8px 16px; border-radius: var(--radius-sm);
+      transition: background var(--transition);
+    }
+    .btn-admin-danger:hover { background: #b91c1c; }
+    .table-wrap { background: var(--white); border-radius: var(--radius); box-shadow: var(--shadow-sm); overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    th {
+      background: var(--navy);
+      color: rgba(255,255,255,0.82);
+      text-align: left;
+      padding: 10px 13px;
+      font-weight: 600;
+      font-size: 0.76rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      white-space: nowrap;
+    }
+    td { padding: 9px 13px; border-bottom: 1px solid var(--light-grey); color: var(--dark-grey); white-space: nowrap; }
+    tr:last-child td { border-bottom: none; }
+    tr:nth-child(even) td { background: rgba(27,58,92,0.025); }
+    .badge-y { background: rgba(22,163,74,0.1); color: #15803d; font-size: 0.7rem; font-weight: 700; padding: 2px 7px; border-radius: 99px; }
+    .badge-n { background: var(--light-grey); color: var(--mid-grey); font-size: 0.7rem; font-weight: 700; padding: 2px 7px; border-radius: 99px; }
+    .no-leads { text-align: center; padding: 36px; color: var(--mid-grey); font-size: 0.88rem; }
+
+    /* ── Confirm modal ───────────────────────────────────────────── */
+    .modal-overlay {
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.5);
+      z-index: 3000;
+      display: none;
+      align-items: center; justify-content: center;
+      padding: 20px;
+    }
+    .modal-overlay.open { display: flex; }
+    .modal {
+      background: var(--white);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow-lg);
+      padding: 26px 22px;
+      max-width: 350px; width: 100%;
+    }
+    .modal-title { font-family: 'Playfair Display', serif; color: var(--navy); font-size: 1.08rem; margin-bottom: 9px; }
+    .modal-text { font-size: 0.86rem; color: var(--dark-grey); margin-bottom: 14px; line-height: 1.6; }
+    .modal-input {
+      border: 1.5px solid #ddd6c8;
+      border-radius: var(--radius-sm);
+      padding: 9px 12px;
+      font-size: 0.9rem;
+      width: 100%;
+      margin-bottom: 13px;
+      font-family: monospace;
+      letter-spacing: 0.1em;
+    }
+    .modal-input:focus { outline: none; border-color: #dc2626; box-shadow: 0 0 0 3px rgba(220,38,38,0.1); }
+    .modal-actions { display: flex; gap: 9px; justify-content: flex-end; }
+    .btn-mcancel { background: var(--light-grey); color: var(--dark-grey); font-size: 0.86rem; font-weight: 600; padding: 8px 16px; border-radius: var(--radius-sm); }
+    .btn-mconfirm { background: #dc2626; color: var(--white); font-size: 0.86rem; font-weight: 600; padding: 8px 16px; border-radius: var(--radius-sm); transition: background var(--transition); }
+    .btn-mconfirm:disabled { opacity: 0.38; cursor: not-allowed; }
+    .btn-mconfirm:not(:disabled):hover { background: #b91c1c; }
+
+    /* ── Utilities ───────────────────────────────────────────────── */
+    .hidden { display: none !important; }
+
+    /* ── Responsive ──────────────────────────────────────────────── */
+    @media (max-width: 580px) {
+      .main { padding: 16px 10px 48px; }
+      .card { padding: 18px 14px; }
+      .form-grid { grid-template-columns: 1fr; }
+      .before-after { grid-template-columns: 1fr; gap: 10px; }
+      .logo-name { font-size: 1.25rem; }
+      .secondary-actions { flex-direction: column; }
+      .admin-stats { flex-direction: column; }
+    }
+    @media (max-width: 380px) {
+      .logo-name { font-size: 1.05rem; }
+      .logo-tagline { font-size: 0.67rem; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<header class="header">
+  <div class="header-spacer"></div>
+  <div class="logo-area">
+    <div class="logo-name">Hallmark Dental</div>
+    <div class="logo-tagline">See Your New Smile Before You Commit</div>
+  </div>
+  <button class="gear-btn" id="gearBtn" title="Settings" aria-label="Open settings">⚙</button>
+</header>
+
+<main class="main">
+
+  <!-- Step 1: Upload -->
+  <div class="card" id="uploadCard">
+    <h2 class="card-title"><span class="step-badge">1</span> Upload Your Smile Photo</h2>
+    <div class="upload-area" id="uploadArea">
+      <input type="file" id="fileInput" accept="image/*">
+      <div id="uploadPrompt">
+        <div class="upload-icon">📸</div>
+        <div class="upload-text"><strong>Tap to upload</strong> or drag &amp; drop</div>
+        <div class="upload-hint">JPG, PNG or HEIC · Best results: straight-on, well-lit smile photo</div>
+      </div>
+      <div id="previewWrap" class="hidden">
+        <div class="preview-container">
+          <img id="previewImg" class="preview-img" alt="Your photo preview">
+          <div class="preview-overlay">
+            <button class="change-photo-btn" id="changePhotoBtn" type="button">Change Photo</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Step 2: Lead Form -->
+  <div class="card hidden" id="formCard">
+    <h2 class="card-title"><span class="step-badge">2</span> Tell Us About You</h2>
+    <form id="leadForm" novalidate>
+      <div class="form-grid">
+        <div class="form-group">
+          <label for="fFirstName">First Name <span class="req">*</span></label>
+          <input type="text" id="fFirstName" placeholder="Jane" autocomplete="given-name">
+          <span class="ferr hidden" id="errFirstName">Required</span>
+        </div>
+        <div class="form-group">
+          <label for="fLastName">Last Name <span class="req">*</span></label>
+          <input type="text" id="fLastName" placeholder="Smith" autocomplete="family-name">
+          <span class="ferr hidden" id="errLastName">Required</span>
+        </div>
+        <div class="form-group full-width">
+          <label for="fEmail">Email Address <span class="req">*</span></label>
+          <input type="email" id="fEmail" placeholder="jane@example.com" autocomplete="email">
+          <span class="ferr hidden" id="errEmail">Enter a valid email address</span>
+        </div>
+        <div class="form-group full-width">
+          <label for="fPhone">Phone Number</label>
+          <input type="tel" id="fPhone" placeholder="(555) 123-4567" autocomplete="tel">
+        </div>
+        <div class="form-group full-width">
+          <label for="fInterest">What are you most interested in? <span class="req">*</span></label>
+          <select id="fInterest">
+            <option value="">— Select an option —</option>
+            <option value="Veneers">Veneers</option>
+            <option value="Dental Implants">Dental Implants</option>
+            <option value="Teeth Whitening">Teeth Whitening</option>
+            <option value="Full Smile Makeover">Full Smile Makeover</option>
+            <option value="Not Sure Yet">Not Sure Yet</option>
+          </select>
+          <span class="ferr hidden" id="errInterest">Please select an option</span>
+        </div>
+        <div class="form-group full-width">
+          <div class="checkbox-wrap" id="disclaimerWrap">
+            <input type="checkbox" id="fDisclaimer">
+            <label class="checkbox-label" for="fDisclaimer">
+              I understand this AI visualization is for educational purposes only. Actual results depend on individual treatment planning by a licensed dentist.
+            </label>
+          </div>
+          <span class="ferr hidden" id="errDisclaimer">You must acknowledge this to continue</span>
+        </div>
+      </div>
+      <div id="formError" class="error-banner hidden"></div>
+      <button type="submit" class="btn-primary" id="generateBtn" disabled>
+        ✨ Generate My Smile Transformation
+      </button>
+    </form>
+  </div>
+
+  <!-- Step 3: Progress -->
+  <div class="card hidden" id="progressCard">
+    <div class="progress-section">
+      <div class="progress-spinner"></div>
+      <div class="progress-message" id="progressMsg">Preparing your photo…</div>
+      <div class="progress-bar-track"><div class="progress-bar-fill" id="progressFill"></div></div>
+      <div class="progress-sub">This usually takes 15–30 seconds</div>
+    </div>
+  </div>
+
+  <!-- Step 4: Results -->
+  <div class="card hidden" id="resultsCard">
+    <h2 class="card-title" style="justify-content:center;">
+      <span style="color:var(--gold)">✦</span>&nbsp;Your Smile Transformation
+    </h2>
+    <div class="ba-toggle-wrap">
+      <div class="ba-img-slot">
+        <img id="beforeImg" class="ba-img" alt="Before">
+        <img id="afterImg"  class="ba-img hidden-img" alt="After — AI Visualization">
+        <div class="ba-gen-badge" id="genBadge" style="display:none"></div>
+      </div>
+      <div class="ba-switch">
+        <button class="ba-switch-btn active" id="btnBefore" type="button">Before</button>
+        <button class="ba-switch-btn"        id="btnAfter"  type="button">After ✨</button>
+      </div>
+    </div>
+    <div class="disclaimer">
+      This AI visualization is for cosmetic education only. Individual results vary based on treatment planning by a licensed dentist.
+    </div>
+    <div class="results-actions">
+      <a href="#" id="bookBtn" class="btn-gold" target="_blank" rel="noopener">
+        📅 Book Your Free Consultation
+      </a>
+      <div class="secondary-actions">
+        <button class="btn-outline" id="downloadBtn" type="button">⬇ Download</button>
+        <button class="btn-ghost" id="tryAnotherBtn" type="button">↩ Try Another Photo</button>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- Config Slide-out Panel -->
+<div class="overlay" id="cfgOverlay"></div>
+<div class="config-panel" id="cfgPanel">
+  <div class="cp-header">
+    <span class="cp-title">⚙ Settings</span>
+    <button class="cp-close" id="cfgClose" type="button">✕</button>
+  </div>
+  <div class="cp-body">
+    <div class="cp-section">Booking Link</div>
+    <div class="cp-group">
+      <label for="cfgUrl">Consultation Booking URL</label>
+      <input type="text" id="cfgUrl" placeholder="https://yourdomain.com/book" autocomplete="off">
+    </div>
+    <button class="cp-save" id="cfgSave" type="button">Save Settings</button>
+    <div class="cp-status" id="cfgStatus"></div>
+  </div>
+</div>
+
+<!-- Admin Panel (Ctrl+Shift+A) -->
+<div class="admin-panel" id="adminPanel">
+  <div class="admin-header">
+    <span class="admin-title">Admin — Lead Manager</span>
+    <button class="admin-close" id="adminClose" type="button">✕</button>
+  </div>
+  <div class="admin-body">
+    <div class="admin-stats" id="adminStats"></div>
+    <div class="admin-actions">
+      <button class="btn-admin" id="exportBtn" type="button">⬇ Export to CSV</button>
+      <button class="btn-admin-danger" id="clearBtn" type="button">🗑 Clear All Leads</button>
+    </div>
+    <div class="table-wrap" id="leadsTable"></div>
+  </div>
+</div>
+
+<!-- Confirm Modal (Clear All Leads) -->
+<div class="modal-overlay" id="confirmModal">
+  <div class="modal">
+    <div class="modal-title">Clear All Leads</div>
+    <div class="modal-text">
+      This will permanently delete all stored lead data.<br>
+      To confirm, type <strong>CONFIRM</strong> below:
+    </div>
+    <input type="text" class="modal-input" id="confirmInput" placeholder="CONFIRM" maxlength="10" autocomplete="off">
+    <div class="modal-actions">
+      <button class="btn-mcancel" id="confirmCancel" type="button">Cancel</button>
+      <button class="btn-mconfirm" id="confirmDelete" type="button" disabled>Delete All</button>
+    </div>
+  </div>
+</div>
+
+<script>
+'use strict';
+
+/* ── Constants ─────────────────────────────────────────────────── */
+// REPLACE THIS WITH YOUR CLOUDFLARE WORKER URL BEFORE GOING LIVE
+const PROXY_URL  = 'https://quiet-forest-e1f8.david-d73.workers.dev';
+const MAX_BYTES  = 1024 * 1024;
+const LS_LEADS   = 'hd_leads';
+const LS_URL     = 'hd_booking_url';
+
+const SMILE_PROMPT = `You are generating a dental cosmetic simulation for a licensed dental practice marketing tool. Transform only the teeth into a stunning, dramatic smile makeover while leaving the entire face completely untouched.
+
+TEETH TRANSFORMATION — dramatic cosmetic changes:
+- Replace any missing or broken teeth with beautiful, natural-looking restorations
+- Create a bright, white Hollywood smile — significantly whiter than original (shade A1 to BL1)
+- Correct all crowding, gaps, spacing issues, and misalignment completely
+- Close dark buccal corridor gaps — full smile width
+- Perfect tooth proportions: central incisors dominant, laterals slightly shorter
+- Natural enamel translucency at incisal edges — slight blue-white tint
+- Slight natural size variation between individual teeth — not denture-uniform
+- Healthy, smooth gumline at natural gum height — do not raise or lower gums
+- Remove staining, discoloration, chips, and decay
+
+PRESERVE EVERYTHING OUTSIDE THE TEETH — absolutely no changes:
+- Lip position, mouth opening, and lip shape stay EXACTLY the same
+- Every skin detail identical: all pores, wrinkles, fine lines, freckles, age spots, scars, blemishes
+- Skin tone and color unchanged — no brightening, no smoothing, no beauty filter
+- Hair and facial hair unchanged pixel-for-pixel
+- Eyes, eyebrows, nose, ears, face shape unchanged
+- Background, studio lighting, shadows unchanged
+- Clothing and accessories unchanged
+
+OUTPUT STYLE:
+Professional dental marketing photography. Photorealistic — the face looks like an unedited photograph. Only the teeth show the transformation. This should look like a real before/after case photo a cosmetic dentist would proudly display in their office.`;
+
+const MSGS = [
+  'Analyzing your smile…',
+  'Mapping dental structure…',
+  'Designing your transformation…',
+  'Calibrating tooth proportions…',
+  'Refining enamel texture…',
+  'Balancing shade and symmetry…',
+  'Adding natural translucency…',
+  'Polishing the final details…',
+  'Finishing touches…',
+  'Almost ready…',
+];
+
+/* ── State ─────────────────────────────────────────────────────── */
+let imgDataUrl     = null;
+let currentLeadId  = null;
+let msgInterval    = null;
+let msgIdx         = 0;
+let genStartTime   = null;
+
+/* ── DOM helpers ───────────────────────────────────────────────── */
+const $    = id => document.getElementById(id);
+const show = el => el.classList.remove('hidden');
+const hide = el => el.classList.add('hidden');
+
+/* ── Config ────────────────────────────────────────────────────── */
+const getCfg = () => ({
+  bookingUrl: localStorage.getItem(LS_URL) || '#',
+});
+
+function openConfig() {
+  const c = getCfg();
+  $('cfgUrl').value = c.bookingUrl === '#' ? '' : c.bookingUrl;
+  $('cfgOverlay').classList.add('open');
+  $('cfgPanel').classList.add('open');
+}
+function closeConfig() {
+  $('cfgOverlay').classList.remove('open');
+  $('cfgPanel').classList.remove('open');
+}
+
+$('gearBtn').addEventListener('click', openConfig);
+$('cfgOverlay').addEventListener('click', closeConfig);
+$('cfgClose').addEventListener('click', closeConfig);
+$('cfgSave').addEventListener('click', () => {
+  const u = $('cfgUrl').value.trim();
+  localStorage.setItem(LS_URL, u || '#');
+  syncBookBtn();
+  $('cfgStatus').textContent = '✓ Settings saved';
+  setTimeout(() => { $('cfgStatus').textContent = ''; }, 3000);
+});
+
+function syncBookBtn() {
+  const u = getCfg().bookingUrl;
+  $('bookBtn').href = (u && u !== '#') ? u : '#';
+}
+
+/* ── Leads (localStorage) ──────────────────────────────────────── */
+function getLeads() {
+  try { return JSON.parse(localStorage.getItem(LS_LEADS) || '[]'); }
+  catch { return []; }
+}
+function setLeads(arr) { localStorage.setItem(LS_LEADS, JSON.stringify(arr)); }
+
+function createLead(d) {
+  const id = 'ld_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+  const lead = { id, ...d, date: new Date().toISOString(), ctaClicked: false };
+  const arr = getLeads();
+  arr.unshift(lead);
+  setLeads(arr);
+  return id;
+}
+
+function markCTA(id) {
+  const arr = getLeads();
+  const l = arr.find(x => x.id === id);
+  if (l) { l.ctaClicked = true; setLeads(arr); }
+}
+
+/* ── Image compression ─────────────────────────────────────────── */
+function compressImage(file, maxBytes) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = reject;
+    reader.onload = e => {
+      const img = new Image();
+      img.onerror = reject;
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let { width: w, height: h } = img;
+        const MAX = 1536;
+        if (w > MAX || h > MAX) {
+          const r = Math.min(MAX / w, MAX / h);
+          w = Math.round(w * r); h = Math.round(h * r);
+        }
+        canvas.width = w; canvas.height = h;
+        canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+        let q = 0.92;
+        const compress = () => {
+          const d = canvas.toDataURL('image/jpeg', q);
+          if ((d.length * 3 / 4) <= maxBytes || q <= 0.48) return resolve(d);
+          q -= 0.08; compress();
+        };
+        compress();
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/* ── Upload handling ───────────────────────────────────────────── */
+const uploadArea = $('uploadArea');
+const fileInput  = $('fileInput');
+
+uploadArea.addEventListener('click', e => {
+  if (e.target.id === 'changePhotoBtn') return;
+  fileInput.click();
+});
+uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('dragover'); });
+uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
+uploadArea.addEventListener('drop', e => {
+  e.preventDefault(); uploadArea.classList.remove('dragover');
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith('image/')) processFile(f);
+});
+fileInput.addEventListener('change', () => { if (fileInput.files[0]) processFile(fileInput.files[0]); });
+$('changePhotoBtn').addEventListener('click', e => { e.stopPropagation(); fileInput.click(); });
+
+async function processFile(file) {
+  try {
+    imgDataUrl = await compressImage(file, MAX_BYTES);
+    $('previewImg').src = imgDataUrl;
+    hide($('uploadPrompt'));
+    show($('previewWrap'));
+    show($('formCard'));
+    $('formCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch {
+    alert('Could not process this image. Please try a different photo.');
+  }
+}
+
+/* ── Form validation ───────────────────────────────────────────── */
+$('fDisclaimer').addEventListener('change', () => {
+  $('generateBtn').disabled = !$('fDisclaimer').checked;
+});
+
+function validateForm() {
+  let ok = true;
+  const set = (id, errId, invalid) => {
+    const el = $(id); const er = $(errId);
+    if (invalid) { el.classList.add('err'); show(er); ok = false; }
+    else { el.classList.remove('err'); hide(er); }
+  };
+  set('fFirstName', 'errFirstName', !$('fFirstName').value.trim());
+  set('fLastName',  'errLastName',  !$('fLastName').value.trim());
+  set('fEmail',     'errEmail',     !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test($('fEmail').value.trim()));
+  set('fInterest',  'errInterest',  !$('fInterest').value);
+  const dc = $('fDisclaimer').checked;
+  if (!dc) { $('disclaimerWrap').classList.add('err'); show($('errDisclaimer')); ok = false; }
+  else { $('disclaimerWrap').classList.remove('err'); hide($('errDisclaimer')); }
+  return ok;
+}
+
+/* ── Main generation flow ──────────────────────────────────────── */
+async function generateSmile(dataUrl) {
+  // Convert compressed data URL to a File for multipart upload
+  const blob = await fetch(dataUrl).then(r => r.blob());
+  const file = new File([blob], 'photo.jpg', { type: blob.type || 'image/jpeg' });
+
+  const form = new FormData();
+  form.append('model',   'gpt-image-1');
+  form.append('image',   file);
+  form.append('prompt',  SMILE_PROMPT);
+  form.append('n',       '1');
+  // 'auto' lets OpenAI match the input image's aspect ratio — no cropping
+  form.append('size',    'auto');
+  // 'high' quality produces the sharpest, most photorealistic dental result
+  form.append('quality', 'high');
+
+  const res = await fetch(`${PROXY_URL}/v1/images/edits`, {
+    method: 'POST',
+    body:   form,
+  });
+
+  if (!res.ok) {
+    const t = await res.text().catch(() => '');
+    throw new Error(`Image generation failed (${res.status}): ${t}`);
+  }
+
+  const data = await res.json();
+  if (!data.data?.length) throw new Error('No image returned from OpenAI.');
+
+  const item = data.data[0];
+  if (item.b64_json) return `data:image/png;base64,${item.b64_json}`;
+  if (item.url)      return item.url;
+  throw new Error('Unexpected response format from OpenAI.');
+}
+
+/* ── Progress messages ─────────────────────────────────────────── */
+function startProgress() {
+  msgIdx = 0;
+  $('progressMsg').textContent = MSGS[0];
+  const fill = $('progressFill');
+  fill.style.animation = 'none'; fill.offsetHeight; fill.style.animation = '';
+  msgInterval = setInterval(() => {
+    msgIdx = (msgIdx + 1) % MSGS.length;
+    const el = $('progressMsg');
+    el.style.opacity = '0';
+    setTimeout(() => { el.textContent = MSGS[msgIdx]; el.style.opacity = '1'; }, 220);
+  }, 4500);
+}
+function stopProgress() { clearInterval(msgInterval); msgInterval = null; }
+
+/* ── Form submit ───────────────────────────────────────────────── */
+$('leadForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  if (!validateForm()) return;
+
+  hide($('formError'));
+
+  currentLeadId = createLead({
+    firstName: $('fFirstName').value.trim(),
+    lastName:  $('fLastName').value.trim(),
+    email:     $('fEmail').value.trim(),
+    phone:     $('fPhone').value.trim(),
+    interest:  $('fInterest').value,
+  });
+
+  hide($('formCard'));
+  show($('progressCard'));
+  $('progressCard').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  startProgress();
+  genStartTime = Date.now();
+
+  try {
+    const resultUrl = await generateSmile(imgDataUrl);
+    stopProgress();
+
+    // Calculate generation time for the badge
+    const secs = Math.round((Date.now() - genStartTime) / 1000);
+
+    // Load both images
+    $('beforeImg').src = imgDataUrl;
+    $('afterImg').src  = resultUrl;
+
+    // Reset toggle to "Before" on new result
+    $('beforeImg').classList.remove('hidden-img');
+    $('afterImg').classList.add('hidden-img');
+    $('btnBefore').classList.add('active');
+    $('btnAfter').classList.remove('active');
+
+    // Show generation badge
+    const badge = $('genBadge');
+    badge.textContent = `Generated in ${secs}s`;
+    badge.style.display = '';
+
+    // Auto-flip to "After" after 1.2s for the wow moment
+    setTimeout(() => showAfter(), 1200);
+
+    hide($('progressCard'));
+    show($('resultsCard'));
+    syncBookBtn();
+    $('resultsCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (err) {
+    stopProgress();
+    hide($('progressCard'));
+    show($('formCard'));
+    $('formError').textContent = `Error: ${err.message}`;
+    show($('formError'));
+    console.error(err);
+  }
+});
+
+/* ── Before/After toggle ───────────────────────────────────────── */
+function showBefore() {
+  $('beforeImg').classList.remove('hidden-img');
+  $('afterImg').classList.add('hidden-img');
+  $('btnBefore').classList.add('active');
+  $('btnAfter').classList.remove('active');
+}
+function showAfter() {
+  $('afterImg').classList.remove('hidden-img');
+  $('beforeImg').classList.add('hidden-img');
+  $('btnAfter').classList.add('active');
+  $('btnBefore').classList.remove('active');
+}
+$('btnBefore').addEventListener('click', showBefore);
+$('btnAfter').addEventListener('click', showAfter);
+
+/* ── Results actions ───────────────────────────────────────────── */
+$('bookBtn').addEventListener('click', () => {
+  if (currentLeadId) markCTA(currentLeadId);
+});
+
+$('downloadBtn').addEventListener('click', async () => {
+  const url = $('afterImg').src;
+  try {
+    const blob = await fetch(url).then(r => r.blob());
+    const a = Object.assign(document.createElement('a'), {
+      href:     URL.createObjectURL(blob),
+      download: 'hallmark-dental-smile.jpg',
+    });
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a); URL.revokeObjectURL(a.href);
+  } catch { window.open(url, '_blank'); }
+});
+
+$('tryAnotherBtn').addEventListener('click', () => {
+  imgDataUrl = null; currentLeadId = null; genStartTime = null; fileInput.value = '';
+  $('previewImg').src = '';
+  $('beforeImg').src = ''; $('afterImg').src = '';
+  $('genBadge').style.display = 'none';
+  // Reset toggle
+  showBefore();
+  show($('uploadPrompt')); hide($('previewWrap'));
+  hide($('resultsCard')); hide($('formCard'));
+  $('uploadCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+/* ── Admin panel ───────────────────────────────────────────────── */
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey && e.shiftKey && e.key === 'A') { e.preventDefault(); openAdmin(); }
+});
+
+function openAdmin()  { renderAdmin(); $('adminPanel').classList.add('open'); }
+function closeAdmin() { $('adminPanel').classList.remove('open'); }
+$('adminClose').addEventListener('click', closeAdmin);
+
+function esc(s) {
+  const d = document.createElement('div');
+  d.appendChild(document.createTextNode(String(s || '')));
+  return d.innerHTML;
+}
+function fmtDate(iso) {
+  try { return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
+  catch { return iso; }
+}
+
+function renderAdmin() {
+  const leads = getLeads();
+  const cta   = leads.filter(l => l.ctaClicked).length;
+  $('adminStats').innerHTML = `
+    <div class="stat-card"><div class="stat-num">${leads.length}</div><div class="stat-lbl">Total Leads</div></div>
+    <div class="stat-card"><div class="stat-num">${cta}</div><div class="stat-lbl">Booked Consult</div></div>
+    <div class="stat-card"><div class="stat-num">${leads.length ? Math.round(cta/leads.length*100) : 0}%</div><div class="stat-lbl">CTA Rate</div></div>`;
+
+  if (!leads.length) {
+    $('leadsTable').innerHTML = '<div class="no-leads">No leads yet. Start generating smile transformations!</div>';
+    return;
+  }
+  const rows = leads.map(l => `<tr>
+    <td>${esc(l.firstName)} ${esc(l.lastName)}</td>
+    <td>${esc(l.email)}</td>
+    <td>${esc(l.phone) || '—'}</td>
+    <td>${esc(l.interest)}</td>
+    <td>${fmtDate(l.date)}</td>
+    <td><span class="${l.ctaClicked ? 'badge-y' : 'badge-n'}">${l.ctaClicked ? 'Yes' : 'No'}</span></td>
+  </tr>`).join('');
+  $('leadsTable').innerHTML = `<table>
+    <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Interest</th><th>Date</th><th>Booked?</th></tr></thead>
+    <tbody>${rows}</tbody></table>`;
+}
+
+$('exportBtn').addEventListener('click', () => {
+  const leads = getLeads();
+  if (!leads.length) { alert('No leads to export.'); return; }
+  const hdr  = ['First Name','Last Name','Email','Phone','Interest','Date','Booked Consultation'];
+  const rows = leads.map(l => [
+    l.firstName, l.lastName, l.email, l.phone, l.interest,
+    new Date(l.date).toLocaleString(), l.ctaClicked ? 'Yes' : 'No',
+  ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(','));
+  const csv  = [hdr.join(','), ...rows].join('\n');
+  const a    = Object.assign(document.createElement('a'), {
+    href:     URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' })),
+    download: `hallmark-dental-leads-${new Date().toISOString().slice(0,10)}.csv`,
+  });
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+});
+
+$('clearBtn').addEventListener('click', () => {
+  $('confirmInput').value = '';
+  $('confirmDelete').disabled = true;
+  $('confirmModal').classList.add('open');
+  $('confirmInput').focus();
+});
+$('confirmInput').addEventListener('input', () => {
+  $('confirmDelete').disabled = $('confirmInput').value.trim().toUpperCase() !== 'CONFIRM';
+});
+$('confirmCancel').addEventListener('click', () => $('confirmModal').classList.remove('open'));
+$('confirmDelete').addEventListener('click', () => {
+  localStorage.removeItem(LS_LEADS);
+  $('confirmModal').classList.remove('open');
+  renderAdmin();
+});
+
+/* ── Init ──────────────────────────────────────────────────────── */
+syncBookBtn();
+</script>
+</body>
+</html>
