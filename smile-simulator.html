@@ -1471,23 +1471,31 @@ async function generateVideo() {
     }
 
     const taskId = startData.id;
-    setVideoProgress(12, 'AI is animating your new smile… this takes ~60–90 seconds');
+    setVideoProgress(12, 'Queued — waiting for Runway AI…');
 
     // 2. Poll for completion
-    let elapsed = 0;
+    // Only count time against timeout once actually RUNNING (not while THROTTLED/PENDING)
+    let totalElapsed = 0;
+    let runningElapsed = 0;
     while (true) {
       await new Promise(r => setTimeout(r, 5000));
-      elapsed += 5;
+      totalElapsed += 5;
 
       const pollRes  = await fetch(`${PROXY_URL}/api/video/status?taskId=${taskId}`);
       const pollData = await pollRes.json();
       const status   = (pollData.status || '').toUpperCase();
 
+      if (status === 'RUNNING') runningElapsed += 5;
+
       // Update progress label
-      const pct = Math.min(12 + Math.round((elapsed / 120) * 82), 93);
-      const label = status === 'THROTTLED'
-        ? `Queued by Runway — waiting… ${elapsed}s`
-        : `AI animating your smile… ${elapsed}s`;
+      let label, pct;
+      if (status === 'THROTTLED' || status === 'PENDING') {
+        pct = Math.min(12 + Math.round((totalElapsed / 60) * 15), 27);
+        label = `Queued by Runway… ${totalElapsed}s`;
+      } else {
+        pct = Math.min(28 + Math.round((runningElapsed / 150) * 65), 93);
+        label = `AI animating your smile… ${runningElapsed}s`;
+      }
       setVideoProgress(pct, label);
 
       if (status === 'SUCCEEDED') {
@@ -1497,7 +1505,6 @@ async function generateVideo() {
         setVideoProgress(100, 'Done!');
         $('videoProgressWrap').classList.remove('active');
 
-        // Show inline video preview
         const vid = $('resultVideo');
         vid.src   = runwayVideoUrl;
         vid.style.display = 'block';
@@ -1511,8 +1518,9 @@ async function generateVideo() {
         throw new Error(`Video generation ${status.toLowerCase()}. Please try again.`);
       }
 
-      // Still PENDING / RUNNING — keep polling
-      if (elapsed > 300) throw new Error('Video generation timed out. Check your Runway credits at dev.runwayml.com');
+      // Timeout: 3 min queued OR 4 min actually running
+      if (totalElapsed > 480) throw new Error('Video timed out. Please try again.');
+      if (runningElapsed > 240) throw new Error('Video generation is taking too long. Please try again.');
     }
 
   } catch (err) {
