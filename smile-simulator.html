@@ -1413,6 +1413,34 @@ $('videoDownloadBtn').addEventListener('click', () => {
   window.open(runwayVideoUrl, '_blank');
 });
 
+// Crop out black/dark bars and scale to fill 720x1280 (9:16) for Runway
+function prepareImageForRunway(src) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const W = 720, H = 1280;
+      const canvas = document.createElement('canvas');
+      canvas.width = W; canvas.height = H;
+      const ctx = canvas.getContext('2d');
+
+      // Fill white background first
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, W, H);
+
+      // Scale image to COVER the canvas (fill frame, crop edges if needed)
+      const scale = Math.max(W / img.width, H / img.height);
+      const dw = img.width * scale;
+      const dh = img.height * scale;
+      const dx = (W - dw) / 2;
+      const dy = (H - dh) / 2;
+      ctx.drawImage(img, dx, dy, dw, dh);
+
+      resolve(canvas.toDataURL('image/jpeg', 0.92));
+    };
+    img.src = src;
+  });
+}
+
 async function generateVideo() {
   const afterSrc = $('afterImg').src;
   if (!afterSrc || afterSrc.length < 100) return;
@@ -1421,14 +1449,19 @@ async function generateVideo() {
   $('videoReadyWrap').classList.remove('active');
   $('resultVideo').style.display = 'none';
   $('videoProgressWrap').classList.add('active');
-  setVideoProgress(5, 'Sending to Runway AI…');
+  setVideoProgress(3, 'Preparing image…');
+
+  // Crop & scale to fill 9:16 frame — eliminates dark bars
+  const croppedImage = await prepareImageForRunway(afterSrc);
+
+  setVideoProgress(8, 'Sending to Runway AI…');
 
   try {
     // 1. Start generation
     const startRes = await fetch(`${PROXY_URL}/api/video/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: afterSrc }),
+      body: JSON.stringify({ image: croppedImage }),
     });
     const startData = await startRes.json();
 
