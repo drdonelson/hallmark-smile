@@ -1413,21 +1413,22 @@ $('videoDownloadBtn').addEventListener('click', () => {
   window.open(runwayVideoUrl, '_blank');
 });
 
-// Crop out black/dark bars and scale to fill 720x1280 (9:16) for Runway
+// Crop out black/dark bars and scale to fill 9:16 for Runway
+// Uses 512x910 to keep file size small (~150-300KB) while preserving quality
 function prepareImageForRunway(src) {
   return new Promise((resolve) => {
     const img = new Image();
     img.onload = () => {
-      const W = 720, H = 1280;
+      const W = 512, H = 910;
       const canvas = document.createElement('canvas');
       canvas.width = W; canvas.height = H;
       const ctx = canvas.getContext('2d');
 
-      // Fill white background first
+      // White background — eliminates dark bars
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, W, H);
 
-      // Scale image to COVER the canvas (fill frame, crop edges if needed)
+      // Scale to COVER (fill entire frame, crop edges if needed)
       const scale = Math.max(W / img.width, H / img.height);
       const dw = img.width * scale;
       const dh = img.height * scale;
@@ -1435,7 +1436,7 @@ function prepareImageForRunway(src) {
       const dy = (H - dh) / 2;
       ctx.drawImage(img, dx, dy, dw, dh);
 
-      resolve(canvas.toDataURL('image/jpeg', 0.92));
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
     };
     img.src = src;
   });
@@ -1514,12 +1515,19 @@ async function generateVideo() {
   } catch (err) {
     $('videoProgressWrap').classList.remove('active');
     $('createVideoBtn').disabled = false;
-    // Show error inline
-    const errDiv = document.createElement('div');
-    errDiv.className = 'error-banner';
+    setVideoProgress(0, '');
+    // Show error in a visible banner above the video button
+    let errDiv = document.getElementById('videoErrBanner');
+    if (!errDiv) {
+      errDiv = document.createElement('div');
+      errDiv.id = 'videoErrBanner';
+      errDiv.className = 'error-banner';
+      $('createVideoBtn').parentNode.insertBefore(errDiv, $('createVideoBtn'));
+    }
     errDiv.textContent = '⚠ ' + err.message;
-    $('createVideoBtn').insertAdjacentElement('afterend', errDiv);
-    setTimeout(() => errDiv.remove(), 8000);
+    errDiv.style.display = 'block';
+    setTimeout(() => { errDiv.style.display = 'none'; }, 12000);
+    console.error('[Video]', err);
   }
 }
 
