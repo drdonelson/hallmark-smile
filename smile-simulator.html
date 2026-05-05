@@ -383,24 +383,63 @@
       100% { width: 91%; }
     }
 
-    /* ── Results ─────────────────────────────────────────────────── */
-    .before-after {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 14px;
+    /* ── Results — Before/After Toggle ──────────────────────────── */
+    .ba-toggle-wrap {
+      position: relative;
       margin-bottom: 16px;
     }
-    .ba-item { text-align: center; }
-    .ba-label {
-      font-size: 0.72rem;
-      font-weight: 700;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      color: var(--mid-grey);
-      margin-bottom: 7px;
+    .ba-img-slot {
+      position: relative;
+      border-radius: var(--radius);
+      overflow: hidden;
+      background: #000;
+      box-shadow: var(--shadow-lg);
     }
-    .ba-label.after { color: var(--gold-dark); }
-    .ba-img { width: 100%; border-radius: var(--radius-sm); box-shadow: var(--shadow-md); object-fit: cover; }
+    .ba-img {
+      width: 100%;
+      max-height: 420px;
+      object-fit: contain;
+      display: block;
+      border-radius: var(--radius);
+      transition: opacity 0.35s ease;
+    }
+    .ba-img.hidden-img { display: none; }
+    .ba-gen-badge {
+      position: absolute;
+      top: 12px; right: 12px;
+      background: rgba(0,0,0,0.62);
+      color: #fff;
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 20px;
+      letter-spacing: 0.03em;
+      backdrop-filter: blur(4px);
+    }
+    .ba-switch {
+      display: flex;
+      border-radius: 40px;
+      overflow: hidden;
+      border: 2px solid var(--navy);
+      width: fit-content;
+      margin: 14px auto 0;
+    }
+    .ba-switch-btn {
+      padding: 9px 32px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      background: transparent;
+      color: var(--navy);
+      transition: background var(--transition), color var(--transition);
+      border: none;
+      cursor: pointer;
+    }
+    .ba-switch-btn.active {
+      background: var(--navy);
+      color: var(--gold);
+    }
     .disclaimer {
       font-size: 0.74rem;
       color: var(--mid-grey);
@@ -481,6 +520,7 @@
     }
     .cp-save:hover { background: var(--navy-light); }
     .cp-status { font-size: 0.78rem; color: var(--success); text-align: center; margin-top: 7px; min-height: 1.1em; }
+
     /* ── Admin panel (full-screen) ───────────────────────────────── */
     .admin-panel {
       position: fixed; inset: 0;
@@ -695,7 +735,7 @@
       <div class="progress-spinner"></div>
       <div class="progress-message" id="progressMsg">Preparing your photo…</div>
       <div class="progress-bar-track"><div class="progress-bar-fill" id="progressFill"></div></div>
-      <div class="progress-sub">This usually takes 30–60 seconds</div>
+      <div class="progress-sub">This usually takes 15–30 seconds</div>
     </div>
   </div>
 
@@ -704,22 +744,23 @@
     <h2 class="card-title" style="justify-content:center;">
       <span style="color:var(--gold)">✦</span>&nbsp;Your Smile Transformation
     </h2>
-    <div class="before-after">
-      <div class="ba-item">
-        <div class="ba-label">Before</div>
+    <div class="ba-toggle-wrap">
+      <div class="ba-img-slot">
         <img id="beforeImg" class="ba-img" alt="Before">
+        <img id="afterImg"  class="ba-img hidden-img" alt="After — AI Visualization">
+        <div class="ba-gen-badge" id="genBadge" style="display:none"></div>
       </div>
-      <div class="ba-item">
-        <div class="ba-label after">After</div>
-        <img id="afterImg" class="ba-img" alt="After — AI Visualization">
+      <div class="ba-switch">
+        <button class="ba-switch-btn active" id="btnBefore" type="button">Before</button>
+        <button class="ba-switch-btn"        id="btnAfter"  type="button">After ✨</button>
       </div>
     </div>
     <div class="disclaimer">
-      This AI visualization is for educational purposes only. Individual results vary based on treatment planning.
+      This AI visualization is for cosmetic education only. Individual results vary based on treatment planning by a licensed dentist.
     </div>
     <div class="results-actions">
       <a href="#" id="bookBtn" class="btn-gold" target="_blank" rel="noopener">
-        📅 Book Your Consultation
+        📅 Book Your Free Consultation
       </a>
       <div class="secondary-actions">
         <button class="btn-outline" id="downloadBtn" type="button">⬇ Download</button>
@@ -790,29 +831,30 @@ const MAX_BYTES  = 1024 * 1024;
 const LS_LEADS   = 'hd_leads';
 const LS_URL     = 'hd_booking_url';
 
-const SMILE_PROMPT = `Cosmetic dental simulation for a licensed dental practice. Make minimal, targeted improvements to the teeth only.
+const SMILE_PROMPT = `You are generating a dental cosmetic simulation for a licensed dental practice marketing tool. Transform only the teeth into a stunning, dramatic smile makeover while leaving the entire face completely untouched.
 
-TEETH CHANGES ONLY:
-- Remove braces or orthodontic hardware if present
-- Whiten teeth subtly — natural shade B1 or A1, never blinding white
-- Correct alignment and spacing minimally
-- Fill dark buccal corridors naturally
-- Keep tooth shape, size and length identical
-- Keep gum levels exactly the same
-- Add slight natural translucency at incisal edges
-- Slight natural variation between teeth — not perfectly uniform
+TEETH TRANSFORMATION — dramatic cosmetic changes:
+- Replace any missing or broken teeth with beautiful, natural-looking restorations
+- Create a bright, white Hollywood smile — significantly whiter than original (shade A1 to BL1)
+- Correct all crowding, gaps, spacing issues, and misalignment completely
+- Close dark buccal corridor gaps — full smile width
+- Perfect tooth proportions: central incisors dominant, laterals slightly shorter
+- Natural enamel translucency at incisal edges — slight blue-white tint
+- Slight natural size variation between individual teeth — not denture-uniform
+- Healthy, smooth gumline at natural gum height — do not raise or lower gums
+- Remove staining, discoloration, chips, and decay
 
-PRESERVE EVERYTHING ELSE WITH ZERO CHANGES:
-- Mouth opening and lip position exactly as original — do not open mouth wider
-- Every skin detail: pores, wrinkles, freckles, blemishes — no smoothing
-- Exact skin tone — no brightening
-- Hair and facial hair pixel perfect
-- Eyes, nose, face shape unchanged
-- Background and lighting identical
-- Clothing unchanged
+PRESERVE EVERYTHING OUTSIDE THE TEETH — absolutely no changes:
+- Lip position, mouth opening, and lip shape stay EXACTLY the same
+- Every skin detail identical: all pores, wrinkles, fine lines, freckles, age spots, scars, blemishes
+- Skin tone and color unchanged — no brightening, no smoothing, no beauty filter
+- Hair and facial hair unchanged pixel-for-pixel
+- Eyes, eyebrows, nose, ears, face shape unchanged
+- Background, studio lighting, shadows unchanged
+- Clothing and accessories unchanged
 
 OUTPUT STYLE:
-Clinical dental photography. Subtle natural improvement. Looks like a real patient case photo. Not a beauty filter. Not AI-generated looking. A dentist would be proud to show this as a real before/after.`;
+Professional dental marketing photography. Photorealistic — the face looks like an unedited photograph. Only the teeth show the transformation. This should look like a real before/after case photo a cosmetic dentist would proudly display in their office.`;
 
 const MSGS = [
   'Analyzing your smile…',
@@ -832,9 +874,10 @@ let imgDataUrl     = null;
 let currentLeadId  = null;
 let msgInterval    = null;
 let msgIdx         = 0;
+let genStartTime   = null;
 
 /* ── DOM helpers ───────────────────────────────────────────────── */
-const $  = id => document.getElementById(id);
+const $    = id => document.getElementById(id);
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 
@@ -925,8 +968,8 @@ function compressImage(file, maxBytes) {
 }
 
 /* ── Upload handling ───────────────────────────────────────────── */
-const uploadArea  = $('uploadArea');
-const fileInput   = $('fileInput');
+const uploadArea = $('uploadArea');
+const fileInput  = $('fileInput');
 
 uploadArea.addEventListener('click', e => {
   if (e.target.id === 'changePhotoBtn') return;
@@ -979,20 +1022,23 @@ function validateForm() {
 
 /* ── Main generation flow ──────────────────────────────────────── */
 async function generateSmile(dataUrl) {
-  // Convert the data URL to a File object for multipart upload
+  // Convert compressed data URL to a File for multipart upload
   const blob = await fetch(dataUrl).then(r => r.blob());
   const file = new File([blob], 'photo.jpg', { type: blob.type || 'image/jpeg' });
 
   const form = new FormData();
-  form.append('model', 'gpt-image-1');
-  form.append('image', file);
-  form.append('prompt', SMILE_PROMPT);
-  form.append('n', '1');
-  form.append('size', '1024x1024');
+  form.append('model',   'gpt-image-1');
+  form.append('image',   file);
+  form.append('prompt',  SMILE_PROMPT);
+  form.append('n',       '1');
+  // 'auto' lets OpenAI match the input image's aspect ratio — no cropping
+  form.append('size',    'auto');
+  // 'high' quality produces the sharpest, most photorealistic dental result
+  form.append('quality', 'high');
 
   const res = await fetch(`${PROXY_URL}/v1/images/edits`, {
     method: 'POST',
-    body: form,
+    body:   form,
   });
 
   if (!res.ok) {
@@ -1043,12 +1089,33 @@ $('leadForm').addEventListener('submit', async e => {
   show($('progressCard'));
   $('progressCard').scrollIntoView({ behavior: 'smooth', block: 'center' });
   startProgress();
+  genStartTime = Date.now();
 
   try {
     const resultUrl = await generateSmile(imgDataUrl);
     stopProgress();
+
+    // Calculate generation time for the badge
+    const secs = Math.round((Date.now() - genStartTime) / 1000);
+
+    // Load both images
     $('beforeImg').src = imgDataUrl;
     $('afterImg').src  = resultUrl;
+
+    // Reset toggle to "Before" on new result
+    $('beforeImg').classList.remove('hidden-img');
+    $('afterImg').classList.add('hidden-img');
+    $('btnBefore').classList.add('active');
+    $('btnAfter').classList.remove('active');
+
+    // Show generation badge
+    const badge = $('genBadge');
+    badge.textContent = `Generated in ${secs}s`;
+    badge.style.display = '';
+
+    // Auto-flip to "After" after 1.2s for the wow moment
+    setTimeout(() => showAfter(), 1200);
+
     hide($('progressCard'));
     show($('resultsCard'));
     syncBookBtn();
@@ -1063,6 +1130,22 @@ $('leadForm').addEventListener('submit', async e => {
   }
 });
 
+/* ── Before/After toggle ───────────────────────────────────────── */
+function showBefore() {
+  $('beforeImg').classList.remove('hidden-img');
+  $('afterImg').classList.add('hidden-img');
+  $('btnBefore').classList.add('active');
+  $('btnAfter').classList.remove('active');
+}
+function showAfter() {
+  $('afterImg').classList.remove('hidden-img');
+  $('beforeImg').classList.add('hidden-img');
+  $('btnAfter').classList.add('active');
+  $('btnBefore').classList.remove('active');
+}
+$('btnBefore').addEventListener('click', showBefore);
+$('btnAfter').addEventListener('click', showAfter);
+
 /* ── Results actions ───────────────────────────────────────────── */
 $('bookBtn').addEventListener('click', () => {
   if (currentLeadId) markCTA(currentLeadId);
@@ -1073,7 +1156,7 @@ $('downloadBtn').addEventListener('click', async () => {
   try {
     const blob = await fetch(url).then(r => r.blob());
     const a = Object.assign(document.createElement('a'), {
-      href: URL.createObjectURL(blob),
+      href:     URL.createObjectURL(blob),
       download: 'hallmark-dental-smile.jpg',
     });
     document.body.appendChild(a); a.click();
@@ -1082,8 +1165,12 @@ $('downloadBtn').addEventListener('click', async () => {
 });
 
 $('tryAnotherBtn').addEventListener('click', () => {
-  imgDataUrl = null; currentLeadId = null; fileInput.value = '';
+  imgDataUrl = null; currentLeadId = null; genStartTime = null; fileInput.value = '';
   $('previewImg').src = '';
+  $('beforeImg').src = ''; $('afterImg').src = '';
+  $('genBadge').style.display = 'none';
+  // Reset toggle
+  showBefore();
   show($('uploadPrompt')); hide($('previewWrap'));
   hide($('resultsCard')); hide($('formCard'));
   $('uploadCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1143,7 +1230,7 @@ $('exportBtn').addEventListener('click', () => {
   ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(','));
   const csv  = [hdr.join(','), ...rows].join('\n');
   const a    = Object.assign(document.createElement('a'), {
-    href: URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' })),
+    href:     URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' })),
     download: `hallmark-dental-leads-${new Date().toISOString().slice(0,10)}.csv`,
   });
   document.body.appendChild(a); a.click(); document.body.removeChild(a);
