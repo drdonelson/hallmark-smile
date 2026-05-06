@@ -1,22 +1,6 @@
-/**
- * ============================================================
- *  HALLMARK DENTAL — SMILE SIMULATOR
- *  Cloudflare Worker: OpenAI + Runway Video Proxy
- * ============================================================
- *
- *  DEPLOY INSTRUCTIONS
- *  ───────────────────
- *  1. Log in to https://dash.cloudflare.com → Workers & Pages
- *  2. Open your existing Worker and paste this file
- *  3. Go to Settings → Variables → add Secrets:
- *       OPENAI_API_KEY   (value: your sk-... key)
- *       RUNWAY_API_KEY   (value: your Runway API secret key)
- *  4. Deploy
- *
- *  ALLOWED ORIGINS (edit as needed)
- *  ─────────────────────────────────
- *  Update ALLOWED_ORIGINS below if you host the app elsewhere.
- */
+// Smile Simulator - Cloudflare Worker
+// Secrets needed: OPENAI_API_KEY, FAL_API_KEY
+// Add both in Worker Settings > Variables > Secrets
 
 const ALLOWED_ORIGINS = new Set([
   'https://drdonelson.github.io',
@@ -47,7 +31,7 @@ function getAllowedOrigin(request) {
   return ALLOWED_ORIGINS.has(origin) ? origin : null;
 }
 
-// ── Runway: Start video generation ──────────────────────────────────────────
+// --- Runway: Start video generation ---
 async function handleVideoStart(request, env, origin) {
   let body;
   try { body = await request.json(); } catch {
@@ -100,7 +84,7 @@ async function handleVideoStart(request, env, origin) {
   });
 }
 
-// ── Kling (fal.ai): Start video generation ───────────────────────────────────
+// --- Kling (fal.ai): Start video generation ---
 async function handleKlingStart(request, env, origin) {
   let body;
   try { body = await request.json(); } catch {
@@ -144,49 +128,54 @@ async function handleKlingStart(request, env, origin) {
     });
   }
 
-  const data = await fal.json();
+  const text = await fal.text();
+  let data;
+  try { data = JSON.parse(text); } catch { data = { error: text }; }
+
   return new Response(JSON.stringify(data), {
     status:  fal.status,
     headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
   });
 }
 
-// ── Kling (fal.ai): Poll status + fetch result ───────────────────────────────
+// --- Kling (fal.ai): Poll status + fetch result ---
+// Proxies any fal.ai URL directly — uses status_url from the start response
 async function handleKlingStatus(request, env, origin) {
-  const url       = new URL(request.url);
-  const requestId = url.searchParams.get('requestId');
-  const getResult = url.searchParams.get('getResult') === '1';
-
-  if (!requestId) {
-    return new Response(JSON.stringify({ error: 'Missing requestId param' }), {
-      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
-    });
-  }
-
-  // When getResult=1 fetch the completed result object (has video URL)
-  const falUrl = getResult
-    ? `${FAL_BASE}/${KLING_MODEL}/requests/${requestId}`
-    : `${FAL_BASE}/${KLING_MODEL}/requests/${requestId}/status`;
-
-  let fal;
   try {
-    fal = await fetch(falUrl, {
+    if (!env.FAL_API_KEY) {
+      return new Response(JSON.stringify({ error: 'FAL_API_KEY secret not configured' }), {
+        status: 500, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+      });
+    }
+    const url     = new URL(request.url);
+    const falUrl  = url.searchParams.get('falUrl');
+
+    if (!falUrl) {
+      return new Response(JSON.stringify({ error: 'Missing falUrl param' }), {
+        status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+      });
+    }
+
+    const fal = await fetch(decodeURIComponent(falUrl), {
       headers: { 'Authorization': `Key ${env.FAL_API_KEY}` },
     });
+
+    const text = await fal.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = { error: text }; }
+
+    return new Response(JSON.stringify(data), {
+      status:  fal.status,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
   } catch (err) {
-    return new Response(JSON.stringify({ error: err.message }), {
+    return new Response(JSON.stringify({ error: err.message, type: err.name, detail: String(err) }), {
       status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
   }
-
-  const data = await fal.json();
-  return new Response(JSON.stringify(data), {
-    status:  fal.status,
-    headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
-  });
 }
 
-// ── Runway: Poll video task status ──────────────────────────────────────────
+// --- Runway: Poll video task status ---
 async function handleVideoStatus(request, env, origin) {
   const url    = new URL(request.url);
   const taskId = url.searchParams.get('taskId');
@@ -218,7 +207,7 @@ async function handleVideoStatus(request, env, origin) {
   });
 }
 
-// ── Main handler ─────────────────────────────────────────────────────────────
+// --- Main handler ---
 export default {
   async fetch(request, env) {
     const origin = getAllowedOrigin(request);
@@ -238,7 +227,7 @@ export default {
 
     const url = new URL(request.url);
 
-    // ── Kling / fal.ai video endpoints ──────────────────────────────
+    // Kling / fal.ai video endpoints
     if (url.pathname === '/api/kling/start' && request.method === 'POST') {
       return handleKlingStart(request, env, origin);
     }
@@ -246,7 +235,7 @@ export default {
       return handleKlingStatus(request, env, origin);
     }
 
-    // ── Runway video endpoints (legacy) ─────────────────────────────
+    // Runway video endpoints (legacy)
     if (url.pathname === '/api/video/start' && request.method === 'POST') {
       return handleVideoStart(request, env, origin);
     }
@@ -254,11 +243,11 @@ export default {
       return handleVideoStatus(request, env, origin);
     }
 
-    // ── OpenAI proxy (existing) ──────────────────────────────────────
+    // OpenAI proxy
     if (request.method !== 'POST') {
-      return new Response('Method Not Allowed', {
+      return new Response(JSON.stringify({ error: 'Method Not Allowed', path: url.pathname, method: request.method }), {
         status: 405,
-        headers: corsHeaders(origin),
+        headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
       });
     }
 

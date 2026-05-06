@@ -1426,12 +1426,16 @@ async function generateVideo() {
     });
     const startData = await startRes.json();
 
-    // fal.ai returns { request_id, status }
+    // fal.ai returns { request_id, status_url, response_url }
     if (!startRes.ok || !startData.request_id) {
       throw new Error(startData.message || startData.error || 'Failed to start video generation');
     }
 
-    const requestId = startData.request_id;
+    // Use fal.ai's own status/response URLs directly — avoids URL construction errors
+    const statusUrl   = startData.status_url;
+    const responseUrl = startData.response_url;
+    if (!statusUrl) throw new Error('No status URL returned by fal.ai');
+
     setVideoProgress(12, 'Queued — Kling AI processing…');
 
     // 2. Poll for completion (fal.ai statuses: IN_QUEUE → IN_PROGRESS → COMPLETED / FAILED)
@@ -1440,7 +1444,7 @@ async function generateVideo() {
       await new Promise(r => setTimeout(r, 4000));
       elapsed += 4;
 
-      const pollRes  = await fetch(`${PROXY_URL}/api/kling/status?requestId=${requestId}`);
+      const pollRes  = await fetch(`${PROXY_URL}/api/kling/status?falUrl=${encodeURIComponent(statusUrl)}`);
       const pollData = await pollRes.json();
       const status   = (pollData.status || '').toUpperCase();
 
@@ -1459,8 +1463,8 @@ async function generateVideo() {
       setVideoProgress(pct, label);
 
       if (status === 'COMPLETED') {
-        // Fetch the result object to get the video URL
-        const resultRes  = await fetch(`${PROXY_URL}/api/kling/status?requestId=${requestId}&getResult=1`);
+        // Fetch the result using fal.ai's response_url
+        const resultRes  = await fetch(`${PROXY_URL}/api/kling/status?falUrl=${encodeURIComponent(responseUrl || statusUrl)}`);
         const resultData = await resultRes.json();
         const videoUrl   = resultData.video && resultData.video.url;
         if (!videoUrl) throw new Error('No video URL in response');
