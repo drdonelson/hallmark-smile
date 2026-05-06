@@ -1259,80 +1259,6 @@ function buildTeethMask(imgWidth, imgHeight, bounds) {
   return canvas.toDataURL('image/png');
 }
 
-/* ── Inverse composite — original face with teeth hole over AI ──── */
-// Strategy: draw AI result as base (teeth stay where AI put them),
-// then draw the original photo on top with a feathered hole punched
-// out over the teeth region. Result: original face everywhere, AI
-// teeth show through the hole — no coordinate-space mismatch.
-function compositeTeethCrop(originalDataUrl, aiResultDataUrl, cropRect, bounds, imgWidth, imgHeight) {
-  return new Promise((resolve) => {
-    const origImg = new Image();
-    const aiImg   = new Image();
-
-    origImg.onload = () => {
-      aiImg.onload = () => {
-        // Teeth ellipse in full-image pixel space
-        const px   = (bounds.x / 100) * imgWidth;
-        const py   = (bounds.y / 100) * imgHeight;
-        const pw   = (bounds.w / 100) * imgWidth;
-        const ph   = (bounds.h / 100) * imgHeight;
-        const padX = pw * 0.12;
-        const padY = ph * 0.18;
-        const ecx  = px + pw / 2;
-        const ecy  = py + ph / 2;
-        const rx   = pw / 2 + padX;
-        const ry   = ph / 2 + padY;
-
-        // Step 1 — punch a feathered hole in the original photo
-        // at the teeth ellipse position.
-        const origCanvas = document.createElement('canvas');
-        origCanvas.width  = imgWidth;
-        origCanvas.height = imgHeight;
-        const oC = origCanvas.getContext('2d');
-
-        oC.drawImage(origImg, 0, 0, imgWidth, imgHeight);
-
-        // destination-out erases the original pixels in the ellipse region
-        oC.save();
-        oC.globalCompositeOperation = 'destination-out';
-        oC.translate(ecx, ecy);
-        oC.scale(rx, ry);
-
-        // Gradient: fully erase center → fade to keep at edge (smooth seam)
-        const grad = oC.createRadialGradient(0, 0, 0, 0, 0, 1);
-        grad.addColorStop(0,    'rgba(0,0,0,1)');
-        grad.addColorStop(0.6,  'rgba(0,0,0,1)');
-        grad.addColorStop(1,    'rgba(0,0,0,0)');
-
-        oC.fillStyle = grad;
-        oC.beginPath();
-        oC.arc(0, 0, 1, 0, Math.PI * 2);
-        oC.fill();
-        oC.restore();
-
-        // Step 2 — final canvas:
-        //   layer 1: AI result (full image — provides the transformed teeth)
-        //   layer 2: original-with-hole (face + lips cover the AI face,
-        //            teeth ellipse hole lets AI teeth show through)
-        const canvas = document.createElement('canvas');
-        canvas.width  = imgWidth;
-        canvas.height = imgHeight;
-        const ctx = canvas.getContext('2d');
-
-        ctx.drawImage(aiImg, 0, 0, imgWidth, imgHeight); // AI base
-        ctx.drawImage(origCanvas, 0, 0);                  // original face over top
-
-        resolve(canvas.toDataURL('image/jpeg', 0.92));
-      };
-      aiImg.onerror = () => resolve(originalDataUrl);
-      aiImg.crossOrigin = 'anonymous';
-      aiImg.src = aiResultDataUrl;
-    };
-    origImg.onerror = () => resolve(aiResultDataUrl);
-    origImg.src = originalDataUrl;
-  });
-}
-
 /* ── Main generation flow ──────────────────────────────────────── */
 async function generateSmile(dataUrl) {
   // Step 1: Detect teeth location with GPT-4o vision
@@ -1340,7 +1266,7 @@ async function generateSmile(dataUrl) {
   const bounds = await detectTeethBounds(dataUrl);
 
   // Step 2: Load original image to get dimensions
-  updateProgress('Analyzing your smile…', 25);
+  updateProgress('Building smile mask…', 25);
   const imgEl = await new Promise((resolve, reject) => {
     const i = new Image();
     i.onload  = () => resolve(i);
@@ -1350,9 +1276,15 @@ async function generateSmile(dataUrl) {
   const W = imgEl.naturalWidth;
   const H = imgEl.naturalHeight;
 
-  // Step 3: Send the FULL image to OpenAI — full context produces
-  // dramatic, photorealistic transformation (subtle crop = subtle result).
-  // The compositing step below guarantees only teeth pixels change.
+  // Step 3: Build mask — transparent over teeth (AI edits here),
+  // opaque black everywhere else (AI preserves these pixels).
+  const maskDataUrl = buildTeethMask(W, H, bounds);
+  const maskBlob    = await fetch(maskDataUrl).then(r => r.blob());
+  const maskFile    = new File([maskBlob], 'mask.png', { type: 'image/png' });
+
+  // Step 4: Send full image + mask to OpenAI.
+  // No compositing — show the result directly so teeth stay exactly
+  // where OpenAI placed them (compositing caused coordinate mismatch).
   updateProgress('Transforming your smile…', 35);
   const blob = await fetch(dataUrl).then(r => r.blob());
   const file = new File([blob], 'photo.png', { type: 'image/png' });
@@ -1360,6 +1292,7 @@ async function generateSmile(dataUrl) {
   const form = new FormData();
   form.append('model',   'gpt-image-1');
   form.append('image',   file);
+  form.append('mask',    maskFile);
   form.append('prompt',  SMILE_PROMPT);
   form.append('n',       '1');
   form.append('size',    'auto');
@@ -1379,19 +1312,9 @@ async function generateSmile(dataUrl) {
   if (!data.data?.length) throw new Error('No image returned from OpenAI.');
 
   const item = data.data[0];
-  let aiResultUrl;
-  if (item.b64_json) aiResultUrl = `data:image/png;base64,${item.b64_json}`;
-  else if (item.url) aiResultUrl = item.url;
-  else throw new Error('Unexpected response format from OpenAI.');
-
-  // Step 4: Composite — paste only the teeth ellipse from the AI result
-  // onto the original photo. Face, lips, skin are all original pixels.
-  updateProgress('Compositing your smile…', 92);
-  return await compositeTeethCrop(
-    dataUrl, aiResultUrl,
-    { x: 0, y: 0, w: W, h: H },  // AI result is full-size — no crop offset
-    bounds, W, H
-  );
+  if (item.b64_json) return `data:image/png;base64,${item.b64_json}`;
+  if (item.url)      return item.url;
+  throw new Error('Unexpected response format from OpenAI.');
 }
 
 /* ── Progress messages ─────────────────────────────────────────── */
