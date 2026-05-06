@@ -1351,7 +1351,7 @@ $('tryAnotherBtn').addEventListener('click', () => {
   $('uploadCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 
-/* ── AI Video Generator (Runway gen4_turbo) ────────────────────── */
+/* ── AI Video Generator (Kling 1.6 via fal.ai) ─────────────────── */
 let runwayVideoUrl = null;
 
 $('createVideoBtn').addEventListener('click', generateVideo);
@@ -1406,55 +1406,59 @@ async function generateVideo() {
   setVideoProgress(8, 'Sending to Runway AI…');
 
   try {
-    // 1. Start generation
-    const startRes = await fetch(`${PROXY_URL}/api/video/start`, {
+    // 1. Start Kling generation
+    const startRes = await fetch(`${PROXY_URL}/api/kling/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ image: croppedImage }),
     });
     const startData = await startRes.json();
 
-    if (!startRes.ok || !startData.id) {
+    // fal.ai returns { request_id, status }
+    if (!startRes.ok || !startData.request_id) {
       throw new Error(startData.message || startData.error || 'Failed to start video generation');
     }
 
-    const taskId = startData.id;
-    setVideoProgress(12, 'Queued — waiting for Runway AI…');
+    const requestId = startData.request_id;
+    setVideoProgress(12, 'Queued — Kling AI processing…');
 
-    // 2. Poll for completion
-    // Only count time against timeout once actually RUNNING (not while THROTTLED/PENDING)
-    let totalElapsed = 0;
-    let runningElapsed = 0;
+    // 2. Poll for completion (fal.ai statuses: IN_QUEUE → IN_PROGRESS → COMPLETED / FAILED)
+    let elapsed = 0;
     while (true) {
-      await new Promise(r => setTimeout(r, 5000));
-      totalElapsed += 5;
+      await new Promise(r => setTimeout(r, 4000));
+      elapsed += 4;
 
-      const pollRes  = await fetch(`${PROXY_URL}/api/video/status?taskId=${taskId}`);
+      const pollRes  = await fetch(`${PROXY_URL}/api/kling/status?requestId=${requestId}`);
       const pollData = await pollRes.json();
       const status   = (pollData.status || '').toUpperCase();
 
-      if (status === 'RUNNING') runningElapsed += 5;
-
-      // Update progress label
+      // Update progress bar
       let label, pct;
-      if (status === 'THROTTLED' || status === 'PENDING') {
-        pct = Math.min(12 + Math.round((totalElapsed / 60) * 15), 27);
-        label = `Queued by Runway… ${totalElapsed}s`;
+      if (status === 'IN_QUEUE') {
+        pct   = Math.min(12 + Math.round((elapsed / 30) * 10), 22);
+        label = `Queued… ${elapsed}s`;
+      } else if (status === 'IN_PROGRESS') {
+        pct   = Math.min(23 + Math.round((elapsed / 90) * 70), 93);
+        label = `AI animating your smile… ${elapsed}s`;
       } else {
-        pct = Math.min(28 + Math.round((runningElapsed / 150) * 65), 93);
-        label = `AI animating your smile… ${runningElapsed}s`;
+        pct   = 95;
+        label = `Finishing up…`;
       }
       setVideoProgress(pct, label);
 
-      if (status === 'SUCCEEDED') {
-        runwayVideoUrl = pollData.output && pollData.output[0];
-        if (!runwayVideoUrl) throw new Error('No video URL in response');
+      if (status === 'COMPLETED') {
+        // Fetch the result object to get the video URL
+        const resultRes  = await fetch(`${PROXY_URL}/api/kling/status?requestId=${requestId}&getResult=1`);
+        const resultData = await resultRes.json();
+        const videoUrl   = resultData.video && resultData.video.url;
+        if (!videoUrl) throw new Error('No video URL in response');
 
+        runwayVideoUrl = videoUrl;
         setVideoProgress(100, 'Done!');
         $('videoProgressWrap').classList.remove('active');
 
         const vid = $('resultVideo');
-        vid.src   = runwayVideoUrl;
+        vid.src   = videoUrl;
         vid.style.display = 'block';
         vid.play().catch(() => {});
 
@@ -1463,12 +1467,11 @@ async function generateVideo() {
       }
 
       if (status === 'FAILED' || status === 'CANCELED') {
-        throw new Error(`Video generation ${status.toLowerCase()}. Please try again.`);
+        throw new Error(`Video generation failed. Please try again.`);
       }
 
-      // Timeout: 3 min queued OR 4 min actually running
-      if (totalElapsed > 480) throw new Error('Video timed out. Please try again.');
-      if (runningElapsed > 240) throw new Error('Video generation is taking too long. Please try again.');
+      // Timeout after 3 minutes total
+      if (elapsed > 180) throw new Error('Video timed out after 3 minutes. Please try again.');
     }
 
   } catch (err) {
