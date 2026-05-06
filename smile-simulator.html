@@ -1259,6 +1259,57 @@ function buildTeethMask(imgWidth, imgHeight, bounds) {
   return canvas.toDataURL('image/png');
 }
 
+/* ── Pixel compositing — paste only teeth ellipse from AI ──────── */
+function compositeTeethOnly(originalDataUrl, aiDataUrl, bounds, imgWidth, imgHeight) {
+  return new Promise((resolve) => {
+    const canvas = document.createElement('canvas');
+    canvas.width  = imgWidth;
+    canvas.height = imgHeight;
+    const ctx = canvas.getContext('2d');
+
+    const origImg = new Image();
+    const aiImg   = new Image();
+
+    origImg.onload = () => {
+      aiImg.onload = () => {
+        // 1. Draw the original photo pixel-perfect — face unchanged
+        ctx.drawImage(origImg, 0, 0, imgWidth, imgHeight);
+
+        // 2. Clip to the exact same ellipse used for the mask
+        const px   = (bounds.x / 100) * imgWidth;
+        const py   = (bounds.y / 100) * imgHeight;
+        const pw   = (bounds.w / 100) * imgWidth;
+        const ph   = (bounds.h / 100) * imgHeight;
+        const padX = pw * 0.08;
+        const padY = ph * 0.12;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.ellipse(
+          px + pw / 2,
+          py + ph / 2,
+          pw / 2 + padX,
+          ph / 2 + padY,
+          0, 0, Math.PI * 2
+        );
+        ctx.clip();
+
+        // 3. Paint AI result — only the teeth ellipse shows through
+        ctx.drawImage(aiImg, 0, 0, imgWidth, imgHeight);
+        ctx.restore();
+
+        resolve(canvas.toDataURL('image/jpeg', 0.92));
+      };
+      // If AI image fails to load (e.g. it's a remote URL that expires), fall back
+      aiImg.onerror = () => resolve(aiDataUrl);
+      aiImg.crossOrigin = 'anonymous';
+      aiImg.src = aiDataUrl;
+    };
+    origImg.onerror = () => resolve(aiDataUrl);
+    origImg.src = originalDataUrl;
+  });
+}
+
 /* ── Main generation flow ──────────────────────────────────────── */
 async function generateSmile(dataUrl) {
   // Step 1: Detect teeth location
@@ -1306,9 +1357,17 @@ async function generateSmile(dataUrl) {
   if (!data.data?.length) throw new Error('No image returned from OpenAI.');
 
   const item = data.data[0];
-  if (item.b64_json) return `data:image/png;base64,${item.b64_json}`;
-  if (item.url)      return item.url;
-  throw new Error('Unexpected response format from OpenAI.');
+  let aiResultUrl;
+  if (item.b64_json) aiResultUrl = `data:image/png;base64,${item.b64_json}`;
+  else if (item.url) aiResultUrl = item.url;
+  else throw new Error('Unexpected response format from OpenAI.');
+
+  // Composite: overlay only the teeth ellipse from the AI result onto the
+  // original pixels — guarantees face, skin tone, and lighting are untouched.
+  updateProgress('Compositing your smile…', 95);
+  return await compositeTeethOnly(
+    dataUrl, aiResultUrl, bounds, imgEl.naturalWidth, imgEl.naturalHeight
+  );
 }
 
 /* ── Progress messages ─────────────────────────────────────────── */
