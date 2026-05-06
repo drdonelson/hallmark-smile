@@ -1259,73 +1259,76 @@ function buildTeethMask(imgWidth, imgHeight, bounds) {
   return canvas.toDataURL('image/png');
 }
 
-/* ── Crop-based teeth composite ────────────────────────────────── */
-// Composites an AI-transformed teeth crop back onto the original full image
-// using a feathered radial gradient so there's no hard seam.
-function compositeTeethCrop(originalDataUrl, aiCropDataUrl, cropRect, bounds, imgWidth, imgHeight) {
+/* ── Inverse composite — original face with teeth hole over AI ──── */
+// Strategy: draw AI result as base (teeth stay where AI put them),
+// then draw the original photo on top with a feathered hole punched
+// out over the teeth region. Result: original face everywhere, AI
+// teeth show through the hole — no coordinate-space mismatch.
+function compositeTeethCrop(originalDataUrl, aiResultDataUrl, cropRect, bounds, imgWidth, imgHeight) {
   return new Promise((resolve) => {
     const origImg = new Image();
     const aiImg   = new Image();
 
     origImg.onload = () => {
       aiImg.onload = () => {
-        const { x: cx0, y: cy0, w: cw, h: ch } = cropRect;
-
-        // Teeth ellipse center/radii in full-image pixel space
+        // Teeth ellipse in full-image pixel space
         const px   = (bounds.x / 100) * imgWidth;
         const py   = (bounds.y / 100) * imgHeight;
         const pw   = (bounds.w / 100) * imgWidth;
         const ph   = (bounds.h / 100) * imgHeight;
-        const padX = pw * 0.1;
-        const padY = ph * 0.15;
+        const padX = pw * 0.12;
+        const padY = ph * 0.18;
         const ecx  = px + pw / 2;
         const ecy  = py + ph / 2;
         const rx   = pw / 2 + padX;
         const ry   = ph / 2 + padY;
 
-        // Offscreen canvas: draw AI crop at its original position in the full
-        // image, then apply a feathered ellipse alpha mask
-        const aiCanvas = document.createElement('canvas');
-        aiCanvas.width  = imgWidth;
-        aiCanvas.height = imgHeight;
-        const aC = aiCanvas.getContext('2d');
+        // Step 1 — punch a feathered hole in the original photo
+        // at the teeth ellipse position.
+        const origCanvas = document.createElement('canvas');
+        origCanvas.width  = imgWidth;
+        origCanvas.height = imgHeight;
+        const oC = origCanvas.getContext('2d');
 
-        // Scale AI result back to the crop dimensions in the full image
-        aC.drawImage(aiImg, cx0, cy0, cw, ch);
+        oC.drawImage(origImg, 0, 0, imgWidth, imgHeight);
 
-        // Feathered ellipse: opaque center → transparent edge (no hard seam)
-        aC.save();
-        aC.globalCompositeOperation = 'destination-in';
-        aC.translate(ecx, ecy);
-        aC.scale(rx, ry); // unit-circle space → ellipse via scale
+        // destination-out erases the original pixels in the ellipse region
+        oC.save();
+        oC.globalCompositeOperation = 'destination-out';
+        oC.translate(ecx, ecy);
+        oC.scale(rx, ry);
 
-        const grad = aC.createRadialGradient(0, 0, 0, 0, 0, 1);
+        // Gradient: fully erase center → fade to keep at edge (smooth seam)
+        const grad = oC.createRadialGradient(0, 0, 0, 0, 0, 1);
         grad.addColorStop(0,    'rgba(0,0,0,1)');
-        grad.addColorStop(0.55, 'rgba(0,0,0,1)');
+        grad.addColorStop(0.6,  'rgba(0,0,0,1)');
         grad.addColorStop(1,    'rgba(0,0,0,0)');
 
-        aC.fillStyle = grad;
-        aC.beginPath();
-        aC.arc(0, 0, 1, 0, Math.PI * 2);
-        aC.fill();
-        aC.restore();
+        oC.fillStyle = grad;
+        oC.beginPath();
+        oC.arc(0, 0, 1, 0, Math.PI * 2);
+        oC.fill();
+        oC.restore();
 
-        // Final: original photo base + soft-masked AI teeth on top
+        // Step 2 — final canvas:
+        //   layer 1: AI result (full image — provides the transformed teeth)
+        //   layer 2: original-with-hole (face + lips cover the AI face,
+        //            teeth ellipse hole lets AI teeth show through)
         const canvas = document.createElement('canvas');
         canvas.width  = imgWidth;
         canvas.height = imgHeight;
         const ctx = canvas.getContext('2d');
 
-        ctx.drawImage(origImg, 0, 0, imgWidth, imgHeight);
-        ctx.drawImage(aiCanvas, 0, 0);
+        ctx.drawImage(aiImg, 0, 0, imgWidth, imgHeight); // AI base
+        ctx.drawImage(origCanvas, 0, 0);                  // original face over top
 
         resolve(canvas.toDataURL('image/jpeg', 0.92));
       };
       aiImg.onerror = () => resolve(originalDataUrl);
       aiImg.crossOrigin = 'anonymous';
-      aiImg.src = aiCropDataUrl;
+      aiImg.src = aiResultDataUrl;
     };
-    origImg.onerror = () => resolve(aiCropDataUrl);
+    origImg.onerror = () => resolve(aiResultDataUrl);
     origImg.src = originalDataUrl;
   });
 }
