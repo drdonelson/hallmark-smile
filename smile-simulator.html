@@ -473,64 +473,59 @@
       100% { background-position: -200% 0; }
     }
 
-    /* ── Results — Before/After Toggle ──────────────────────────── */
-    .ba-toggle-wrap { position: relative; margin-bottom: 18px; }
-    .ba-img-slot {
+    /* ── Results — Side-by-Side ──────────────────────────────────── */
+    .ba-side-by-side {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+    .ba-panel {
       position: relative;
-      border-radius: var(--radius);
+      border-radius: var(--radius-sm);
       overflow: hidden;
-      background: #000;
-      box-shadow: var(--shadow-lg);
-      border: 1px solid rgba(201,168,76,0.2);
+      background: var(--off-white);
+      aspect-ratio: 3 / 4;
     }
-    .ba-img {
+    .ba-panel img {
       width: 100%;
-      max-height: 440px;
-      object-fit: contain;
+      height: 100%;
+      object-fit: cover;
+      object-position: center top;
       display: block;
-      border-radius: var(--radius);
     }
-    .ba-img.hidden-img { display: none; }
+    .ba-panel-label {
+      position: absolute;
+      bottom: 8px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(0,0,0,0.55);
+      color: #fff;
+      font-size: 0.68rem;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      padding: 4px 12px;
+      border-radius: 20px;
+      backdrop-filter: blur(4px);
+      white-space: nowrap;
+    }
     .ba-gen-badge {
       position: absolute;
-      top: 12px; right: 12px;
-      background: rgba(0,0,0,0.7);
+      top: 8px; right: 8px;
+      background: rgba(0,0,0,0.6);
       color: var(--gold-light);
-      font-size: 0.7rem;
+      font-size: 0.65rem;
       font-weight: 700;
-      padding: 5px 12px;
+      padding: 4px 10px;
       border-radius: 20px;
       letter-spacing: 0.05em;
       backdrop-filter: blur(8px);
       border: 1px solid rgba(201,168,76,0.3);
     }
-    .ba-switch {
-      display: flex;
-      border-radius: 40px;
-      overflow: hidden;
-      border: 2px solid rgba(27,58,92,0.2);
-      width: fit-content;
-      margin: 16px auto 0;
-      background: var(--off-white);
-      box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-    }
-    .ba-switch-btn {
-      padding: 10px 36px;
-      font-size: 0.82rem;
-      font-weight: 700;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      background: transparent;
-      color: var(--mid-grey);
-      transition: background 0.3s ease, color 0.3s ease;
-      border: none;
-      cursor: pointer;
-    }
-    .ba-switch-btn.active {
-      background: var(--navy);
-      color: var(--gold);
-      border-radius: 38px;
-    }
+    /* keep hidden-img class for JS compatibility */
+    .ba-img { display: block; }
+    .ba-img.hidden-img { display: none; }
     .disclaimer {
       font-size: 0.72rem;
       color: var(--mid-grey);
@@ -911,15 +906,15 @@
     <h2 class="card-title" style="justify-content:center;">
       <span style="color:var(--gold)">✦</span>&nbsp;Your Smile Transformation
     </h2>
-    <div class="ba-toggle-wrap">
-      <div class="ba-img-slot">
+    <div class="ba-side-by-side">
+      <div class="ba-panel">
         <img id="beforeImg" class="ba-img" alt="Before">
-        <img id="afterImg"  class="ba-img hidden-img" alt="After — AI Visualization">
-        <div class="ba-gen-badge" id="genBadge" style="display:none"></div>
+        <div class="ba-panel-label">Before</div>
       </div>
-      <div class="ba-switch">
-        <button class="ba-switch-btn active" id="btnBefore" type="button">Before</button>
-        <button class="ba-switch-btn"        id="btnAfter"  type="button">After ✨</button>
+      <div class="ba-panel">
+        <img id="afterImg" class="ba-img" alt="After — AI Visualization">
+        <div class="ba-gen-badge" id="genBadge" style="display:none"></div>
+        <div class="ba-panel-label">After ✨</div>
       </div>
     </div>
     <div class="disclaimer">
@@ -1368,19 +1363,14 @@ $('leadForm').addEventListener('submit', async e => {
     $('beforeImg').src = imgDataUrl;
     $('afterImg').src  = resultUrl;
 
-    // Reset toggle to "Before" on new result
+    // Both images always visible in side-by-side layout
     $('beforeImg').classList.remove('hidden-img');
-    $('afterImg').classList.add('hidden-img');
-    $('btnBefore').classList.add('active');
-    $('btnAfter').classList.remove('active');
+    $('afterImg').classList.remove('hidden-img');
 
     // Show generation badge
     const badge = $('genBadge');
     badge.textContent = `Generated in ${secs}s`;
     badge.style.display = '';
-
-    // Auto-flip to "After" after 1.2s for the wow moment
-    setTimeout(() => showAfter(), 1200);
 
     hide($('progressCard'));
     show($('resultsCard'));
@@ -1396,21 +1386,9 @@ $('leadForm').addEventListener('submit', async e => {
   }
 });
 
-/* ── Before/After toggle ───────────────────────────────────────── */
-function showBefore() {
-  $('beforeImg').classList.remove('hidden-img');
-  $('afterImg').classList.add('hidden-img');
-  $('btnBefore').classList.add('active');
-  $('btnAfter').classList.remove('active');
-}
-function showAfter() {
-  $('afterImg').classList.remove('hidden-img');
-  $('beforeImg').classList.add('hidden-img');
-  $('btnAfter').classList.add('active');
-  $('btnBefore').classList.remove('active');
-}
-$('btnBefore').addEventListener('click', showBefore);
-$('btnAfter').addEventListener('click', showAfter);
+/* ── Before/After (side-by-side — no toggle needed) ────────────── */
+function showBefore() { /* no-op, kept for reset compatibility */ }
+function showAfter()  { /* no-op, kept for reset compatibility */ }
 
 /* ── Results actions ───────────────────────────────────────────── */
 $('bookBtn').addEventListener('click', () => {
