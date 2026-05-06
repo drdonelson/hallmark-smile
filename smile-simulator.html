@@ -1259,49 +1259,67 @@ function buildTeethMask(imgWidth, imgHeight, bounds) {
   return canvas.toDataURL('image/png');
 }
 
-/* ── Pixel compositing — paste only teeth ellipse from AI ──────── */
+/* ── Pixel compositing — feathered teeth blend ─────────────────── */
 function compositeTeethOnly(originalDataUrl, aiDataUrl, bounds, imgWidth, imgHeight) {
   return new Promise((resolve) => {
-    const canvas = document.createElement('canvas');
-    canvas.width  = imgWidth;
-    canvas.height = imgHeight;
-    const ctx = canvas.getContext('2d');
-
     const origImg = new Image();
     const aiImg   = new Image();
 
     origImg.onload = () => {
       aiImg.onload = () => {
-        // 1. Draw the original photo pixel-perfect — face unchanged
-        ctx.drawImage(origImg, 0, 0, imgWidth, imgHeight);
-
-        // 2. Clip to the exact same ellipse used for the mask
+        // Ellipse geometry — same region used for the mask
         const px   = (bounds.x / 100) * imgWidth;
         const py   = (bounds.y / 100) * imgHeight;
         const pw   = (bounds.w / 100) * imgWidth;
         const ph   = (bounds.h / 100) * imgHeight;
         const padX = pw * 0.08;
         const padY = ph * 0.12;
+        const cx   = px + pw / 2;
+        const cy   = py + ph / 2;
+        const rx   = pw / 2 + padX;
+        const ry   = ph / 2 + padY;
 
-        ctx.save();
-        ctx.beginPath();
-        ctx.ellipse(
-          px + pw / 2,
-          py + ph / 2,
-          pw / 2 + padX,
-          ph / 2 + padY,
-          0, 0, Math.PI * 2
-        );
-        ctx.clip();
+        // Step 1 — offscreen canvas: AI image with a soft ellipse alpha mask
+        // Technique: draw AI result, then apply destination-in with a radial
+        // gradient scaled to ellipse shape (translate + scale trick).
+        // The gradient fades from opaque center to transparent edge — no hard seam.
+        const aiCanvas = document.createElement('canvas');
+        aiCanvas.width  = imgWidth;
+        aiCanvas.height = imgHeight;
+        const aC = aiCanvas.getContext('2d');
 
-        // 3. Paint AI result — only the teeth ellipse shows through
-        ctx.drawImage(aiImg, 0, 0, imgWidth, imgHeight);
-        ctx.restore();
+        aC.drawImage(aiImg, 0, 0, imgWidth, imgHeight);
+
+        aC.save();
+        aC.globalCompositeOperation = 'destination-in';
+        aC.translate(cx, cy);
+        aC.scale(rx, ry); // work in unit-circle space so arc() becomes an ellipse
+
+        // Gradient: fully opaque from center (r=0) to 65% radius,
+        // then fades smoothly to transparent at the edge (r=1).
+        const grad = aC.createRadialGradient(0, 0, 0, 0, 0, 1);
+        grad.addColorStop(0,    'rgba(0,0,0,1)');
+        grad.addColorStop(0.65, 'rgba(0,0,0,1)');
+        grad.addColorStop(1,    'rgba(0,0,0,0)');
+
+        aC.fillStyle = grad;
+        aC.beginPath();
+        aC.arc(0, 0, 1, 0, Math.PI * 2);
+        aC.fill();
+        aC.restore();
+
+        // Step 2 — final canvas: original photo + soft-masked AI teeth on top
+        const canvas = document.createElement('canvas');
+        canvas.width  = imgWidth;
+        canvas.height = imgHeight;
+        const ctx = canvas.getContext('2d');
+
+        ctx.drawImage(origImg, 0, 0, imgWidth, imgHeight); // original face (pixel-perfect)
+        ctx.drawImage(aiCanvas, 0, 0);                     // AI teeth blend over
 
         resolve(canvas.toDataURL('image/jpeg', 0.92));
       };
-      // If AI image fails to load (e.g. it's a remote URL that expires), fall back
-      aiImg.onerror = () => resolve(aiDataUrl);
+      aiImg.onerror = () => resolve(aiDataUrl); // fallback: return AI image as-is
       aiImg.crossOrigin = 'anonymous';
       aiImg.src = aiDataUrl;
     };
