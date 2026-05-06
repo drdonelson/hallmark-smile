@@ -1037,6 +1037,7 @@ OUTPUT STYLE:
 Professional dental marketing photography. Photorealistic — the face looks like an unedited photograph. Only the teeth show the transformation. This should look like a real before/after case photo a cosmetic dentist would proudly display in their office.`;
 
 const MSGS = [
+  'Detecting smile region…',
   'Analyzing your smile…',
   'Mapping dental structure…',
   'Designing your transformation…',
@@ -1200,15 +1201,95 @@ function validateForm() {
   return ok;
 }
 
+/* ── Teeth detection + mask generation ─────────────────────────── */
+async function detectTeethBounds(dataUrl) {
+  try {
+    const res = await fetch(`${PROXY_URL}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        messages: [{
+          role: 'user',
+          content: [
+            { type: 'image_url', image_url: { url: dataUrl, detail: 'low' } },
+            { type: 'text', text: 'Return ONLY a raw JSON object (no markdown, no explanation) with the bounding box of the visible teeth in this photo. Coordinates as percentages (0-100) of image width/height. Format exactly: {"x":N,"y":N,"w":N,"h":N} where x,y = top-left of teeth region, w,h = width and height. Include only actual tooth enamel surface, not lips or gums. If mouth is closed or teeth not visible, estimate where teeth would be.' }
+          ]
+        }],
+        max_tokens: 60,
+        temperature: 0
+      })
+    });
+    const data = await res.json();
+    const raw  = (data.choices[0].message.content || '').trim().replace(/```[a-z]*/g, '').replace(/```/g, '');
+    return JSON.parse(raw);
+  } catch {
+    // Fallback: center-lower area typical for a smile photo
+    return { x: 30, y: 55, w: 40, h: 15 };
+  }
+}
+
+function buildTeethMask(imgWidth, imgHeight, bounds) {
+  const canvas = document.createElement('canvas');
+  canvas.width  = imgWidth;
+  canvas.height = imgHeight;
+  const ctx = canvas.getContext('2d');
+
+  // Opaque black everywhere = preserve all pixels
+  ctx.fillStyle = 'rgba(0,0,0,1)';
+  ctx.fillRect(0, 0, imgWidth, imgHeight);
+
+  // Cut out teeth region = transparent = AI edits here
+  const px = (bounds.x / 100) * imgWidth;
+  const py = (bounds.y / 100) * imgHeight;
+  const pw = (bounds.w / 100) * imgWidth;
+  const ph = (bounds.h / 100) * imgHeight;
+
+  // Slight padding so we don't clip tooth edges
+  const padX = pw * 0.08;
+  const padY = ph * 0.12;
+
+  ctx.globalCompositeOperation = 'destination-out';
+  // Ellipse fits the natural arc of a smile row better than a rectangle
+  ctx.beginPath();
+  ctx.ellipse(
+    px + pw / 2,
+    py + ph / 2,
+    pw / 2 + padX,
+    ph / 2 + padY,
+    0, 0, Math.PI * 2
+  );
+  ctx.fill();
+
+  return canvas.toDataURL('image/png');
+}
+
 /* ── Main generation flow ──────────────────────────────────────── */
 async function generateSmile(dataUrl) {
-  // Convert compressed data URL to a File for multipart upload
+  // Step 1: Detect teeth location
+  updateProgress('Detecting smile region…', 18);
+  const bounds = await detectTeethBounds(dataUrl);
+
+  // Step 2: Build precise mask (transparent = edit only here)
+  updateProgress('Building smile mask…', 28);
+  const imgEl = await new Promise((resolve, reject) => {
+    const i = new Image();
+    i.onload = () => resolve(i);
+    i.onerror = reject;
+    i.src = dataUrl;
+  });
+  const maskDataUrl = buildTeethMask(imgEl.naturalWidth, imgEl.naturalHeight, bounds);
+  const maskBlob    = await fetch(maskDataUrl).then(r => r.blob());
+  const maskFile    = new File([maskBlob], 'mask.png', { type: 'image/png' });
+
+  // Convert image to File for multipart upload
   const blob = await fetch(dataUrl).then(r => r.blob());
-  const file = new File([blob], 'photo.jpg', { type: blob.type || 'image/jpeg' });
+  const file = new File([blob], 'photo.png', { type: 'image/png' });
 
   const form = new FormData();
   form.append('model',   'gpt-image-1');
   form.append('image',   file);
+  form.append('mask',    maskFile);
   form.append('prompt',  SMILE_PROMPT);
   form.append('n',       '1');
   // 'auto' lets OpenAI match the input image's aspect ratio — no cropping
@@ -1249,6 +1330,11 @@ function startProgress() {
   }, 4500);
 }
 function stopProgress() { clearInterval(msgInterval); msgInterval = null; }
+function updateProgress(msg) {
+  const el = $('progressMsg');
+  el.style.opacity = '0';
+  setTimeout(() => { el.textContent = msg; el.style.opacity = '1'; }, 180);
+}
 
 /* ── Form submit ───────────────────────────────────────────────── */
 $('leadForm').addEventListener('submit', async e => {
