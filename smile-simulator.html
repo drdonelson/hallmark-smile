@@ -132,14 +132,14 @@
     /* ── Hero ────────────────────────────────────────────────────── */
     .hero {
       text-align: center;
-      padding: 48px 20px 10px;
+      padding: 36px 20px 8px;
       position: relative; z-index: 1;
     }
     .hero-badge {
       display: inline-flex; align-items: center; gap: 6px;
-      background: rgba(201,168,76,0.12);
-      border: 1px solid rgba(201,168,76,0.3);
-      color: var(--gold-light);
+      background: rgba(27,58,92,0.07);
+      border: 1px solid rgba(27,58,92,0.18);
+      color: var(--navy);
       font-size: 0.72rem;
       font-weight: 600;
       letter-spacing: 0.1em;
@@ -150,39 +150,39 @@
     }
     .hero-title {
       font-family: 'Playfair Display', serif;
-      font-size: clamp(2rem, 6vw, 3.2rem);
+      font-size: clamp(1.8rem, 6vw, 3rem);
       font-weight: 700;
-      color: #ffffff;
+      color: var(--navy);
       line-height: 1.15;
       margin-bottom: 14px;
     }
-    .hero-title .gold { color: var(--gold); }
+    .hero-title .gold { color: var(--gold-dark); }
     .hero-sub {
       font-size: 1rem;
-      color: rgba(255,255,255,0.55);
+      color: var(--dark-grey);
       max-width: 420px;
-      margin: 0 auto 36px;
+      margin: 0 auto 32px;
       line-height: 1.6;
     }
     .hero-steps {
       display: flex;
       justify-content: center;
       gap: 8px;
-      margin-bottom: 40px;
+      margin-bottom: 32px;
       flex-wrap: wrap;
     }
     .hero-step {
       display: flex; align-items: center; gap: 7px;
-      background: rgba(255,255,255,0.05);
-      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(27,58,92,0.04);
+      border: 1px solid rgba(27,58,92,0.12);
       border-radius: 30px;
       padding: 6px 14px;
       font-size: 0.78rem;
-      color: rgba(255,255,255,0.6);
+      color: var(--dark-grey);
     }
     .hero-step-num {
-      background: var(--gold);
-      color: var(--navy-dark);
+      background: var(--navy);
+      color: var(--gold);
       width: 18px; height: 18px;
       border-radius: 50%;
       font-size: 0.65rem;
@@ -807,6 +807,18 @@
 
 <!-- Floating settings gear -->
 <button class="gear-btn gear-float" id="gearBtn" title="Settings" aria-label="Open settings">⚙</button>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-badge">✦ AI Smile Simulator</div>
+  <h1 class="hero-title">See Your <span class="gold">Dream Smile</span><br>Before You Commit</h1>
+  <p class="hero-sub">Upload a photo and our AI instantly shows you what your smile could look like — no obligation, no office visit required.</p>
+  <div class="hero-steps">
+    <div class="hero-step"><span class="hero-step-num">1</span> Upload your photo</div>
+    <div class="hero-step"><span class="hero-step-num">2</span> AI transforms your smile</div>
+    <div class="hero-step"><span class="hero-step-num">3</span> Book your free consult</div>
+  </div>
+</section>
 
 <main class="main">
 
