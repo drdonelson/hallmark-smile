@@ -4,6 +4,8 @@
 
 const ALLOWED_ORIGINS = new Set([
   'https://drdonelson.github.io',
+  'https://hallmarkdds.com',
+  'https://www.hallmarkdds.com',
   'https://hallmarkdental.com',
   'https://www.hallmarkdental.com',
   'https://lucidroi.com',
