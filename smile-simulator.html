@@ -1196,16 +1196,126 @@ function validateForm() {
   return ok;
 }
 
-/* ── Main generation flow ──────────────────────────────────────── */
-async function generateSmile(dataUrl) {
-  // Send the full image to gpt-image-1 with no mask.
-  // Mask-only approach makes the AI too conservative (blends with
-  // surrounding yellow context). Full image gives dramatic results.
-  updateProgress('Analyzing your smile…', 20);
+/* ── HSL helpers for canvas whitening ──────────────────────────── */
+function rgbToHsl(r, g, b) {
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h, s;
+  const l = (max + min) / 2;
+  if (max === min) { h = s = 0; }
+  else {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+      case g: h = ((b - r) / d + 2) / 6; break;
+      default: h = ((r - g) / d + 4) / 6;
+    }
+  }
+  return [h, s, l];
+}
+function hslToRgb(h, s, l) {
+  if (s === 0) return [l, l, l];
+  const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+  const p = 2 * l - q;
+  const hue = (t) => {
+    if (t < 0) t += 1; if (t > 1) t -= 1;
+    if (t < 1/6) return p + (q - p) * 6 * t;
+    if (t < 1/2) return q;
+    if (t < 2/3) return p + (q - p) * (2/3 - t) * 6;
+    return p;
+  };
+  return [hue(h + 1/3), hue(h), hue(h - 1/3)];
+}
 
+/* ── Canvas whitening — direct pixel manipulation ───────────────── */
+// Used when teeth are structurally fine but stained/yellowed.
+// Guarantees zero face change — only pixel colors are modified.
+function whitenTeethCanvas(dataUrl, bounds) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const W = img.naturalWidth, H = img.naturalHeight;
+      const canvas = document.createElement('canvas');
+      canvas.width = W; canvas.height = H;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, W, H);
+      const imageData = ctx.getImageData(0, 0, W, H);
+      const d = imageData.data;
+
+      // Ellipse geometry with padding
+      const px = (bounds.x / 100) * W, py = (bounds.y / 100) * H;
+      const pw = (bounds.w / 100) * W, ph = (bounds.h / 100) * H;
+      const cx = px + pw / 2,          cy = py + ph / 2;
+      const rx = pw / 2 * 1.15,        ry = ph / 2 * 1.3;
+
+      const yMin = Math.max(0, Math.floor(cy - ry));
+      const yMax = Math.min(H, Math.ceil(cy + ry));
+      const xMin = Math.max(0, Math.floor(cx - rx));
+      const xMax = Math.min(W, Math.ceil(cx + rx));
+
+      for (let y = yMin; y < yMax; y++) {
+        for (let x = xMin; x < xMax; x++) {
+          const dx = (x - cx) / rx, dy = (y - cy) / ry;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          if (dist > 1) continue;
+
+          // Feather: full strength inside 0.65, fade to 0 at edge
+          const strength = dist < 0.65 ? 1 : (1 - dist) / 0.35;
+
+          const i = (y * W + x) * 4;
+          const r = d[i] / 255, g = d[i+1] / 255, b = d[i+2] / 255;
+          const [h, s, l] = rgbToHsl(r, g, b);
+
+          // Skip dark pixels (gums, lips, shadows — not teeth)
+          if (l < 0.22) continue;
+
+          // Whiten: push lightness toward 0.92, crush yellow saturation
+          const tL = l + (0.92 - l) * 0.78 * strength;
+          const tS = s * (1 - 0.85 * strength); // remove ~85% of yellow
+          const [nr, ng, nb] = hslToRgb(h, tS, Math.min(0.96, tL));
+
+          d[i]   = Math.round(d[i]   + (nr * 255 - d[i])   * strength);
+          d[i+1] = Math.round(d[i+1] + (ng * 255 - d[i+1]) * strength);
+          d[i+2] = Math.round(d[i+2] + (nb * 255 - d[i+2]) * strength);
+        }
+      }
+      ctx.putImageData(imageData, 0, 0);
+      resolve(canvas.toDataURL('image/jpeg', 0.93));
+    };
+    img.onerror = reject;
+    img.src = dataUrl;
+  });
+}
+
+/* ── Smart assessment — GPT-4o decides which tool to use ────────── */
+async function assessTeeth(dataUrl) {
+  try {
+    const res = await fetch(`${PROXY_URL}/v1/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'gpt-4o',
+        messages: [{ role: 'user', content: [
+          { type: 'image_url', image_url: { url: dataUrl, detail: 'low' } },
+          { type: 'text', text: 'Analyze the teeth. Return ONLY raw JSON (no markdown). Fields: "method" ("whiten" if teeth are present and just need color improvement — staining, yellowing, spots, minor discoloration; OR "generate" if there are structural issues — missing teeth, broken teeth, large gaps, severe crowding/misalignment), "bounds" ({"x":N,"y":N,"w":N,"h":N} bounding box as % of image, x/y = top-left), "reason" (one short sentence). Example: {"method":"whiten","bounds":{"x":31,"y":57,"w":38,"h":13},"reason":"Teeth present with yellow staining only."}' }
+        ]}],
+        max_tokens: 100,
+        temperature: 0
+      })
+    });
+    const data = await res.json();
+    const raw = (data.choices[0].message.content || '').trim().replace(/```[a-z]*/g,'').replace(/```/g,'');
+    return JSON.parse(raw);
+  } catch {
+    // Fallback: use AI generation if assessment fails
+    return { method: 'generate', bounds: { x: 30, y: 55, w: 40, h: 15 }, reason: 'fallback' };
+  }
+}
+
+/* ── AI generation — for structural dental issues ───────────────── */
+async function generateSmileAI(dataUrl) {
   const blob = await fetch(dataUrl).then(r => r.blob());
   const file = new File([blob], 'photo.png', { type: 'image/png' });
-
   const form = new FormData();
   form.append('model',   'gpt-image-1');
   form.append('image',   file);
@@ -1214,25 +1324,34 @@ async function generateSmile(dataUrl) {
   form.append('size',    'auto');
   form.append('quality', 'high');
 
-  updateProgress('Transforming your smile…', 40);
-
-  const res = await fetch(`${PROXY_URL}/v1/images/edits`, {
-    method: 'POST',
-    body:   form,
-  });
-
+  const res = await fetch(`${PROXY_URL}/v1/images/edits`, { method: 'POST', body: form });
   if (!res.ok) {
     const t = await res.text().catch(() => '');
     throw new Error(`Image generation failed (${res.status}): ${t}`);
   }
-
   const data = await res.json();
   if (!data.data?.length) throw new Error('No image returned from OpenAI.');
-
   const item = data.data[0];
   if (item.b64_json) return `data:image/png;base64,${item.b64_json}`;
   if (item.url)      return item.url;
   throw new Error('Unexpected response format from OpenAI.');
+}
+
+/* ── Main generation flow ──────────────────────────────────────── */
+async function generateSmile(dataUrl) {
+  // Step 1: GPT-4o assesses the teeth and picks the right tool
+  updateProgress('Analyzing your smile…', 18);
+  const assessment = await assessTeeth(dataUrl);
+
+  if (assessment.method === 'whiten') {
+    // Path A: canvas whitening — pixel-perfect, zero face change
+    updateProgress('Whitening your smile…', 45);
+    return await whitenTeethCanvas(dataUrl, assessment.bounds);
+  } else {
+    // Path B: AI generation — for missing/broken/structurally complex teeth
+    updateProgress('Designing your new smile…', 35);
+    return await generateSmileAI(dataUrl);
+  }
 }
 
 /* ── Progress messages ─────────────────────────────────────────── */
