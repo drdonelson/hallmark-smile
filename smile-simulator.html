@@ -1262,14 +1262,31 @@ async function samWhitenTeeth(resizedUrl, width, height) {
   for (let i = 0; i < mPx.length; i += 4) if (mPx[i] > 128) white++;
   if (white < 400) return null;
 
-  // Whiten only masked pixels
+  // Whiten only masked pixels — with tissue exclusion + smooth blending
   ctx.drawImage(origImg, 0, 0, width, height);
   const id = ctx.getImageData(0, 0, width, height);
   const d  = id.data;
   for (let i = 0; i < d.length; i += 4) {
-    if (mPx[i] < 128) continue;
-    const [h, s, l] = rgbToHsl(d[i], d[i+1], d[i+2]);
-    const [r, g, b] = hslToRgb(h, s * 0.08, Math.min(0.96, l + (0.96-l)*0.90));
+    const maskVal = mPx[i] / 255;           // 0–1 from SAM mask
+    if (maskVal < 0.05) continue;
+
+    const ri = d[i], gi = d[i+1], bi = d[i+2];
+
+    // Skip gum / lip tissue: too red/pink (R significantly dominates G and B)
+    if (ri > gi * 1.30 && ri > bi * 1.30) continue;
+
+    // Skip very dark pixels (tooth gaps, tongue)
+    const [h, s, l] = rgbToHsl(ri, gi, bi);
+    if (l < 0.18) continue;
+
+    // Proportional whitening — use mask alpha for smooth edge blending
+    const strength = maskVal * 0.88;
+    const newL = Math.min(0.94, l + (0.94 - l) * strength);
+    const newS = s * (1 - strength * 0.90);
+
+    // Add tiny natural variation to avoid plastic-uniform look
+    const jitter = (((i * 1301 + 7919) % 100) / 100 - 0.5) * 0.015;
+    const [r, g, b] = hslToRgb(h, Math.max(0, newS), Math.min(1, newL + jitter));
     d[i]=r; d[i+1]=g; d[i+2]=b;
   }
   ctx.putImageData(id, 0, 0);
