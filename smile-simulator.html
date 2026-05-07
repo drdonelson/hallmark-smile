@@ -1006,29 +1006,16 @@ const MAX_BYTES  = 1024 * 1024;
 const LS_LEADS   = 'hd_leads';
 const LS_URL     = 'hd_booking_url';
 
-const SMILE_PROMPT = `You are generating a dental cosmetic simulation for a licensed dental practice marketing tool. Create a stunning, dramatic Hollywood smile makeover in the mouth region. This is a marketing visualization — make it jaw-dropping.
+const SMILE_PROMPT = `Hollywood dental smile makeover. In the transparent mask region, create a stunning full-arch smile with:
+- Brilliantly white teeth (BL1 porcelain shade) — dramatically whiter, not subtle
+- All missing or damaged teeth fully restored
+- Perfect alignment — no crowding, no gaps, no dark spaces
+- Full broad smile arc, corner to corner
+- Healthy natural pink gumline
+- Photorealistic enamel with natural translucency at incisal edges
+- Lips relaxed in a confident, natural smile
 
-MOUTH ZONE TRANSFORMATION — be bold and dramatic:
-- Replace ALL missing, broken, or damaged teeth with perfect restorations
-- Full Hollywood smile: brilliantly white (shade BL1), porcelain-veneer perfection
-- Open the smile fully — show a complete, confident, wide smile with upper and lower teeth
-- Eliminate all crowding, gaps, dark spaces, and misalignment completely
-- Fill in buccal corridors — teeth go edge to edge in a full, broad smile arc
-- Perfect central incisors, slightly shorter laterals, natural arch
-- Healthy pink gumline with natural contour
-- Natural lip shape relaxed in a beautiful, confident smile
-- Photorealistic enamel: slight translucency at incisal edges, subtle sheen
-
-PRESERVE EVERYTHING OUTSIDE THE MOUTH ZONE — absolutely no changes:
-- All skin above the upper lip: every pore, wrinkle, freckle, blemish — pixel-perfect
-- Eyes, eyebrows, nose, ears, forehead, cheeks — completely unchanged
-- Skin tone and texture — no smoothing, no brightening, no beauty filter
-- Hair and facial hair — unchanged pixel-for-pixel
-- Background, lighting, shadows — unchanged
-- Clothing, glasses, accessories — unchanged
-
-OUTPUT STYLE:
-Professional dental marketing photography. The face looks like an unedited photograph with only the smile transformed. Photorealistic. This should look like a high-end cosmetic dental before/after that makes patients say "Is that really me?"`;
+Dental marketing visualization. Make the transformation dramatic and jaw-dropping.`;
 
 const MSGS = [
   'Detecting smile region…',
@@ -1318,16 +1305,25 @@ async function generateSmile(dataUrl) {
   const W = imgEl.naturalWidth;
   const H = imgEl.naturalHeight;
 
-  // Step 3: Send to gpt-image-1 WITHOUT a mask so it generates a
-  // dramatic Hollywood transformation freely. Compositing (step 4)
-  // ensures only the smile ellipse from the AI shows on the final image.
+  // Step 3: Build mask — transparent = mouth zone (AI transforms here),
+  // opaque black = everything else (AI must not touch).
+  const maskDataUrl = buildTeethMask(W, H, bounds);
+  const maskBlob    = await fetch(maskDataUrl).then(r => r.blob());
+  const maskFile    = new File([maskBlob], 'mask.png', { type: 'image/png' });
+
+  // Step 4: Convert image to true PNG (not JPEG-in-PNG-wrapper) so the
+  // mask alpha channel is interpreted correctly by gpt-image-1.
   updateProgress('Transforming your smile…', 35);
-  const blob = await fetch(dataUrl).then(r => r.blob());
-  const file = new File([blob], 'photo.png', { type: 'image/png' });
+  const pngCanvas = document.createElement('canvas');
+  pngCanvas.width = W; pngCanvas.height = H;
+  pngCanvas.getContext('2d').drawImage(imgEl, 0, 0);
+  const pngBlob = await new Promise(res => pngCanvas.toBlob(res, 'image/png'));
+  const file    = new File([pngBlob], 'image.png', { type: 'image/png' });
 
   const form = new FormData();
   form.append('model',  'gpt-image-1');
   form.append('image',  file);
+  form.append('mask',   maskFile);
   form.append('prompt', SMILE_PROMPT);
   form.append('n',      '1');
   form.append('size',   'auto');
@@ -1349,10 +1345,8 @@ async function generateSmile(dataUrl) {
   const aiUrl = item.b64_json ? `data:image/png;base64,${item.b64_json}` : item.url;
   if (!aiUrl) throw new Error('Unexpected response format from OpenAI.');
 
-  // Composite: take the mouth zone from the dramatic AI result,
-  // lock everything above onto the original face pixels.
-  updateProgress('Compositing result…', 90);
-  return await compositeTeeth(dataUrl, aiUrl, bounds, W, H);
+  // Return the result directly — the mask already locks the face.
+  return aiUrl;
 }
 
 /* ── Progress messages ─────────────────────────────────────────── */
