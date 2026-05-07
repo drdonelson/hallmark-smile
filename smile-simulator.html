@@ -1257,47 +1257,78 @@ async function detectTeeth(dataUrl) {
   }
 }
 
-/* ── Helper: build RGBA mask PNG ──────────────────────────────── */
-//   gpt-image-1 convention: alpha=0 (transparent) = EDIT, alpha=255 = KEEP
-function buildMask(width, height, bounds, pad = 0.008) {
-  const c   = document.createElement('canvas');
-  c.width   = width; c.height = height;
-  const ctx = c.getContext('2d');
-  const id  = ctx.createImageData(width, height);
-  const d   = id.data;
 
-  const x1 = Math.floor(Math.max(0,     bounds.x - pad)              * width);
-  const y1 = Math.floor(Math.max(0,     bounds.y - pad)              * height);
-  const x2 = Math.ceil (Math.min(1,     bounds.x + bounds.w + pad)   * width);
-  const y2 = Math.ceil (Math.min(1,     bounds.y + bounds.h + pad)   * height);
+/* ── Composite: original face + AI teeth (feathered ellipse blend) ─ */
+async function compositeTeethOnly(origDataUrl, aiDataUrl, bounds, width, height) {
+  const [origImg, aiImg] = await Promise.all([
+    loadImage(origDataUrl),
+    loadImage(aiDataUrl),
+  ]);
 
-  // Default: fully opaque black = KEEP everywhere
-  for (let i = 0; i < d.length; i += 4) {
-    d[i] = 0; d[i+1] = 0; d[i+2] = 0; d[i+3] = 255;
-  }
-  // Teeth patch: alpha=0 = EDIT HERE
-  for (let row = y1; row < y2 && row < height; row++) {
-    for (let col = x1; col < x2 && col < width; col++) {
-      d[(row * width + col) * 4 + 3] = 0;
-    }
-  }
-  ctx.putImageData(id, 0, 0);
-  return c;
+  const canvas  = document.createElement('canvas');
+  canvas.width  = width;
+  canvas.height = height;
+  const ctx     = canvas.getContext('2d');
+
+  // Base layer: original — face preserved pixel-perfect
+  ctx.drawImage(origImg, 0, 0, width, height);
+
+  // Teeth region with generous padding to absorb AI geometry shift
+  const padX = 0.05;
+  const padY = 0.06;
+  const x1  = Math.max(0, bounds.x - padX)              * width;
+  const y1  = Math.max(0, bounds.y - padY)               * height;
+  const x2  = Math.min(1, bounds.x + bounds.w + padX)   * width;
+  const y2  = Math.min(1, bounds.y + bounds.h + padY)   * height;
+  const cx  = (x1 + x2) / 2;
+  const cy  = (y1 + y2) / 2;
+  const rw  = (x2 - x1) / 2;   // ellipse half-width
+  const rh  = (y2 - y1) / 2;   // ellipse half-height
+
+  // Off-screen canvas: AI image masked by feathered ellipse
+  const off    = document.createElement('canvas');
+  off.width    = width;
+  off.height   = height;
+  const offCtx = off.getContext('2d');
+
+  // Draw AI result (same dimensions — size:'auto' mirrors input)
+  offCtx.drawImage(aiImg, 0, 0, width, height);
+
+  // Elliptical feather mask: opaque center → transparent edges
+  // Scale context to turn circle into ellipse
+  offCtx.save();
+  offCtx.globalCompositeOperation = 'destination-in';
+  offCtx.translate(cx, cy);
+  offCtx.scale(rw, rh);   // 1 unit = rw/rh px
+  const grad = offCtx.createRadialGradient(0, 0, 0.5, 0, 0, 1.15);
+  grad.addColorStop(0,    'rgba(0,0,0,1)');
+  grad.addColorStop(0.65, 'rgba(0,0,0,1)');
+  grad.addColorStop(1,    'rgba(0,0,0,0)');
+  offCtx.fillStyle = grad;
+  offCtx.beginPath();
+  offCtx.arc(0, 0, 1.15, 0, Math.PI * 2);
+  offCtx.fill();
+  offCtx.restore();
+
+  // Blend AI teeth patch over original face
+  ctx.drawImage(off, 0, 0);
+
+  return canvas.toDataURL('image/png');
 }
 
 /* ── Main generation flow ──────────────────────────────────────── */
 async function generateSmile(dataUrl) {
   updateProgress('Analyzing your smile…', 15);
 
-  // 1. Resize image so mask dimensions match API image exactly
+  // Resize image for API consistency
   const { blob: imgBlob, width, height, resized } = await resizeForAPI(dataUrl);
 
-  // 2. Detect teeth location
-  updateProgress('Locating teeth…', 30);
+  // Detect teeth in resized image (used for compositing, not masking)
+  updateProgress('Locating teeth…', 28);
   const bounds = await detectTeeth(resized);
 
-  // 3. Build form
-  updateProgress('Designing your new smile…', 50);
+  // Send full image — no mask — lets AI make dramatic teeth changes
+  updateProgress('Designing your new smile…', 45);
   const form = new FormData();
   form.append('model',   'gpt-image-1');
   form.append('image',   new File([imgBlob], 'photo.png', { type: 'image/png' }));
@@ -1306,14 +1337,7 @@ async function generateSmile(dataUrl) {
   form.append('size',    'auto');
   form.append('quality', 'high');
 
-  // 4. Add mask if teeth were found — constrains AI to teeth area only
-  if (bounds) {
-    const maskCanvas = buildMask(width, height, bounds);
-    const maskBlob   = await new Promise(r => maskCanvas.toBlob(r, 'image/png'));
-    form.append('mask', new File([maskBlob], 'mask.png', { type: 'image/png' }));
-  }
-
-  updateProgress('Transforming your smile…', 65);
+  updateProgress('Transforming your smile…', 60);
 
   const res = await fetch(`${PROXY_URL}/v1/images/edits`, {
     method: 'POST',
@@ -1329,9 +1353,19 @@ async function generateSmile(dataUrl) {
   if (!data.data?.length) throw new Error('No image returned from OpenAI.');
 
   const item = data.data[0];
-  if (item.b64_json) return `data:image/png;base64,${item.b64_json}`;
-  if (item.url)      return item.url;
-  throw new Error('Unexpected response format from OpenAI.');
+  let aiUrl;
+  if (item.b64_json) aiUrl = `data:image/png;base64,${item.b64_json}`;
+  else if (item.url)  aiUrl = item.url;
+  else throw new Error('Unexpected response format from OpenAI.');
+
+  // If we found teeth bounds → composite: keep AI teeth, restore original face
+  if (bounds) {
+    updateProgress('Preserving your face…', 88);
+    return await compositeTeethOnly(resized, aiUrl, bounds, width, height);
+  }
+
+  // Fallback: return raw AI result (missing teeth case — face change acceptable)
+  return aiUrl;
 }
 
 /* ── Progress messages ─────────────────────────────────────────── */
