@@ -1222,9 +1222,13 @@ async function compositeTeeth(origUrl, aiUrl, bounds, origW, origH) {
 
   const out = new Uint8ClampedArray(origD); // start as copy of original
 
-  // Threshold: delta > THRESH means "this pixel was a tooth" → use AI
-  // Lower = more pixels from AI; higher = fewer, more conservative
-  const THRESH = 40; // out of 255
+  // Only take AI pixels that:
+  //   1. Changed a lot (delta > THRESH) — teeth transform dramatically
+  //   2. Are bright in the AI result — teeth are white, skin/gums are not
+  // Soft boundary: weight decays at box edges so there's no hard box seam.
+  const THRESH = 75;
+  const edgeW  = (bx2 - bx1) * 0.12; // 12% soft fade at left/right edges
+  const edgeH  = (by2 - by1) * 0.12; // 12% soft fade at top/bottom edges
 
   for (let y = by1; y < by2; y++) {
     for (let x = bx1; x < bx2; x++) {
@@ -1233,8 +1237,24 @@ async function compositeTeeth(origUrl, aiUrl, bounds, origW, origH) {
       const dg = Math.abs(aiD[i+1] - origD[i+1]);
       const db = Math.abs(aiD[i+2] - origD[i+2]);
       const delta = (dr + dg + db) / 3;
-      // Smooth ramp from 0→1 over [THRESH, THRESH*3]
-      const w = Math.min(Math.max((delta - THRESH) / (THRESH * 2), 0), 1);
+
+      // AI pixel brightness — only trust bright pixels (teeth are white)
+      const aiLum = aiD[i] * 0.299 + aiD[i+1] * 0.587 + aiD[i+2] * 0.114;
+      const isTeethBright = aiLum > 145;
+
+      // Delta-based blend: 0 below THRESH, ramps to 1 at THRESH*2
+      const deltaW = isTeethBright
+        ? Math.min(Math.max((delta - THRESH) / THRESH, 0), 1)
+        : 0;
+
+      // Soft box boundary — weight falls to 0 at the edges
+      const edgeFade = Math.min(
+        (x - bx1) / edgeW, (bx2 - x) / edgeW,
+        (y - by1) / edgeH, (by2 - y) / edgeH,
+        1
+      );
+
+      const w = deltaW * edgeFade;
       out[i]   = origD[i]   * (1 - w) + aiD[i]   * w;
       out[i+1] = origD[i+1] * (1 - w) + aiD[i+1] * w;
       out[i+2] = origD[i+2] * (1 - w) + aiD[i+2] * w;
