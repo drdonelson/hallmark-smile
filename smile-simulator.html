@@ -1006,25 +1006,26 @@ const MAX_BYTES  = 1024 * 1024;
 const LS_LEADS   = 'hd_leads';
 const LS_URL     = 'hd_booking_url';
 
-const SMILE_PROMPT = `Dental cosmetic simulation for a licensed dental practice. Edit ONLY the teeth visible in the mask area. The rest of the image — face, skin, lips, eyes, hair, background — must remain pixel-perfect identical.
+const SMILE_PROMPT = `Dental cosmetic simulation for a licensed dental practice. This is a MASKED REGION EDIT — you are modifying ONLY the teeth inside the transparent mask area.
 
-TEETH TRANSFORMATION (mask area only):
-- WHITENING: Transform teeth to BL1 Hollywood white regardless of starting shade. Yellow, brown, grey, or spotted teeth all get maximum whitening — this is a dramatic 10-shade improvement, not subtle brightening.
-- STAINING: If teeth appear spotted, mottled, or discolored (even partially), bleach all staining completely to uniform BL1 white.
-- MISSING/BROKEN: Restore any missing or fractured teeth with beautiful natural-looking crowns.
-- ALIGNMENT: Correct crowding, gaps, and rotation to ideal arch form.
-- PROPORTIONS: Central incisors dominant, laterals slightly shorter; natural slight size variation — not denture-uniform.
-- GUMLINE: Keep gums at natural existing height, no gum lift or lowering.
-- ENAMEL: Natural translucency at incisal edges, slight blue-white tint; avoid chalky flat-white appearance.
+TEETH CHANGES (masked area only — these are the ONLY allowed changes in the entire image):
+• Whiten teeth to BL1 Hollywood white. Yellow, spotted, stained, grey — maximum whitening, dramatic 10-shade improvement.
+• Restore missing or broken teeth with natural-looking crowns.
+• Correct crowding and gaps; ideal arch form.
+• Central incisors dominant, slight natural size variation — not denture-uniform.
+• Natural enamel translucency at edges; no chalky flat white.
+• Preserve natural gumline height exactly.
 
-STRICT PRESERVATION — zero changes outside the mask:
-- Lips: exact same shape, color, position, texture — do not plump, smooth, or recolor
-- Skin: every pore, wrinkle, spot, freckle, scar, blemish stays identical — no beauty filter
-- Skin tone: unchanged — no brightening, no color shift whatsoever
-- Hair, eyes, nose, ears, face shape: pixel-perfect identical
-- Background and lighting: unchanged
+ABSOLUTE PROHIBITIONS — failure conditions if any of these occur:
+✗ NO skin smoothing anywhere in the image — zero
+✗ NO skin brightening or color shifting — zero
+✗ NO beauty filter, portrait enhancement, or glow effect — zero
+✗ NO lip plumping, recoloring, or reshaping — zero
+✗ NO changes to eyes, nose, hair, ears, face shape — zero
+✗ NO changes to background, clothing, lighting — zero
+✗ NO changes to gum tissue color or texture — zero
 
-OUTPUT: Photorealistic portrait. Face looks like an untouched photograph. Only the teeth region shows any change. Result should look like a real cosmetic dentistry before/after case photo.`;
+Every skin pore, wrinkle, spot, freckle, and blemish must appear IDENTICAL to the original. The face must look like an unretouched clinical photograph. A dermatologist should see no difference in the skin between before and after. Only the tooth surfaces change color and shape. Nothing else.`;
 
 const MSGS = [
   'Detecting smile region…',
@@ -1233,7 +1234,7 @@ async function detectTeeth(dataUrl) {
           content: [
             {
               type: 'text',
-              text: 'Locate the visible teeth in this photo. Return ONLY a JSON object: {"x":0.0,"y":0.0,"w":0.0,"h":0.0} where x/y is the top-left corner of the teeth region and w/h are width/height — all as fractions 0.0–1.0 of the image dimensions. If no teeth are visible return {"noTeeth":true}.',
+              text: 'Locate the visible tooth surfaces (enamel only — not lips, not gums, not mouth corners) in this photo. Return ONLY a JSON object: {"x":0.0,"y":0.0,"w":0.0,"h":0.0} where x/y is the top-left corner and w/h are width/height of the tooth enamel region — all as fractions 0.0–1.0 of the image dimensions. Be tight: do not include surrounding skin, lips, or gum tissue. If no teeth are visible return {"noTeeth":true}.',
             },
             { type: 'image_url', image_url: { url: dataUrl, detail: 'high' } },
           ],
@@ -1258,7 +1259,7 @@ async function detectTeeth(dataUrl) {
 
 /* ── Helper: build RGBA mask PNG ──────────────────────────────── */
 //   gpt-image-1 convention: alpha=0 (transparent) = EDIT, alpha=255 = KEEP
-function buildMask(width, height, bounds, pad = 0.025) {
+function buildMask(width, height, bounds, pad = 0.008) {
   const c   = document.createElement('canvas');
   c.width   = width; c.height = height;
   const ctx = c.getContext('2d');
