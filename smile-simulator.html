@@ -1006,26 +1006,23 @@ const MAX_BYTES  = 1024 * 1024;
 const LS_LEADS   = 'hd_leads';
 const LS_URL     = 'hd_booking_url';
 
-const SMILE_PROMPT = `Dental cosmetic simulation for a licensed dental practice. This is a MASKED REGION EDIT — you are modifying ONLY the teeth inside the transparent mask area.
+// Prompt used when sending the cropped mouth region only
+const SMILE_PROMPT = `This is a cropped close-up of a person's mouth area for a dental cosmetic simulation.
 
-TEETH CHANGES (masked area only — these are the ONLY allowed changes in the entire image):
-• Whiten teeth to BL1 Hollywood white. Yellow, spotted, stained, grey — maximum whitening, dramatic 10-shade improvement.
-• Restore missing or broken teeth with natural-looking crowns.
-• Correct crowding and gaps; ideal arch form.
-• Central incisors dominant, slight natural size variation — not denture-uniform.
-• Natural enamel translucency at edges; no chalky flat white.
-• Preserve natural gumline height exactly.
+CHANGE ONLY the tooth surfaces:
+• Whiten teeth to BL1 Hollywood white — maximum whitening regardless of current shade (yellow, spotted, grey, brown — full dramatic improvement)
+• Fill any gaps or missing teeth with natural-looking restorations
+• Correct crowding; ideal arch; central incisors dominant; slight natural size variation
+• Natural enamel translucency at incisal edges — not flat chalky white
+• Preserve gumline height exactly
 
-ABSOLUTE PROHIBITIONS — failure conditions if any of these occur:
-✗ NO skin smoothing anywhere in the image — zero
-✗ NO skin brightening or color shifting — zero
-✗ NO beauty filter, portrait enhancement, or glow effect — zero
-✗ NO lip plumping, recoloring, or reshaping — zero
-✗ NO changes to eyes, nose, hair, ears, face shape — zero
-✗ NO changes to background, clothing, lighting — zero
-✗ NO changes to gum tissue color or texture — zero
+KEEP EVERYTHING ELSE PIXEL-IDENTICAL:
+• Lips: same color, shape, texture, position — zero change
+• Gum tissue: same color and texture — zero change
+• Surrounding skin: same tone, pores, imperfections — zero change, no beauty filter
+• Background: unchanged
 
-Every skin pore, wrinkle, spot, freckle, and blemish must appear IDENTICAL to the original. The face must look like an unretouched clinical photograph. A dermatologist should see no difference in the skin between before and after. Only the tooth surfaces change color and shape. Nothing else.`;
+Result must look like a real dental before/after case photo.`;
 
 const MSGS = [
   'Detecting smile region…',
@@ -1223,115 +1220,86 @@ async function resizeForAPI(dataUrl, maxDim = 1536) {
 /* ── Fixed anatomical teeth bounds for front-facing portrait photos ─ */
 // GPT-4o detection was unreliable (kept returning nose coords).
 // For dental marketing photos the face is always front-facing and centred.
-// These proportions work across typical selfies and professional headshots.
-function estimateTeethBounds(width, height) {
-  // Portrait: face fills frame, teeth in lower-center third
-  // Landscape or square: more conservative
-  const portrait = height >= width;
-  return {
-    x: portrait ? 0.28 : 0.32,
-    y: portrait ? 0.57 : 0.52,
-    w: portrait ? 0.44 : 0.36,
-    h: portrait ? 0.17 : 0.20,
-  };
-}
-
-/* ── Composite: original face + AI teeth (feathered ellipse blend) ─ */
-async function compositeTeethOnly(origDataUrl, aiDataUrl, width, height) {
-  const [origImg, aiImg] = await Promise.all([
-    loadImage(origDataUrl),
-    loadImage(aiDataUrl),
-  ]);
-
-  const bounds = estimateTeethBounds(width, height);
-
-  // Composite canvas — base is the original (face pixel-perfect)
-  const canvas  = document.createElement('canvas');
-  canvas.width  = width;
-  canvas.height = height;
-  const ctx     = canvas.getContext('2d');
-  ctx.drawImage(origImg, 0, 0, width, height);
-
-  // Ellipse region — generous to absorb small AI geometry shifts
-  const padX = 0.05;
-  const padY = 0.04;
-  const x1 = Math.max(0, bounds.x - padX)            * width;
-  const y1 = Math.max(0, bounds.y - padY)             * height;
-  const x2 = Math.min(1, bounds.x + bounds.w + padX) * width;
-  const y2 = Math.min(1, bounds.y + bounds.h + padY) * height;
-  const cx = (x1 + x2) / 2;
-  const cy = (y1 + y2) / 2;
-  const rw = (x2 - x1) / 2;
-  const rh = (y2 - y1) / 2;
-
-  // Off-screen canvas: AI result masked to teeth ellipse only
-  const off    = document.createElement('canvas');
-  off.width    = width;
-  off.height   = height;
-  const offCtx = off.getContext('2d');
-  offCtx.drawImage(aiImg, 0, 0, width, height);
-
-  // Elliptical feather mask — scale context so arc becomes ellipse
-  offCtx.save();
-  offCtx.globalCompositeOperation = 'destination-in';
-  offCtx.translate(cx, cy);
-  offCtx.scale(rw, rh);
-  const grad = offCtx.createRadialGradient(0, 0, 0.40, 0, 0, 1.0);
-  grad.addColorStop(0,    'rgba(0,0,0,1)');
-  grad.addColorStop(0.65, 'rgba(0,0,0,1)');
-  grad.addColorStop(1,    'rgba(0,0,0,0)');
-  offCtx.fillStyle = grad;
-  offCtx.beginPath();
-  offCtx.arc(0, 0, 1.0, 0, Math.PI * 2);
-  offCtx.fill();
-  offCtx.restore();
-
-  // Paint AI teeth patch over original face
-  ctx.drawImage(off, 0, 0);
-  return canvas.toDataURL('image/png');
-}
-
-/* ── Main generation flow ──────────────────────────────────────── */
+/* ── Main generation flow — crop-and-paste ─────────────────────── */
+// Crop mouth area → send crop to AI → paste back at EXACT same pixel coords.
+// No coordinate mismatch. Feathered box edges hide the seam seamlessly.
 async function generateSmile(dataUrl) {
   updateProgress('Analyzing your smile…', 15);
 
-  // Resize image for consistent API dimensions
-  const { blob: imgBlob, width, height, resized } = await resizeForAPI(dataUrl);
+  const { width, height, resized: resizedUrl } = await resizeForAPI(dataUrl);
+  const origImg = await loadImage(resizedUrl);
 
-  // Send full image — no mask — lets AI produce dramatic teeth changes
-  updateProgress('Designing your new smile…', 35);
+  // Crop: lower-center of image — teeth, lips, chin, some cheek for context
+  const portrait = height >= width;
+  const cx1 = Math.floor(0.10 * width);
+  const cy1 = Math.floor((portrait ? 0.45 : 0.38) * height);
+  const cw  = Math.floor(0.80 * width);
+  const ch  = Math.floor((portrait ? 0.46 : 0.54) * height);
+
+  const cropC = document.createElement('canvas');
+  cropC.width = cw; cropC.height = ch;
+  cropC.getContext('2d').drawImage(origImg, -cx1, -cy1, width, height);
+  const cropBlob = await new Promise(r => cropC.toBlob(r, 'image/png'));
+
+  // Send crop only — AI sees mouth, not full face → less temptation to touch skin
+  updateProgress('Transforming your smile…', 40);
   const form = new FormData();
   form.append('model',   'gpt-image-1');
-  form.append('image',   new File([imgBlob], 'photo.png', { type: 'image/png' }));
+  form.append('image',   new File([cropBlob], 'mouth.png', { type: 'image/png' }));
   form.append('prompt',  SMILE_PROMPT);
   form.append('n',       '1');
   form.append('size',    'auto');
   form.append('quality', 'high');
 
-  updateProgress('Transforming your smile…', 55);
-
-  const res = await fetch(`${PROXY_URL}/v1/images/edits`, {
-    method: 'POST',
-    body:   form,
-  });
-
+  const res = await fetch(`${PROXY_URL}/v1/images/edits`, { method: 'POST', body: form });
   if (!res.ok) {
     const t = await res.text().catch(() => '');
     throw new Error(`Image generation failed (${res.status}): ${t}`);
   }
-
   const data = await res.json();
   if (!data.data?.length) throw new Error('No image returned from OpenAI.');
-
   const item = data.data[0];
-  let aiUrl;
-  if (item.b64_json) aiUrl = `data:image/png;base64,${item.b64_json}`;
-  else if (item.url)  aiUrl = item.url;
+  let aiCropUrl;
+  if (item.b64_json) aiCropUrl = `data:image/png;base64,${item.b64_json}`;
+  else if (item.url)  aiCropUrl = item.url;
   else throw new Error('Unexpected response format from OpenAI.');
 
-  // Composite: paste original face back over AI result, keep AI only in teeth zone
-  updateProgress('Preserving your face…', 88);
-  return await compositeTeethOnly(resized, aiUrl, width, height);
+  updateProgress('Compositing…', 85);
+  const aiCropImg = await loadImage(aiCropUrl);
+
+  // Composite: original base + AI crop pasted at exact original coordinates
+  const canvas = document.createElement('canvas');
+  canvas.width = width; canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(origImg, 0, 0, width, height);   // original face — pixel-perfect base
+
+  // Off-screen: AI crop with feathered box edges (hides seam at crop boundary)
+  const off    = document.createElement('canvas');
+  off.width    = cw; off.height = ch;
+  const offCtx = off.getContext('2d');
+  offCtx.drawImage(aiCropImg, 0, 0, cw, ch);
+
+  // Box feather mask: opaque center → transparent at each edge
+  const fade = Math.min(60, Math.floor(cw * 0.09), Math.floor(ch * 0.13));
+  const msk  = document.createElement('canvas');
+  msk.width  = cw; msk.height = ch;
+  const mCtx = msk.getContext('2d');
+  mCtx.fillStyle = 'black';
+  mCtx.fillRect(0, 0, cw, ch);
+  mCtx.globalCompositeOperation = 'destination-out';
+  [[0,0,fade,0, 0,0,fade,ch],[cw,0,cw-fade,0, cw-fade,0,fade,ch],
+   [0,0,0,fade, 0,0,cw,fade],[0,ch,0,ch-fade, 0,ch-fade,cw,fade]]
+  .forEach(([gx1,gy1,gx2,gy2,rx,ry,rw2,rh2]) => {
+    const g = mCtx.createLinearGradient(gx1,gy1,gx2,gy2);
+    g.addColorStop(0,'black'); g.addColorStop(1,'transparent');
+    mCtx.fillStyle = g; mCtx.fillRect(rx,ry,rw2,rh2);
+  });
+  offCtx.globalCompositeOperation = 'destination-in';
+  offCtx.drawImage(msk, 0, 0);
+
+  // Paste AI teeth at exact original crop coordinates — zero guessing
+  ctx.drawImage(off, cx1, cy1);
+  return canvas.toDataURL('image/png');
 }
 
 /* ── Progress messages ─────────────────────────────────────────── */
