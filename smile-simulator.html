@@ -1006,30 +1006,29 @@ const MAX_BYTES  = 1024 * 1024;
 const LS_LEADS   = 'hd_leads';
 const LS_URL     = 'hd_booking_url';
 
-const SMILE_PROMPT = `You are generating a dental cosmetic simulation for a licensed dental practice marketing tool. Transform only the teeth into a stunning, dramatic smile makeover while leaving the entire face completely untouched.
+const SMILE_PROMPT = `You are generating a dental cosmetic simulation for a licensed dental practice marketing tool. Create a stunning, dramatic Hollywood smile makeover in the mouth region. This is a marketing visualization — make it jaw-dropping.
 
-TEETH TRANSFORMATION — dramatic cosmetic changes:
-- Replace any missing or broken teeth with beautiful, natural-looking restorations
-- Create a bright, white Hollywood smile — significantly whiter than original (shade A1 to BL1)
-- Correct all crowding, gaps, spacing issues, and misalignment completely
-- Close dark buccal corridor gaps — full smile width
-- Perfect tooth proportions: central incisors dominant, laterals slightly shorter
-- Natural enamel translucency at incisal edges — slight blue-white tint
-- Slight natural size variation between individual teeth — not denture-uniform
-- Healthy, smooth gumline at natural gum height — do not raise or lower gums
-- Remove staining, discoloration, chips, and decay
+MOUTH ZONE TRANSFORMATION — be bold and dramatic:
+- Replace ALL missing, broken, or damaged teeth with perfect restorations
+- Full Hollywood smile: brilliantly white (shade BL1), porcelain-veneer perfection
+- Open the smile fully — show a complete, confident, wide smile with upper and lower teeth
+- Eliminate all crowding, gaps, dark spaces, and misalignment completely
+- Fill in buccal corridors — teeth go edge to edge in a full, broad smile arc
+- Perfect central incisors, slightly shorter laterals, natural arch
+- Healthy pink gumline with natural contour
+- Natural lip shape relaxed in a beautiful, confident smile
+- Photorealistic enamel: slight translucency at incisal edges, subtle sheen
 
-PRESERVE EVERYTHING OUTSIDE THE TEETH — absolutely no changes:
-- Lip position, mouth opening, and lip shape stay EXACTLY the same
-- Every skin detail identical: all pores, wrinkles, fine lines, freckles, age spots, scars, blemishes
-- Skin tone and color unchanged — no brightening, no smoothing, no beauty filter
-- Hair and facial hair unchanged pixel-for-pixel
-- Eyes, eyebrows, nose, ears, face shape unchanged
-- Background, studio lighting, shadows unchanged
-- Clothing and accessories unchanged
+PRESERVE EVERYTHING OUTSIDE THE MOUTH ZONE — absolutely no changes:
+- All skin above the upper lip: every pore, wrinkle, freckle, blemish — pixel-perfect
+- Eyes, eyebrows, nose, ears, forehead, cheeks — completely unchanged
+- Skin tone and texture — no smoothing, no brightening, no beauty filter
+- Hair and facial hair — unchanged pixel-for-pixel
+- Background, lighting, shadows — unchanged
+- Clothing, glasses, accessories — unchanged
 
 OUTPUT STYLE:
-Professional dental marketing photography. Photorealistic — the face looks like an unedited photograph. Only the teeth show the transformation. This should look like a real before/after case photo a cosmetic dentist would proudly display in their office.`;
+Professional dental marketing photography. The face looks like an unedited photograph with only the smile transformed. Photorealistic. This should look like a high-end cosmetic dental before/after that makes patients say "Is that really me?"`;
 
 const MSGS = [
   'Detecting smile region…',
@@ -1219,27 +1218,22 @@ async function compositeTeeth(origUrl, aiUrl, bounds, origW, origH) {
   const aiCtx = aiCanvas.getContext('2d');
   aiCtx.drawImage(aiImg, 0, 0, origW, origH);
 
-  // Compute ellipse geometry (same as buildTeethMask)
-  const px   = (bounds.x / 100) * origW;
-  const py   = (bounds.y / 100) * origH;
-  const pw   = (bounds.w / 100) * origW;
-  const ph   = (bounds.h / 100) * origH;
-  const padX = pw * 0.08;
-  const padY = ph * 0.12;
-  const cx   = px + pw / 2;
-  const cy   = py + ph / 2;
-  const rx   = pw / 2 + padX;
-  const ry   = ph / 2 + padY;
+  // Mouth zone geometry (matches buildTeethMask)
+  const px = (bounds.x / 100) * origW;
+  const py = (bounds.y / 100) * origH;
+  const pw = (bounds.w / 100) * origW;
+  const ph = (bounds.h / 100) * origH;
 
-  // Feathered mask — blur a hard ellipse to get a soft edge
-  const feather = Math.round(Math.min(rx, ry) * 0.22);
+  // Feathered mask — blur a rounded rect to get a soft edge over the mouth zone
+  const feather = Math.round(Math.min(pw, ph) * 0.12);
+  const radius  = Math.min(pw, ph) * 0.35;
   const maskCanvas = document.createElement('canvas');
   maskCanvas.width = origW; maskCanvas.height = origH;
   const mCtx = maskCanvas.getContext('2d');
   mCtx.filter    = `blur(${feather}px)`;
   mCtx.fillStyle = 'black';
   mCtx.beginPath();
-  mCtx.ellipse(cx, cy, Math.max(rx - feather * 0.5, 1), Math.max(ry - feather * 0.5, 1), 0, 0, Math.PI * 2);
+  mCtx.roundRect(px + feather * 0.5, py + feather * 0.5, Math.max(pw - feather, 1), Math.max(ph - feather, 1), radius);
   mCtx.fill();
   mCtx.filter = 'none';
 
@@ -1270,7 +1264,7 @@ async function detectTeethBounds(dataUrl) {
           role: 'user',
           content: [
             { type: 'image_url', image_url: { url: dataUrl, detail: 'low' } },
-            { type: 'text', text: 'Return ONLY a raw JSON object (no markdown, no explanation) with the bounding box of the visible teeth in this photo. Coordinates as percentages (0-100) of image width/height. Format exactly: {"x":N,"y":N,"w":N,"h":N} where x,y = top-left of teeth region, w,h = width and height. Include only actual tooth enamel surface, not lips or gums. If mouth is closed or teeth not visible, estimate where teeth would be.' }
+            { type: 'text', text: 'Return ONLY a raw JSON object (no markdown, no explanation) with the bounding box of the full mouth zone in this photo. The mouth zone includes: both lips fully, all visible teeth, the area from just below the nose to just below the lower lip, and from corner to corner of the mouth (include a small margin beyond the mouth corners). Coordinates as percentages (0-100) of image width/height. Format exactly: {"x":N,"y":N,"w":N,"h":N} where x,y = top-left, w,h = width and height. Be generous — it is better to include too much than too little.' }
           ]
         }],
         max_tokens: 60,
@@ -1281,8 +1275,8 @@ async function detectTeethBounds(dataUrl) {
     const raw  = (data.choices[0].message.content || '').trim().replace(/```[a-z]*/g, '').replace(/```/g, '');
     return JSON.parse(raw);
   } catch {
-    // Fallback: center-lower area typical for a smile photo
-    return { x: 30, y: 55, w: 40, h: 15 };
+    // Fallback: mouth zone typical for a smile photo
+    return { x: 25, y: 58, w: 50, h: 22 };
   }
 }
 
@@ -1296,26 +1290,17 @@ function buildTeethMask(imgWidth, imgHeight, bounds) {
   ctx.fillStyle = 'rgba(0,0,0,1)';
   ctx.fillRect(0, 0, imgWidth, imgHeight);
 
-  // Cut out teeth region = transparent = AI edits here
+  // Cut out full mouth zone = transparent = AI edits here
   const px = (bounds.x / 100) * imgWidth;
   const py = (bounds.y / 100) * imgHeight;
   const pw = (bounds.w / 100) * imgWidth;
   const ph = (bounds.h / 100) * imgHeight;
 
-  // Slight padding so we don't clip tooth edges
-  const padX = pw * 0.08;
-  const padY = ph * 0.12;
-
+  // Rounded rectangle for the mouth zone — covers lips + teeth + surrounding area
+  const radius = Math.min(pw, ph) * 0.35;
   ctx.globalCompositeOperation = 'destination-out';
-  // Ellipse fits the natural arc of a smile row better than a rectangle
   ctx.beginPath();
-  ctx.ellipse(
-    px + pw / 2,
-    py + ph / 2,
-    pw / 2 + padX,
-    ph / 2 + padY,
-    0, 0, Math.PI * 2
-  );
+  ctx.roundRect(px, py, pw, ph, radius);
   ctx.fill();
 
   return canvas.toDataURL('image/png');
