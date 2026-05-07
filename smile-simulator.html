@@ -1006,30 +1006,25 @@ const MAX_BYTES  = 1024 * 1024;
 const LS_LEADS   = 'hd_leads';
 const LS_URL     = 'hd_booking_url';
 
-const SMILE_PROMPT = `You are generating a dental cosmetic simulation for a licensed dental practice marketing tool. Transform only the teeth into a stunning, dramatic smile makeover while leaving the entire face completely untouched.
+const SMILE_PROMPT = `Dental cosmetic simulation for a licensed dental practice. Edit ONLY the teeth visible in the mask area. The rest of the image — face, skin, lips, eyes, hair, background — must remain pixel-perfect identical.
 
-TEETH TRANSFORMATION — dramatic cosmetic changes:
-- Replace any missing or broken teeth with beautiful, natural-looking restorations
-- Create a bright, white Hollywood smile — significantly whiter than original (shade A1 to BL1)
-- Correct all crowding, gaps, spacing issues, and misalignment completely
-- Close dark buccal corridor gaps — full smile width
-- Perfect tooth proportions: central incisors dominant, laterals slightly shorter
-- Natural enamel translucency at incisal edges — slight blue-white tint
-- Slight natural size variation between individual teeth — not denture-uniform
-- Healthy, smooth gumline at natural gum height — do not raise or lower gums
-- Remove staining, discoloration, chips, and decay
+TEETH TRANSFORMATION (mask area only):
+- WHITENING: Transform teeth to BL1 Hollywood white regardless of starting shade. Yellow, brown, grey, or spotted teeth all get maximum whitening — this is a dramatic 10-shade improvement, not subtle brightening.
+- STAINING: If teeth appear spotted, mottled, or discolored (even partially), bleach all staining completely to uniform BL1 white.
+- MISSING/BROKEN: Restore any missing or fractured teeth with beautiful natural-looking crowns.
+- ALIGNMENT: Correct crowding, gaps, and rotation to ideal arch form.
+- PROPORTIONS: Central incisors dominant, laterals slightly shorter; natural slight size variation — not denture-uniform.
+- GUMLINE: Keep gums at natural existing height, no gum lift or lowering.
+- ENAMEL: Natural translucency at incisal edges, slight blue-white tint; avoid chalky flat-white appearance.
 
-PRESERVE EVERYTHING OUTSIDE THE TEETH — absolutely no changes:
-- Lip position, mouth opening, and lip shape stay EXACTLY the same
-- Every skin detail identical: all pores, wrinkles, fine lines, freckles, age spots, scars, blemishes
-- Skin tone and color unchanged — no brightening, no smoothing, no beauty filter
-- Hair and facial hair unchanged pixel-for-pixel
-- Eyes, eyebrows, nose, ears, face shape unchanged
-- Background, studio lighting, shadows unchanged
-- Clothing and accessories unchanged
+STRICT PRESERVATION — zero changes outside the mask:
+- Lips: exact same shape, color, position, texture — do not plump, smooth, or recolor
+- Skin: every pore, wrinkle, spot, freckle, scar, blemish stays identical — no beauty filter
+- Skin tone: unchanged — no brightening, no color shift whatsoever
+- Hair, eyes, nose, ears, face shape: pixel-perfect identical
+- Background and lighting: unchanged
 
-OUTPUT STYLE:
-Professional dental marketing photography. Photorealistic — the face looks like an unedited photograph. Only the teeth show the transformation. This should look like a real before/after case photo a cosmetic dentist would proudly display in their office.`;
+OUTPUT: Photorealistic portrait. Face looks like an untouched photograph. Only the teeth region shows any change. Result should look like a real cosmetic dentistry before/after case photo.`;
 
 const MSGS = [
   'Detecting smile region…',
@@ -1196,22 +1191,128 @@ function validateForm() {
   return ok;
 }
 
+/* ── Helper: load an Image from a data URL ─────────────────────── */
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload  = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
+
+/* ── Helper: resize image to max dimension, return blob + dims ─── */
+async function resizeForAPI(dataUrl, maxDim = 1536) {
+  const img = await loadImage(dataUrl);
+  const { naturalWidth: w, naturalHeight: h } = img;
+  let nw = w, nh = h;
+  if (w > maxDim || h > maxDim) {
+    const ratio = Math.min(maxDim / w, maxDim / h);
+    nw = Math.round(w * ratio);
+    nh = Math.round(h * ratio);
+  }
+  const c = document.createElement('canvas');
+  c.width = nw; c.height = nh;
+  c.getContext('2d').drawImage(img, 0, 0, nw, nh);
+  const blob    = await new Promise(r => c.toBlob(r, 'image/png'));
+  const resized = c.toDataURL('image/png');
+  return { blob, width: nw, height: nh, resized };
+}
+
+/* ── Helper: ask GPT-4o where the teeth are ───────────────────── */
+async function detectTeeth(dataUrl) {
+  try {
+    const res = await fetch(`${PROXY_URL}/v1/chat/completions`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model:      'gpt-4o',
+        max_tokens: 120,
+        messages: [{
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: 'Locate the visible teeth in this photo. Return ONLY a JSON object: {"x":0.0,"y":0.0,"w":0.0,"h":0.0} where x/y is the top-left corner of the teeth region and w/h are width/height — all as fractions 0.0–1.0 of the image dimensions. If no teeth are visible return {"noTeeth":true}.',
+            },
+            { type: 'image_url', image_url: { url: dataUrl, detail: 'high' } },
+          ],
+        }],
+      }),
+    });
+    const d    = await res.json();
+    const text = d.choices?.[0]?.message?.content || '';
+    const m    = text.match(/\{[^}]+\}/);
+    if (!m) return null;
+    const b = JSON.parse(m[0]);
+    if (b.noTeeth) return null;
+    const { x, y, w, h } = b;
+    if (typeof x !== 'number' || typeof y !== 'number') return null;
+    if (y < 0.2 || y > 0.92) return null; // sanity: must be in face
+    if (w < 0.03 || h < 0.01) return null; // too small
+    return { x, y, w, h };
+  } catch {
+    return null;
+  }
+}
+
+/* ── Helper: build RGBA mask PNG ──────────────────────────────── */
+//   gpt-image-1 convention: alpha=0 (transparent) = EDIT, alpha=255 = KEEP
+function buildMask(width, height, bounds, pad = 0.025) {
+  const c   = document.createElement('canvas');
+  c.width   = width; c.height = height;
+  const ctx = c.getContext('2d');
+  const id  = ctx.createImageData(width, height);
+  const d   = id.data;
+
+  const x1 = Math.floor(Math.max(0,     bounds.x - pad)              * width);
+  const y1 = Math.floor(Math.max(0,     bounds.y - pad)              * height);
+  const x2 = Math.ceil (Math.min(1,     bounds.x + bounds.w + pad)   * width);
+  const y2 = Math.ceil (Math.min(1,     bounds.y + bounds.h + pad)   * height);
+
+  // Default: fully opaque black = KEEP everywhere
+  for (let i = 0; i < d.length; i += 4) {
+    d[i] = 0; d[i+1] = 0; d[i+2] = 0; d[i+3] = 255;
+  }
+  // Teeth patch: alpha=0 = EDIT HERE
+  for (let row = y1; row < y2 && row < height; row++) {
+    for (let col = x1; col < x2 && col < width; col++) {
+      d[(row * width + col) * 4 + 3] = 0;
+    }
+  }
+  ctx.putImageData(id, 0, 0);
+  return c;
+}
+
 /* ── Main generation flow ──────────────────────────────────────── */
 async function generateSmile(dataUrl) {
-  updateProgress('Analyzing your smile…', 20);
+  updateProgress('Analyzing your smile…', 15);
 
-  const blob = await fetch(dataUrl).then(r => r.blob());
-  const file = new File([blob], 'photo.png', { type: 'image/png' });
+  // 1. Resize image so mask dimensions match API image exactly
+  const { blob: imgBlob, width, height, resized } = await resizeForAPI(dataUrl);
 
+  // 2. Detect teeth location
+  updateProgress('Locating teeth…', 30);
+  const bounds = await detectTeeth(resized);
+
+  // 3. Build form
+  updateProgress('Designing your new smile…', 50);
   const form = new FormData();
-  form.append('model',  'gpt-image-1');
-  form.append('image',  file);
-  form.append('prompt', SMILE_PROMPT);
-  form.append('n',      '1');
-  form.append('size',   'auto');
-  form.append('quality','high');
+  form.append('model',   'gpt-image-1');
+  form.append('image',   new File([imgBlob], 'photo.png', { type: 'image/png' }));
+  form.append('prompt',  SMILE_PROMPT);
+  form.append('n',       '1');
+  form.append('size',    'auto');
+  form.append('quality', 'high');
 
-  updateProgress('Transforming your smile…', 40);
+  // 4. Add mask if teeth were found — constrains AI to teeth area only
+  if (bounds) {
+    const maskCanvas = buildMask(width, height, bounds);
+    const maskBlob   = await new Promise(r => maskCanvas.toBlob(r, 'image/png'));
+    form.append('mask', new File([maskBlob], 'mask.png', { type: 'image/png' }));
+  }
+
+  updateProgress('Transforming your smile…', 65);
 
   const res = await fetch(`${PROXY_URL}/v1/images/edits`, {
     method: 'POST',
