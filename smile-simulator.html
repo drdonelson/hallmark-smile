@@ -1006,16 +1006,15 @@ const MAX_BYTES  = 1024 * 1024;
 const LS_LEADS   = 'hd_leads';
 const LS_URL     = 'hd_booking_url';
 
-const SMILE_PROMPT = `Hollywood dental smile makeover. In the transparent mask region, create a stunning full-arch smile with:
-- Brilliantly white teeth (BL1 porcelain shade) — dramatically whiter, not subtle
-- All missing or damaged teeth fully restored
+const SMILE_PROMPT = `This is a close-up crop of a person's mouth area. Replace ALL visible teeth with a stunning Hollywood smile makeover:
+- BL1 porcelain veneer white — dramatically and brilliantly white, not subtle
+- All teeth fully restored, no missing or damaged teeth
 - Perfect alignment — no crowding, no gaps, no dark spaces
-- Full broad smile arc, corner to corner
-- Healthy natural pink gumline
+- Full broad smile arc from corner to corner
+- Natural healthy pink gumline
 - Photorealistic enamel with natural translucency at incisal edges
-- Lips relaxed in a confident, natural smile
-
-Dental marketing visualization. Make the transformation dramatic and jaw-dropping.`;
+- Keep the lips and skin exactly as they are — ONLY change the teeth and gumline
+Dental marketing visualization. Maximum dramatic transformation on the teeth.`;
 
 const MSGS = [
   'Detecting smile region…',
@@ -1197,73 +1196,51 @@ function loadImage(src) {
 //   blend weight = how much the AI changed that pixel (0=unchanged→original, 1=big change→AI)
 // Outside the box: always original.
 // This means teeth pixels (dramatically whitened) come from AI,
-// lip/skin/gum pixels (barely changed) stay original — no geometric seam.
-async function compositeTeeth(origUrl, aiUrl, bounds, origW, origH) {
-  const [origImg, aiImg] = await Promise.all([loadImage(origUrl), loadImage(aiUrl)]);
+// Paste AI-transformed mouth crop back onto original with elliptical feathered blend.
+async function pasteCropWithFeather(origUrl, aiCropUrl, cropX, cropY, cropW, cropH, origW, origH) {
+  const [origImg, aiImg] = await Promise.all([loadImage(origUrl), loadImage(aiCropUrl)]);
 
-  // Draw both to canvases at original dimensions
-  function toCanvas(img) {
-    const c = document.createElement('canvas');
-    c.width = origW; c.height = origH;
-    c.getContext('2d').drawImage(img, 0, 0, origW, origH);
-    return c;
-  }
-  const origC = toCanvas(origImg);
-  const aiC   = toCanvas(aiImg);
-  const origD = origC.getContext('2d').getImageData(0, 0, origW, origH).data;
-  const aiD   = aiC.getContext('2d').getImageData(0, 0, origW, origH).data;
-
-  // Mouth zone pixel bounds — expand slightly beyond detected region
-  const pad = 0.03; // 3% padding
-  const bx1 = Math.max(0,     Math.floor(((bounds.x - pad * 100) / 100) * origW));
-  const by1 = Math.max(0,     Math.floor(((bounds.y - pad * 100) / 100) * origH));
-  const bx2 = Math.min(origW, Math.ceil( ((bounds.x + bounds.w + pad * 100) / 100) * origW));
-  const by2 = Math.min(origH, Math.ceil( ((bounds.y + bounds.h + pad * 100) / 100) * origH));
-
-  const out = new Uint8ClampedArray(origD); // start as copy of original
-
-  // Only take AI pixels that:
-  //   1. Changed a lot (delta > THRESH) — teeth transform dramatically
-  //   2. Are bright in the AI result — teeth are white, skin/gums are not
-  // Soft boundary: weight decays at box edges so there's no hard box seam.
-  const THRESH = 35;
-  const edgeW  = (bx2 - bx1) * 0.12; // 12% soft fade at left/right edges
-  const edgeH  = (by2 - by1) * 0.12; // 12% soft fade at top/bottom edges
-
-  for (let y = by1; y < by2; y++) {
-    for (let x = bx1; x < bx2; x++) {
-      const i = (y * origW + x) * 4;
-      const dr = Math.abs(aiD[i]   - origD[i]);
-      const dg = Math.abs(aiD[i+1] - origD[i+1]);
-      const db = Math.abs(aiD[i+2] - origD[i+2]);
-      const delta = (dr + dg + db) / 3;
-
-      // AI pixel brightness — only trust bright pixels (teeth are white)
-      const aiLum = aiD[i] * 0.299 + aiD[i+1] * 0.587 + aiD[i+2] * 0.114;
-      const isTeethBright = aiLum > 145;
-
-      // Delta-based blend: 0 below THRESH, ramps to 1 at THRESH*2
-      const deltaW = isTeethBright
-        ? Math.min(Math.max((delta - THRESH) / THRESH, 0), 1)
-        : 0;
-
-      // Soft box boundary — weight falls to 0 at the edges
-      const edgeFade = Math.min(
-        (x - bx1) / edgeW, (bx2 - x) / edgeW,
-        (y - by1) / edgeH, (by2 - y) / edgeH,
-        1
-      );
-
-      const w = deltaW * edgeFade;
-      out[i]   = origD[i]   * (1 - w) + aiD[i]   * w;
-      out[i+1] = origD[i+1] * (1 - w) + aiD[i+1] * w;
-      out[i+2] = origD[i+2] * (1 - w) + aiD[i+2] * w;
-    }
-  }
-
+  // Result canvas starts as the original full image
   const result = document.createElement('canvas');
-  result.width = origW; result.height = origH;
-  result.getContext('2d').putImageData(new ImageData(out, origW, origH), 0, 0);
+  result.width  = origW;
+  result.height = origH;
+  const ctx = result.getContext('2d');
+  ctx.drawImage(origImg, 0, 0, origW, origH);
+
+  // Off-screen canvas: AI crop scaled to crop dimensions in full-image space
+  const overCanvas = document.createElement('canvas');
+  overCanvas.width  = origW;
+  overCanvas.height = origH;
+  const overCtx = overCanvas.getContext('2d');
+  overCtx.drawImage(aiImg, cropX, cropY, cropW, cropH);
+
+  // Elliptical mask: full opacity in center, fades to transparent at crop edges
+  const maskCanvas = document.createElement('canvas');
+  maskCanvas.width  = origW;
+  maskCanvas.height = origH;
+  const maskCtx = maskCanvas.getContext('2d');
+  const cx = cropX + cropW / 2;
+  const cy = cropY + cropH / 2;
+
+  // Scale so the ellipse exactly fills the crop, gradient fades over outer 25%
+  maskCtx.save();
+  maskCtx.translate(cx, cy);
+  maskCtx.scale(cropW / 2, cropH / 2);
+  const grad = maskCtx.createRadialGradient(0, 0, 0.55, 0, 0, 1);
+  grad.addColorStop(0,    'rgba(0,0,0,1)');
+  grad.addColorStop(0.65, 'rgba(0,0,0,1)');
+  grad.addColorStop(1,    'rgba(0,0,0,0)');
+  maskCtx.fillStyle = grad;
+  maskCtx.beginPath();
+  maskCtx.arc(0, 0, 1, 0, Math.PI * 2);
+  maskCtx.fill();
+  maskCtx.restore();
+
+  // Clip overlay to the elliptical mask, then blend onto result
+  overCtx.globalCompositeOperation = 'destination-in';
+  overCtx.drawImage(maskCanvas, 0, 0);
+  ctx.drawImage(overCanvas, 0, 0);
+
   return result.toDataURL('image/jpeg', 0.95);
 }
 
@@ -1323,25 +1300,41 @@ function buildTeethMask(imgWidth, imgHeight, bounds) {
 
 /* ── Main generation flow ──────────────────────────────────────── */
 async function generateSmile(dataUrl) {
-  // Step 1: Detect teeth location with GPT-4o vision
+  // Step 1: Detect mouth bounds with GPT-4o vision
   updateProgress('Detecting smile region…', 15);
   const bounds = await detectTeethBounds(dataUrl);
 
-  // Step 2: Load original image to get dimensions
-  updateProgress('Building smile mask…', 25);
+  // Step 2: Load original image, get dimensions
+  updateProgress('Cropping smile zone…', 25);
   const imgEl = await loadImage(dataUrl);
   const W = imgEl.naturalWidth;
   const H = imgEl.naturalHeight;
 
-  // Step 3: Send WITHOUT mask so gpt-image-1 generates dramatically.
-  // Delta compositing (step 4) extracts only changed teeth pixels.
-  updateProgress('Transforming your smile…', 35);
-  const pngCanvas = document.createElement('canvas');
-  pngCanvas.width = W; pngCanvas.height = H;
-  pngCanvas.getContext('2d').drawImage(imgEl, 0, 0);
-  const pngBlob = await new Promise(res => pngCanvas.toBlob(res, 'image/png'));
-  const file    = new File([pngBlob], 'image.png', { type: 'image/png' });
+  // Step 3: Crop mouth zone with padding so AI has context
+  const padPct = 0.04; // 4% padding on each side
+  const cropX  = Math.max(0, Math.floor(((bounds.x - padPct * 100) / 100) * W));
+  const cropY  = Math.max(0, Math.floor(((bounds.y - padPct * 100) / 100) * H));
+  const cropX2 = Math.min(W, Math.ceil( ((bounds.x + bounds.w + padPct * 100) / 100) * W));
+  const cropY2 = Math.min(H, Math.ceil( ((bounds.y + bounds.h + padPct * 100) / 100) * H));
+  const cropW  = cropX2 - cropX;
+  const cropH  = cropY2 - cropY;
 
+  // Scale crop up to 768px on the long side for good AI quality
+  const SEND_SIZE = 768;
+  const scale  = SEND_SIZE / Math.max(cropW, cropH);
+  const sendW  = Math.round(cropW * scale);
+  const sendH  = Math.round(cropH * scale);
+
+  const cropCanvas = document.createElement('canvas');
+  cropCanvas.width  = sendW;
+  cropCanvas.height = sendH;
+  cropCanvas.getContext('2d').drawImage(imgEl, cropX, cropY, cropW, cropH, 0, 0, sendW, sendH);
+
+  const cropBlob = await new Promise(res => cropCanvas.toBlob(res, 'image/png'));
+  const file     = new File([cropBlob], 'mouth.png', { type: 'image/png' });
+
+  // Step 4: Send ONLY the mouth crop to gpt-image-1 — full creative force on teeth
+  updateProgress('Transforming your smile…', 35);
   const form = new FormData();
   form.append('model',  'gpt-image-1');
   form.append('image',  file);
@@ -1362,13 +1355,13 @@ async function generateSmile(dataUrl) {
   const data = await res.json();
   if (!data.data?.length) throw new Error('No image returned from OpenAI.');
 
-  const item  = data.data[0];
-  const aiUrl = item.b64_json ? `data:image/png;base64,${item.b64_json}` : item.url;
-  if (!aiUrl) throw new Error('Unexpected response format from OpenAI.');
+  const item      = data.data[0];
+  const aiCropUrl = item.b64_json ? `data:image/png;base64,${item.b64_json}` : item.url;
+  if (!aiCropUrl) throw new Error('Unexpected response format from OpenAI.');
 
-  // Delta composite: extract only changed pixels (teeth) from AI result.
+  // Step 5: Paste AI crop back onto original with feathered elliptical blend
   updateProgress('Compositing result…', 90);
-  return await compositeTeeth(dataUrl, aiUrl, bounds, W, H);
+  return await pasteCropWithFeather(dataUrl, aiCropUrl, cropX, cropY, cropW, cropH, W, H);
 }
 
 /* ── Progress messages ─────────────────────────────────────────── */
