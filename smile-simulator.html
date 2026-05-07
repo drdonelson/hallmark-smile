@@ -1288,6 +1288,16 @@ function whitenTeethCanvas(dataUrl, bounds) {
 }
 
 /* ── Smart assessment — GPT-4o decides which tool to use ────────── */
+function validateBounds(b) {
+  // Teeth must be in the lower half of the face, reasonable size
+  if (!b || typeof b.x !== 'number') return false;
+  if (b.y < 35 || b.y > 85)  return false; // teeth never near top or very bottom
+  if (b.w < 8  || b.w > 70)  return false; // width sanity
+  if (b.h < 3  || b.h > 35)  return false; // height sanity
+  if (b.x < 5  || b.x > 70)  return false; // x sanity
+  return true;
+}
+
 async function assessTeeth(dataUrl) {
   try {
     const res = await fetch(`${PROXY_URL}/v1/chat/completions`, {
@@ -1296,19 +1306,24 @@ async function assessTeeth(dataUrl) {
       body: JSON.stringify({
         model: 'gpt-4o',
         messages: [{ role: 'user', content: [
-          { type: 'image_url', image_url: { url: dataUrl, detail: 'low' } },
-          { type: 'text', text: 'Analyze the teeth in this photo. Return ONLY raw JSON (no markdown). Fields: "method" and "bounds" and "reason". IMPORTANT: default to "whiten" unless teeth are COMPLETELY missing or severely broken/chipped. Use "whiten" for: any staining, yellowing, spots, discoloration, crowding, spacing, minor gaps — basically any case where teeth are visible. Use "generate" ONLY if one or more teeth are entirely absent or severely broken stumps. "bounds": {"x":N,"y":N,"w":N,"h":N} bounding box of teeth region as % of image dimensions (x/y = top-left corner). "reason": one short sentence. Example: {"method":"whiten","bounds":{"x":31,"y":57,"w":38,"h":13},"reason":"Teeth visible, yellowing and spots present."}' }
+          { type: 'image_url', image_url: { url: dataUrl, detail: 'high' } },
+          { type: 'text', text: 'Look at the TEETH (not nose, not eyes — the actual tooth enamel surfaces inside the mouth). Return ONLY raw JSON. Fields: "method": use "whiten" if any teeth are visible regardless of staining/yellowing/spots/crowding; use "generate" ONLY if teeth are completely absent or severely broken stumps. "bounds": {"x":N,"y":N,"w":N,"h":N} pixel-precise bounding box of the TOOTH ENAMEL ONLY (not lips, not gums) as percentage of total image size. The teeth are always in the LOWER portion of a face — y will typically be between 55% and 80%. "reason": one short sentence. Example for stained teeth at lower face: {"method":"whiten","bounds":{"x":33,"y":63,"w":34,"h":11},"reason":"Visible teeth with yellowing."}' }
         ]}],
-        max_tokens: 100,
+        max_tokens: 120,
         temperature: 0
       })
     });
     const data = await res.json();
     const raw = (data.choices[0].message.content || '').trim().replace(/```[a-z]*/g,'').replace(/```/g,'');
-    return JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+
+    // Sanity-check bounds — if bad, use a safe fallback
+    if (!validateBounds(parsed.bounds)) {
+      parsed.bounds = { x: 28, y: 62, w: 44, h: 14 };
+    }
+    return parsed;
   } catch {
-    // Fallback: use AI generation if assessment fails
-    return { method: 'generate', bounds: { x: 30, y: 55, w: 40, h: 15 }, reason: 'fallback' };
+    return { method: 'whiten', bounds: { x: 28, y: 62, w: 44, h: 14 }, reason: 'fallback' };
   }
 }
 
