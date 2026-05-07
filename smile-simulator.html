@@ -1297,7 +1297,7 @@ async function assessTeeth(dataUrl) {
         model: 'gpt-4o',
         messages: [{ role: 'user', content: [
           { type: 'image_url', image_url: { url: dataUrl, detail: 'low' } },
-          { type: 'text', text: 'Analyze the teeth. Return ONLY raw JSON (no markdown). Fields: "method" ("whiten" if teeth are present and just need color improvement — staining, yellowing, spots, minor discoloration; OR "generate" if there are structural issues — missing teeth, broken teeth, large gaps, severe crowding/misalignment), "bounds" ({"x":N,"y":N,"w":N,"h":N} bounding box as % of image, x/y = top-left), "reason" (one short sentence). Example: {"method":"whiten","bounds":{"x":31,"y":57,"w":38,"h":13},"reason":"Teeth present with yellow staining only."}' }
+          { type: 'text', text: 'Analyze the teeth in this photo. Return ONLY raw JSON (no markdown). Fields: "method" and "bounds" and "reason". IMPORTANT: default to "whiten" unless teeth are COMPLETELY missing or severely broken/chipped. Use "whiten" for: any staining, yellowing, spots, discoloration, crowding, spacing, minor gaps — basically any case where teeth are visible. Use "generate" ONLY if one or more teeth are entirely absent or severely broken stumps. "bounds": {"x":N,"y":N,"w":N,"h":N} bounding box of teeth region as % of image dimensions (x/y = top-left corner). "reason": one short sentence. Example: {"method":"whiten","bounds":{"x":31,"y":57,"w":38,"h":13},"reason":"Teeth visible, yellowing and spots present."}' }
         ]}],
         max_tokens: 100,
         temperature: 0
