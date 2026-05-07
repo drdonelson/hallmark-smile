@@ -1354,8 +1354,12 @@ async function generateSmile(dataUrl) {
   const aiUrl = item.b64_json ? `data:image/png;base64,${item.b64_json}` : item.url;
   if (!aiUrl) throw new Error('Unexpected response format from OpenAI.');
 
-  // Composite: take only the teeth region from the AI result,
+  // DEBUG: return raw AI result to see what gpt-image-1 produces unmodified
+  return aiUrl;
+
+  // Composite: take only the mouth zone from the AI result,
   // paste it back onto the original — face is always 100% original pixels.
+  // eslint-disable-next-line no-unreachable
   updateProgress('Compositing result…', 90);
   return await compositeTeeth(dataUrl, aiUrl, bounds, W, H);
 }
