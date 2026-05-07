@@ -1229,12 +1229,12 @@ async function generateSmile(dataUrl) {
   const { width, height, resized: resizedUrl } = await resizeForAPI(dataUrl);
   const origImg = await loadImage(resizedUrl);
 
-  // Crop: lower-center of image — teeth, lips, chin, some cheek for context
+  // Crop: start just ABOVE the lips — keeps nose out of feather zone
   const portrait = height >= width;
-  const cx1 = Math.floor(0.10 * width);
-  const cy1 = Math.floor((portrait ? 0.45 : 0.38) * height);
-  const cw  = Math.floor(0.80 * width);
-  const ch  = Math.floor((portrait ? 0.46 : 0.54) * height);
+  const cx1 = Math.floor(0.08 * width);
+  const cy1 = Math.floor((portrait ? 0.55 : 0.48) * height);
+  const cw  = Math.floor(0.84 * width);
+  const ch  = Math.floor((portrait ? 0.40 : 0.48) * height);
 
   const cropC = document.createElement('canvas');
   cropC.width = cw; cropC.height = ch;
