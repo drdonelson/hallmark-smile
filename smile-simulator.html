@@ -1330,14 +1330,12 @@ async function generateSmile(dataUrl) {
   const file = new File([blob], 'photo.png', { type: 'image/png' });
 
   const form = new FormData();
-  form.append('model',           'gpt-image-1');
-  form.append('image',           file);
-  form.append('mask',            maskFile);
-  form.append('prompt',          SMILE_PROMPT);
-  form.append('n',               '1');
-  form.append('size',            'auto');
-  form.append('quality',         'high');
-  form.append('response_format', 'b64_json');
+  form.append('model',  'gpt-image-1');
+  form.append('image',  file);
+  form.append('mask',   maskFile);
+  form.append('prompt', SMILE_PROMPT);
+  form.append('n',      '1');
+  form.append('size',   'auto');
 
   const res = await fetch(`${PROXY_URL}/v1/images/edits`, {
     method: 'POST',
