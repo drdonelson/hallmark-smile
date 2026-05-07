@@ -1205,44 +1205,49 @@ function loadImage(src) {
   });
 }
 
-/* ── Composite AI mouth onto original face ─────────────────────── */
-// Strategy: draw original on top of AI result using a gradient that
-// fades from fully-opaque (top of image) to fully-transparent just
-// above the mouth zone. Everything above the fade = 100% original.
-// Everything in/below the mouth zone = 100% AI (dramatic smile).
-// Soft feather at the boundary makes it seamless.
+/* ── Composite AI smile onto original face ─────────────────────── */
+// gpt-image-1 is sent WITHOUT a mask so it generates dramatically.
+// We then composite only the smile ellipse from the AI back onto the
+// original — everything outside the ellipse stays 100% original pixels,
+// so cheeks, jaw, face shape are never touched.
 async function compositeTeeth(origUrl, aiUrl, bounds, origW, origH) {
   const [origImg, aiImg] = await Promise.all([loadImage(origUrl), loadImage(aiUrl)]);
 
+  // Scale AI result to original dimensions
+  const aiCanvas = document.createElement('canvas');
+  aiCanvas.width = origW; aiCanvas.height = origH;
+  const aiCtx = aiCanvas.getContext('2d');
+  aiCtx.drawImage(aiImg, 0, 0, origW, origH);
+
+  // Smile ellipse — centered on mouth zone, tapers at sides so cheeks stay original
+  const cx = ((bounds.x + bounds.w / 2) / 100) * origW;
+  const cy = ((bounds.y + bounds.h / 2) / 100) * origH;
+  const rx = (bounds.w / 100) * origW * 0.52;  // tight — just covers smile width
+  const ry = (bounds.h / 100) * origH * 0.62;  // taller to include open-smile chin area
+  const feather = Math.round(Math.min(rx, ry) * 0.28);
+
+  // Feathered ellipse mask
+  const maskCanvas = document.createElement('canvas');
+  maskCanvas.width = origW; maskCanvas.height = origH;
+  const mCtx = maskCanvas.getContext('2d');
+  mCtx.filter    = `blur(${feather}px)`;
+  mCtx.fillStyle = 'black';
+  mCtx.beginPath();
+  mCtx.ellipse(cx, cy, Math.max(rx - feather * 0.4, 1), Math.max(ry - feather * 0.4, 1), 0, 0, Math.PI * 2);
+  mCtx.fill();
+  mCtx.filter = 'none';
+
+  // Clip AI canvas to ellipse mask
+  aiCtx.globalCompositeOperation = 'destination-in';
+  aiCtx.drawImage(maskCanvas, 0, 0);
+  aiCtx.globalCompositeOperation = 'source-over';
+
+  // Final: original base + AI smile ellipse on top
   const out = document.createElement('canvas');
   out.width = origW; out.height = origH;
   const ctx = out.getContext('2d');
-
-  // Layer 1: AI result (full image, scaled to original dimensions)
-  ctx.drawImage(aiImg, 0, 0, origW, origH);
-
-  // Fade boundary: top of mouth zone, with a feather zone above it
-  const py      = (bounds.y / 100) * origH;
-  const ph      = (bounds.h / 100) * origH;
-  const feather = ph * 0.55; // tall fade so there's no hard line
-  const fadeTop = Math.max(0, py - feather);
-  const fadeBot = py + ph * 0.15; // blend ends just into the mouth zone
-
-  // Layer 2: original image masked by a vertical gradient
-  // Gradient goes opaque (original shows) → transparent (AI shows through)
-  const offscreen = document.createElement('canvas');
-  offscreen.width = origW; offscreen.height = origH;
-  const offCtx = offscreen.getContext('2d');
-  offCtx.drawImage(origImg, 0, 0, origW, origH);
-
-  const grad = offCtx.createLinearGradient(0, fadeTop, 0, fadeBot);
-  grad.addColorStop(0,   'rgba(0,0,0,1)');  // fully opaque → original visible
-  grad.addColorStop(1,   'rgba(0,0,0,0)');  // fully transparent → AI shows through
-  offCtx.globalCompositeOperation = 'destination-in';
-  offCtx.fillStyle = grad;
-  offCtx.fillRect(0, 0, origW, origH);
-
-  ctx.drawImage(offscreen, 0, 0);
+  ctx.drawImage(origImg, 0, 0, origW, origH);
+  ctx.drawImage(aiCanvas, 0, 0);
 
   return out.toDataURL('image/jpeg', 0.95);
 }
@@ -1313,13 +1318,9 @@ async function generateSmile(dataUrl) {
   const W = imgEl.naturalWidth;
   const H = imgEl.naturalHeight;
 
-  // Step 3: Build mask — transparent over teeth (AI edits here),
-  // opaque black everywhere else (AI preserves these pixels).
-  const maskDataUrl = buildTeethMask(W, H, bounds);
-  const maskBlob    = await fetch(maskDataUrl).then(r => r.blob());
-  const maskFile    = new File([maskBlob], 'mask.png', { type: 'image/png' });
-
-  // Step 4: Send full image + mask to OpenAI.
+  // Step 3: Send to gpt-image-1 WITHOUT a mask so it generates a
+  // dramatic Hollywood transformation freely. Compositing (step 4)
+  // ensures only the smile ellipse from the AI shows on the final image.
   updateProgress('Transforming your smile…', 35);
   const blob = await fetch(dataUrl).then(r => r.blob());
   const file = new File([blob], 'photo.png', { type: 'image/png' });
@@ -1327,7 +1328,6 @@ async function generateSmile(dataUrl) {
   const form = new FormData();
   form.append('model',  'gpt-image-1');
   form.append('image',  file);
-  form.append('mask',   maskFile);
   form.append('prompt', SMILE_PROMPT);
   form.append('n',      '1');
   form.append('size',   'auto');
