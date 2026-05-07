@@ -1226,7 +1226,7 @@ async function compositeTeeth(origUrl, aiUrl, bounds, origW, origH) {
   //   1. Changed a lot (delta > THRESH) — teeth transform dramatically
   //   2. Are bright in the AI result — teeth are white, skin/gums are not
   // Soft boundary: weight decays at box edges so there's no hard box seam.
-  const THRESH = 75;
+  const THRESH = 35;
   const edgeW  = (bx2 - bx1) * 0.12; // 12% soft fade at left/right edges
   const edgeH  = (by2 - by1) * 0.12; // 12% soft fade at top/bottom edges
 
