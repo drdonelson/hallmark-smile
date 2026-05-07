@@ -1220,140 +1220,73 @@ async function resizeForAPI(dataUrl, maxDim = 1536) {
   return { blob, width: nw, height: nh, resized };
 }
 
-/* ── Helper: ask GPT-4o where the teeth are ───────────────────── */
-async function detectTeeth(dataUrl) {
-  try {
-    const res = await fetch(`${PROXY_URL}/v1/chat/completions`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model:      'gpt-4o',
-        max_tokens: 120,
-        messages: [{
-          role: 'user',
-          content: [
-            {
-              type: 'text',
-              text: 'Locate the visible tooth surfaces (enamel only — not lips, not gums, not mouth corners) in this photo. Return ONLY a JSON object: {"x":0.0,"y":0.0,"w":0.0,"h":0.0} where x/y is the top-left corner and w/h are width/height of the tooth enamel region — all as fractions 0.0–1.0 of the image dimensions. Be tight: do not include surrounding skin, lips, or gum tissue. If no teeth are visible return {"noTeeth":true}.',
-            },
-            { type: 'image_url', image_url: { url: dataUrl, detail: 'high' } },
-          ],
-        }],
-      }),
-    });
-    const d    = await res.json();
-    const text = d.choices?.[0]?.message?.content || '';
-    const m    = text.match(/\{[^}]+\}/);
-    if (!m) return null;
-    const b = JSON.parse(m[0]);
-    if (b.noTeeth) return null;
-    const { x, y, w, h } = b;
-    if (typeof x !== 'number' || typeof y !== 'number') return null;
-    if (y < 0.2 || y > 0.92) return null; // sanity: must be in face
-    if (w < 0.03 || h < 0.01) return null; // too small
-    return { x, y, w, h };
-  } catch {
-    return null;
-  }
+/* ── Fixed anatomical teeth bounds for front-facing portrait photos ─ */
+// GPT-4o detection was unreliable (kept returning nose coords).
+// For dental marketing photos the face is always front-facing and centred.
+// These proportions work across typical selfies and professional headshots.
+function estimateTeethBounds(width, height) {
+  // Portrait: face fills frame, teeth in lower-center third
+  // Landscape or square: more conservative
+  const portrait = height >= width;
+  return {
+    x: portrait ? 0.28 : 0.32,
+    y: portrait ? 0.57 : 0.52,
+    w: portrait ? 0.44 : 0.36,
+    h: portrait ? 0.17 : 0.20,
+  };
 }
 
-
 /* ── Composite: original face + AI teeth (feathered ellipse blend) ─ */
-async function compositeTeethOnly(origDataUrl, aiDataUrl, bounds, width, height) {
+async function compositeTeethOnly(origDataUrl, aiDataUrl, width, height) {
   const [origImg, aiImg] = await Promise.all([
     loadImage(origDataUrl),
     loadImage(aiDataUrl),
   ]);
 
-  // ── Color-normalize the AI result to match original's overall tone ──
-  // Sample average RGB from a skin patch above the teeth in both images,
-  // then apply a per-channel scale so AI colours match original.
-  const sampleCanvas = document.createElement('canvas');
-  sampleCanvas.width = width; sampleCanvas.height = height;
-  const sc = sampleCanvas.getContext('2d');
+  const bounds = estimateTeethBounds(width, height);
 
-  // Sample region: strip above teeth (forehead/cheek area — unedited in both)
-  const sx = Math.round(bounds.x * width);
-  const sy = Math.round(Math.max(0, bounds.y - 0.22) * height);
-  const sw = Math.round(bounds.w * width);
-  const sh = Math.round(0.10 * height);
-
-  function avgRGB(img) {
-    sc.clearRect(0, 0, width, height);
-    sc.drawImage(img, 0, 0, width, height);
-    const px = sc.getImageData(sx, sy, Math.max(sw, 1), Math.max(sh, 1)).data;
-    let r = 0, g = 0, b = 0, n = 0;
-    for (let i = 0; i < px.length; i += 4) {
-      r += px[i]; g += px[i+1]; b += px[i+2]; n++;
-    }
-    return [r/n, g/n, b/n];
-  }
-
-  const [or, og, ob] = avgRGB(origImg);
-  const [ar, ag, ab] = avgRGB(aiImg);
-  // Scale factors — clamp to reasonable range so we don't over-correct
-  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-  const sr = clamp(or / (ar || 1), 0.85, 1.15);
-  const sg = clamp(og / (ag || 1), 0.85, 1.15);
-  const sb = clamp(ob / (ab || 1), 0.85, 1.15);
-
-  // Apply colour correction to the AI result on a temp canvas
-  const corrCanvas = document.createElement('canvas');
-  corrCanvas.width = width; corrCanvas.height = height;
-  const cc = corrCanvas.getContext('2d');
-  cc.drawImage(aiImg, 0, 0, width, height);
-  const id = cc.getImageData(0, 0, width, height);
-  const d  = id.data;
-  for (let i = 0; i < d.length; i += 4) {
-    d[i]   = Math.min(255, d[i]   * sr);
-    d[i+1] = Math.min(255, d[i+1] * sg);
-    d[i+2] = Math.min(255, d[i+2] * sb);
-  }
-  cc.putImageData(id, 0, 0);
-
-  // ── Build composite ─────────────────────────────────────────────
+  // Composite canvas — base is the original (face pixel-perfect)
   const canvas  = document.createElement('canvas');
   canvas.width  = width;
   canvas.height = height;
   const ctx     = canvas.getContext('2d');
-
-  // Base: original face (pixel-perfect)
   ctx.drawImage(origImg, 0, 0, width, height);
 
-  // Teeth ellipse — padding to absorb AI geometry shift
-  const padX = 0.04;
-  const padY = 0.045;
-  const x1  = Math.max(0, bounds.x - padX)            * width;
-  const y1  = Math.max(0, bounds.y - padY)             * height;
-  const x2  = Math.min(1, bounds.x + bounds.w + padX) * width;
-  const y2  = Math.min(1, bounds.y + bounds.h + padY) * height;
-  const cx  = (x1 + x2) / 2;
-  const cy  = (y1 + y2) / 2;
-  const rw  = (x2 - x1) / 2;
-  const rh  = (y2 - y1) / 2;
+  // Ellipse region — generous to absorb small AI geometry shifts
+  const padX = 0.05;
+  const padY = 0.04;
+  const x1 = Math.max(0, bounds.x - padX)            * width;
+  const y1 = Math.max(0, bounds.y - padY)             * height;
+  const x2 = Math.min(1, bounds.x + bounds.w + padX) * width;
+  const y2 = Math.min(1, bounds.y + bounds.h + padY) * height;
+  const cx = (x1 + x2) / 2;
+  const cy = (y1 + y2) / 2;
+  const rw = (x2 - x1) / 2;
+  const rh = (y2 - y1) / 2;
 
-  // Off-screen: colour-corrected AI + tight feathered ellipse mask
+  // Off-screen canvas: AI result masked to teeth ellipse only
   const off    = document.createElement('canvas');
   off.width    = width;
   off.height   = height;
   const offCtx = off.getContext('2d');
-  offCtx.drawImage(corrCanvas, 0, 0);   // colour-corrected AI
+  offCtx.drawImage(aiImg, 0, 0, width, height);
 
+  // Elliptical feather mask — scale context so arc becomes ellipse
   offCtx.save();
   offCtx.globalCompositeOperation = 'destination-in';
   offCtx.translate(cx, cy);
   offCtx.scale(rw, rh);
-  // Tighter gradient: opaque core fades sharply at edges
-  const grad = offCtx.createRadialGradient(0, 0, 0.45, 0, 0, 1.05);
+  const grad = offCtx.createRadialGradient(0, 0, 0.40, 0, 0, 1.0);
   grad.addColorStop(0,    'rgba(0,0,0,1)');
-  grad.addColorStop(0.70, 'rgba(0,0,0,1)');
+  grad.addColorStop(0.65, 'rgba(0,0,0,1)');
   grad.addColorStop(1,    'rgba(0,0,0,0)');
   offCtx.fillStyle = grad;
   offCtx.beginPath();
-  offCtx.arc(0, 0, 1.05, 0, Math.PI * 2);
+  offCtx.arc(0, 0, 1.0, 0, Math.PI * 2);
   offCtx.fill();
   offCtx.restore();
 
+  // Paint AI teeth patch over original face
   ctx.drawImage(off, 0, 0);
   return canvas.toDataURL('image/png');
 }
@@ -1362,15 +1295,11 @@ async function compositeTeethOnly(origDataUrl, aiDataUrl, bounds, width, height)
 async function generateSmile(dataUrl) {
   updateProgress('Analyzing your smile…', 15);
 
-  // Resize image for API consistency
+  // Resize image for consistent API dimensions
   const { blob: imgBlob, width, height, resized } = await resizeForAPI(dataUrl);
 
-  // Detect teeth in resized image (used for compositing, not masking)
-  updateProgress('Locating teeth…', 28);
-  const bounds = await detectTeeth(resized);
-
-  // Send full image — no mask — lets AI make dramatic teeth changes
-  updateProgress('Designing your new smile…', 45);
+  // Send full image — no mask — lets AI produce dramatic teeth changes
+  updateProgress('Designing your new smile…', 35);
   const form = new FormData();
   form.append('model',   'gpt-image-1');
   form.append('image',   new File([imgBlob], 'photo.png', { type: 'image/png' }));
@@ -1379,7 +1308,7 @@ async function generateSmile(dataUrl) {
   form.append('size',    'auto');
   form.append('quality', 'high');
 
-  updateProgress('Transforming your smile…', 60);
+  updateProgress('Transforming your smile…', 55);
 
   const res = await fetch(`${PROXY_URL}/v1/images/edits`, {
     method: 'POST',
@@ -1400,14 +1329,9 @@ async function generateSmile(dataUrl) {
   else if (item.url)  aiUrl = item.url;
   else throw new Error('Unexpected response format from OpenAI.');
 
-  // If we found teeth bounds → composite: keep AI teeth, restore original face
-  if (bounds) {
-    updateProgress('Preserving your face…', 88);
-    return await compositeTeethOnly(resized, aiUrl, bounds, width, height);
-  }
-
-  // Fallback: return raw AI result (missing teeth case — face change acceptable)
-  return aiUrl;
+  // Composite: paste original face back over AI result, keep AI only in teeth zone
+  updateProgress('Preserving your face…', 88);
+  return await compositeTeethOnly(resized, aiUrl, width, height);
 }
 
 /* ── Progress messages ─────────────────────────────────────────── */
