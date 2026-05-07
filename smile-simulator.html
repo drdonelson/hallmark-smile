@@ -1217,19 +1217,67 @@ async function resizeForAPI(dataUrl, maxDim = 1536) {
   return { blob, width: nw, height: nh, resized };
 }
 
-/* ── Fixed anatomical teeth bounds for front-facing portrait photos ─ */
-// GPT-4o detection was unreliable (kept returning nose coords).
-// For dental marketing photos the face is always front-facing and centred.
-/* ── Main generation flow — crop-and-paste ─────────────────────── */
-// Crop mouth area → send crop to AI → paste back at EXACT same pixel coords.
-// No coordinate mismatch. Feathered box edges hide the seam seamlessly.
-async function generateSmile(dataUrl) {
-  updateProgress('Analyzing your smile…', 15);
+/* ── HSL helpers ───────────────────────────────────────────────── */
+function rgbToHsl(r,g,b){r/=255;g/=255;b/=255;const max=Math.max(r,g,b),min=Math.min(r,g,b);let h,s,l=(max+min)/2;if(max===min){h=s=0;}else{const d=max-min;s=l>.5?d/(2-max-min):d/(max+min);switch(max){case r:h=((g-b)/d+(g<b?6:0))/6;break;case g:h=((b-r)/d+2)/6;break;default:h=((r-g)/d+4)/6;}}return[h,s,l];}
+function hslToRgb(h,s,l){if(s===0){const v=Math.round(l*255);return[v,v,v];}const q=l<.5?l*(1+s):l+s-l*s,p=2*l-q,f=t=>{if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return p+(q-p)*6*t;if(t<1/2)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p;};return[Math.round(f(h+1/3)*255),Math.round(f(h)*255),Math.round(f(h-1/3)*255)];}
 
-  const { width, height, resized: resizedUrl } = await resizeForAPI(dataUrl);
-  const origImg = await loadImage(resizedUrl);
+/* ── Poll fal.ai queue via our kling/status proxy ─────────────── */
+async function pollFal(statusUrl, maxWait = 90000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < maxWait) {
+    await new Promise(r => setTimeout(r, 2500));
+    const r = await fetch(`${PROXY_URL}/api/kling/status?falUrl=${encodeURIComponent(statusUrl)}`);
+    const d = await r.json();
+    if (d.status === 'COMPLETED') return d;
+    if (d.status === 'FAILED') throw new Error('SAM failed: ' + JSON.stringify(d));
+  }
+  throw new Error('SAM timed out');
+}
 
-  // Crop: start just ABOVE the lips — keeps nose out of feather zone
+/* ── Path 1: SAM pixel-exact segmentation + HSL whitening ─────── */
+async function samWhitenTeeth(resizedUrl, width, height) {
+  const startRes = await fetch(`${PROXY_URL}/api/sam/start`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ image: resizedUrl, width, height }),
+  });
+  const startData = await startRes.json();
+  if (!startData.status_url) return null;  // SAM unavailable
+
+  updateProgress('Segmenting teeth…', 50);
+  const result   = await pollFal(startData.status_url);
+  const maskUrl  = result.output?.masks?.[0]?.url || result.output?.image?.url;
+  if (!maskUrl) return null;
+
+  const [origImg, maskImg] = await Promise.all([loadImage(resizedUrl), loadImage(maskUrl)]);
+
+  const c = document.createElement('canvas');
+  c.width = width; c.height = height;
+  const ctx = c.getContext('2d');
+
+  // Count mask pixels — if too sparse, SAM missed the teeth
+  ctx.drawImage(maskImg, 0, 0, width, height);
+  const mPx = ctx.getImageData(0, 0, width, height).data;
+  let white = 0;
+  for (let i = 0; i < mPx.length; i += 4) if (mPx[i] > 128) white++;
+  if (white < 400) return null;
+
+  // Whiten only masked pixels
+  ctx.drawImage(origImg, 0, 0, width, height);
+  const id = ctx.getImageData(0, 0, width, height);
+  const d  = id.data;
+  for (let i = 0; i < d.length; i += 4) {
+    if (mPx[i] < 128) continue;
+    const [h, s, l] = rgbToHsl(d[i], d[i+1], d[i+2]);
+    const [r, g, b] = hslToRgb(h, s * 0.08, Math.min(0.96, l + (0.96-l)*0.90));
+    d[i]=r; d[i+1]=g; d[i+2]=b;
+  }
+  ctx.putImageData(id, 0, 0);
+  return c.toDataURL('image/png');
+}
+
+/* ── Path 2: gpt-image-1 crop-and-paste (missing/broken teeth) ── */
+async function gptCropPaste(resizedUrl, width, height, origImg) {
   const portrait = height >= width;
   const cx1 = Math.floor(0.08 * width);
   const cy1 = Math.floor((portrait ? 0.55 : 0.48) * height);
@@ -1241,65 +1289,58 @@ async function generateSmile(dataUrl) {
   cropC.getContext('2d').drawImage(origImg, -cx1, -cy1, width, height);
   const cropBlob = await new Promise(r => cropC.toBlob(r, 'image/png'));
 
-  // Send crop only — AI sees mouth, not full face → less temptation to touch skin
-  updateProgress('Transforming your smile…', 40);
   const form = new FormData();
-  form.append('model',   'gpt-image-1');
-  form.append('image',   new File([cropBlob], 'mouth.png', { type: 'image/png' }));
-  form.append('prompt',  SMILE_PROMPT);
-  form.append('n',       '1');
-  form.append('size',    'auto');
-  form.append('quality', 'high');
+  form.append('model','gpt-image-1'); form.append('image',new File([cropBlob],'mouth.png',{type:'image/png'}));
+  form.append('prompt',SMILE_PROMPT); form.append('n','1'); form.append('size','auto'); form.append('quality','high');
 
-  const res = await fetch(`${PROXY_URL}/v1/images/edits`, { method: 'POST', body: form });
-  if (!res.ok) {
-    const t = await res.text().catch(() => '');
-    throw new Error(`Image generation failed (${res.status}): ${t}`);
-  }
-  const data = await res.json();
-  if (!data.data?.length) throw new Error('No image returned from OpenAI.');
-  const item = data.data[0];
-  let aiCropUrl;
-  if (item.b64_json) aiCropUrl = `data:image/png;base64,${item.b64_json}`;
-  else if (item.url)  aiCropUrl = item.url;
-  else throw new Error('Unexpected response format from OpenAI.');
+  const res = await fetch(`${PROXY_URL}/v1/images/edits`,{method:'POST',body:form});
+  if(!res.ok){const t=await res.text().catch(()=>'');throw new Error(`GPT (${res.status}): ${t}`);}
+  const data=await res.json();
+  if(!data.data?.length)throw new Error('No image from OpenAI.');
+  const item=data.data[0];
+  const aiUrl=item.b64_json?`data:image/png;base64,${item.b64_json}`:item.url;
 
-  updateProgress('Compositing…', 85);
-  const aiCropImg = await loadImage(aiCropUrl);
+  const aiImg=await loadImage(aiUrl);
+  const canvas=document.createElement('canvas');
+  canvas.width=width; canvas.height=height;
+  const ctx=canvas.getContext('2d');
+  ctx.drawImage(origImg,0,0,width,height);
 
-  // Composite: original base + AI crop pasted at exact original coordinates
-  const canvas = document.createElement('canvas');
-  canvas.width = width; canvas.height = height;
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(origImg, 0, 0, width, height);   // original face — pixel-perfect base
-
-  // Off-screen: AI crop with feathered box edges (hides seam at crop boundary)
-  const off    = document.createElement('canvas');
-  off.width    = cw; off.height = ch;
-  const offCtx = off.getContext('2d');
-  offCtx.drawImage(aiCropImg, 0, 0, cw, ch);
-
-  // Box feather mask: opaque center → transparent at each edge
-  const fade = Math.min(60, Math.floor(cw * 0.09), Math.floor(ch * 0.13));
-  const msk  = document.createElement('canvas');
-  msk.width  = cw; msk.height = ch;
-  const mCtx = msk.getContext('2d');
-  mCtx.fillStyle = 'black';
-  mCtx.fillRect(0, 0, cw, ch);
-  mCtx.globalCompositeOperation = 'destination-out';
-  [[0,0,fade,0, 0,0,fade,ch],[cw,0,cw-fade,0, cw-fade,0,fade,ch],
-   [0,0,0,fade, 0,0,cw,fade],[0,ch,0,ch-fade, 0,ch-fade,cw,fade]]
-  .forEach(([gx1,gy1,gx2,gy2,rx,ry,rw2,rh2]) => {
-    const g = mCtx.createLinearGradient(gx1,gy1,gx2,gy2);
-    g.addColorStop(0,'black'); g.addColorStop(1,'transparent');
-    mCtx.fillStyle = g; mCtx.fillRect(rx,ry,rw2,rh2);
+  const off=document.createElement('canvas'); off.width=cw; off.height=ch;
+  const oCtx=off.getContext('2d'); oCtx.drawImage(aiImg,0,0,cw,ch);
+  const fade=Math.min(60,Math.floor(cw*.09),Math.floor(ch*.13));
+  const msk=document.createElement('canvas'); msk.width=cw; msk.height=ch;
+  const mCtx=msk.getContext('2d');
+  mCtx.fillStyle='black'; mCtx.fillRect(0,0,cw,ch);
+  mCtx.globalCompositeOperation='destination-out';
+  [[0,0,fade,0,0,0,fade,ch],[cw,0,cw-fade,0,cw-fade,0,fade,ch],
+   [0,0,0,fade,0,0,cw,fade],[0,ch,0,ch-fade,0,ch-fade,cw,fade]]
+  .forEach(([gx1,gy1,gx2,gy2,rx,ry,rw2,rh2])=>{
+    const g=mCtx.createLinearGradient(gx1,gy1,gx2,gy2);
+    g.addColorStop(0,'black');g.addColorStop(1,'transparent');
+    mCtx.fillStyle=g;mCtx.fillRect(rx,ry,rw2,rh2);
   });
-  offCtx.globalCompositeOperation = 'destination-in';
-  offCtx.drawImage(msk, 0, 0);
-
-  // Paste AI teeth at exact original crop coordinates — zero guessing
-  ctx.drawImage(off, cx1, cy1);
+  oCtx.globalCompositeOperation='destination-in'; oCtx.drawImage(msk,0,0);
+  ctx.drawImage(off,cx1,cy1);
   return canvas.toDataURL('image/png');
+}
+
+/* ── Main generation flow ──────────────────────────────────────── */
+async function generateSmile(dataUrl) {
+  updateProgress('Analyzing your smile…', 15);
+  const { width, height, resized: resizedUrl } = await resizeForAPI(dataUrl);
+  const origImg = await loadImage(resizedUrl);
+
+  // Path 1: SAM → pixel-exact whitening (no face contact whatsoever)
+  try {
+    updateProgress('Segmenting teeth…', 25);
+    const samResult = await samWhitenTeeth(resizedUrl, width, height);
+    if (samResult) return samResult;
+  } catch(e) { console.warn('SAM fallback:', e.message); }
+
+  // Path 2: gpt-image-1 crop-and-paste (missing/broken teeth, or SAM unavailable)
+  updateProgress('Transforming your smile…', 35);
+  return gptCropPaste(resizedUrl, width, height, origImg);
 }
 
 /* ── Progress messages ─────────────────────────────────────────── */

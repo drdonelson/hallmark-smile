@@ -209,6 +209,89 @@ async function handleVideoStatus(request, env, origin) {
   });
 }
 
+// --- SAM: Segment teeth pixels from image ---
+// Uploads image to fal storage, runs SAM2 with a box prompt around the teeth zone,
+// returns the queue response (status_url / response_url) for the client to poll.
+async function handleSAMStart(request, env, origin) {
+  let body;
+  try { body = await request.json(); } catch {
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+
+  const { image, width, height } = body;
+  if (!image || !width || !height) {
+    return new Response(JSON.stringify({ error: 'Missing image, width or height' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+
+  // Step 1: Upload base64 image to fal.ai storage to get a public URL
+  let imageUrl;
+  try {
+    const base64 = image.replace(/^data:image\/\w+;base64,/, '');
+    const binary  = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+    const uploadRes = await fetch('https://fal.run/fal-ai/storage/upload', {
+      method:  'POST',
+      headers: {
+        'Authorization':       `Key ${env.FAL_API_KEY}`,
+        'Content-Type':        'image/png',
+        'Content-Disposition': 'attachment; filename="photo.png"',
+      },
+      body: binary,
+    });
+    const uploadData = await uploadRes.json();
+    imageUrl = uploadData.url;
+  } catch (err) {
+    return new Response(JSON.stringify({ error: 'Storage upload failed: ' + err.message }), {
+      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+
+  if (!imageUrl) {
+    return new Response(JSON.stringify({ error: 'No URL returned from storage upload' }), {
+      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+
+  // Step 2: Submit SAM2 segmentation job with box prompt around teeth zone
+  // Box covers lower-center face: teeth are typically in this region for portraits
+  const bx1 = Math.round(width  * 0.18);
+  const by1 = Math.round(height * 0.57);
+  const bx2 = Math.round(width  * 0.82);
+  const by2 = Math.round(height * 0.84);
+  const px  = Math.round(width  * 0.50);
+  const py  = Math.round(height * 0.68);
+
+  try {
+    const samRes = await fetch('https://queue.fal.run/fal-ai/sam2/image', {
+      method:  'POST',
+      headers: {
+        'Authorization': `Key ${env.FAL_API_KEY}`,
+        'Content-Type':  'application/json',
+      },
+      body: JSON.stringify({
+        image_url:            imageUrl,
+        box_prompts:          [[bx1, by1, bx2, by2]],
+        point_prompts:        [[px, py, 1]],
+        return_multiple_masks: false,
+      }),
+    });
+    const text = await samRes.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = { error: text }; }
+    return new Response(JSON.stringify(data), {
+      status:  samRes.status,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+}
+
 // --- Main handler ---
 export default {
   async fetch(request, env) {
@@ -228,6 +311,11 @@ export default {
     }
 
     const url = new URL(request.url);
+
+    // SAM teeth segmentation
+    if (url.pathname === '/api/sam/start' && request.method === 'POST') {
+      return handleSAMStart(request, env, origin);
+    }
 
     // Kling / fal.ai video endpoints
     if (url.pathname === '/api/kling/start' && request.method === 'POST') {
