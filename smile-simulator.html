@@ -1192,51 +1192,59 @@ function loadImage(src) {
   });
 }
 
-/* ── Composite AI smile onto original face ─────────────────────── */
-// gpt-image-1 is sent WITHOUT a mask so it generates dramatically.
-// We then composite only the smile ellipse from the AI back onto the
-// original — everything outside the ellipse stays 100% original pixels,
-// so cheeks, jaw, face shape are never touched.
+/* ── Delta composite — content-aware teeth swap ────────────────── */
+// For every pixel inside the mouth zone bounding box:
+//   blend weight = how much the AI changed that pixel (0=unchanged→original, 1=big change→AI)
+// Outside the box: always original.
+// This means teeth pixels (dramatically whitened) come from AI,
+// lip/skin/gum pixels (barely changed) stay original — no geometric seam.
 async function compositeTeeth(origUrl, aiUrl, bounds, origW, origH) {
   const [origImg, aiImg] = await Promise.all([loadImage(origUrl), loadImage(aiUrl)]);
 
-  // Scale AI result to original dimensions
-  const aiCanvas = document.createElement('canvas');
-  aiCanvas.width = origW; aiCanvas.height = origH;
-  const aiCtx = aiCanvas.getContext('2d');
-  aiCtx.drawImage(aiImg, 0, 0, origW, origH);
+  // Draw both to canvases at original dimensions
+  function toCanvas(img) {
+    const c = document.createElement('canvas');
+    c.width = origW; c.height = origH;
+    c.getContext('2d').drawImage(img, 0, 0, origW, origH);
+    return c;
+  }
+  const origC = toCanvas(origImg);
+  const aiC   = toCanvas(aiImg);
+  const origD = origC.getContext('2d').getImageData(0, 0, origW, origH).data;
+  const aiD   = aiC.getContext('2d').getImageData(0, 0, origW, origH).data;
 
-  // Smile ellipse — centered on mouth zone, tapers at sides so cheeks stay original
-  const cx = ((bounds.x + bounds.w / 2) / 100) * origW;
-  const cy = ((bounds.y + bounds.h / 2) / 100) * origH;
-  const rx = (bounds.w / 100) * origW * 0.52;  // tight — just covers smile width
-  const ry = (bounds.h / 100) * origH * 0.62;  // taller to include open-smile chin area
-  const feather = Math.round(Math.min(rx, ry) * 0.28);
+  // Mouth zone pixel bounds — expand slightly beyond detected region
+  const pad = 0.03; // 3% padding
+  const bx1 = Math.max(0,     Math.floor(((bounds.x - pad * 100) / 100) * origW));
+  const by1 = Math.max(0,     Math.floor(((bounds.y - pad * 100) / 100) * origH));
+  const bx2 = Math.min(origW, Math.ceil( ((bounds.x + bounds.w + pad * 100) / 100) * origW));
+  const by2 = Math.min(origH, Math.ceil( ((bounds.y + bounds.h + pad * 100) / 100) * origH));
 
-  // Feathered ellipse mask
-  const maskCanvas = document.createElement('canvas');
-  maskCanvas.width = origW; maskCanvas.height = origH;
-  const mCtx = maskCanvas.getContext('2d');
-  mCtx.filter    = `blur(${feather}px)`;
-  mCtx.fillStyle = 'black';
-  mCtx.beginPath();
-  mCtx.ellipse(cx, cy, Math.max(rx - feather * 0.4, 1), Math.max(ry - feather * 0.4, 1), 0, 0, Math.PI * 2);
-  mCtx.fill();
-  mCtx.filter = 'none';
+  const out = new Uint8ClampedArray(origD); // start as copy of original
 
-  // Clip AI canvas to ellipse mask
-  aiCtx.globalCompositeOperation = 'destination-in';
-  aiCtx.drawImage(maskCanvas, 0, 0);
-  aiCtx.globalCompositeOperation = 'source-over';
+  // Threshold: delta > THRESH means "this pixel was a tooth" → use AI
+  // Lower = more pixels from AI; higher = fewer, more conservative
+  const THRESH = 40; // out of 255
 
-  // Final: original base + AI smile ellipse on top
-  const out = document.createElement('canvas');
-  out.width = origW; out.height = origH;
-  const ctx = out.getContext('2d');
-  ctx.drawImage(origImg, 0, 0, origW, origH);
-  ctx.drawImage(aiCanvas, 0, 0);
+  for (let y = by1; y < by2; y++) {
+    for (let x = bx1; x < bx2; x++) {
+      const i = (y * origW + x) * 4;
+      const dr = Math.abs(aiD[i]   - origD[i]);
+      const dg = Math.abs(aiD[i+1] - origD[i+1]);
+      const db = Math.abs(aiD[i+2] - origD[i+2]);
+      const delta = (dr + dg + db) / 3;
+      // Smooth ramp from 0→1 over [THRESH, THRESH*3]
+      const w = Math.min(Math.max((delta - THRESH) / (THRESH * 2), 0), 1);
+      out[i]   = origD[i]   * (1 - w) + aiD[i]   * w;
+      out[i+1] = origD[i+1] * (1 - w) + aiD[i+1] * w;
+      out[i+2] = origD[i+2] * (1 - w) + aiD[i+2] * w;
+    }
+  }
 
-  return out.toDataURL('image/jpeg', 0.95);
+  const result = document.createElement('canvas');
+  result.width = origW; result.height = origH;
+  result.getContext('2d').putImageData(new ImageData(out, origW, origH), 0, 0);
+  return result.toDataURL('image/jpeg', 0.95);
 }
 
 /* ── Teeth detection + mask generation ─────────────────────────── */
@@ -1305,14 +1313,8 @@ async function generateSmile(dataUrl) {
   const W = imgEl.naturalWidth;
   const H = imgEl.naturalHeight;
 
-  // Step 3: Build mask — transparent = mouth zone (AI transforms here),
-  // opaque black = everything else (AI must not touch).
-  const maskDataUrl = buildTeethMask(W, H, bounds);
-  const maskBlob    = await fetch(maskDataUrl).then(r => r.blob());
-  const maskFile    = new File([maskBlob], 'mask.png', { type: 'image/png' });
-
-  // Step 4: Convert image to true PNG (not JPEG-in-PNG-wrapper) so the
-  // mask alpha channel is interpreted correctly by gpt-image-1.
+  // Step 3: Send WITHOUT mask so gpt-image-1 generates dramatically.
+  // Delta compositing (step 4) extracts only changed teeth pixels.
   updateProgress('Transforming your smile…', 35);
   const pngCanvas = document.createElement('canvas');
   pngCanvas.width = W; pngCanvas.height = H;
@@ -1323,7 +1325,6 @@ async function generateSmile(dataUrl) {
   const form = new FormData();
   form.append('model',  'gpt-image-1');
   form.append('image',  file);
-  form.append('mask',   maskFile);
   form.append('prompt', SMILE_PROMPT);
   form.append('n',      '1');
   form.append('size',   'auto');
@@ -1345,8 +1346,9 @@ async function generateSmile(dataUrl) {
   const aiUrl = item.b64_json ? `data:image/png;base64,${item.b64_json}` : item.url;
   if (!aiUrl) throw new Error('Unexpected response format from OpenAI.');
 
-  // Return the result directly — the mask already locks the face.
-  return aiUrl;
+  // Delta composite: extract only changed pixels (teeth) from AI result.
+  updateProgress('Compositing result…', 90);
+  return await compositeTeeth(dataUrl, aiUrl, bounds, W, H);
 }
 
 /* ── Progress messages ─────────────────────────────────────────── */
