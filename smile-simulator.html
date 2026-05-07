@@ -1205,49 +1205,44 @@ function loadImage(src) {
   });
 }
 
-/* ── Composite AI teeth onto original face ─────────────────────── */
-// The AI result may be a different size than the original.
-// We scale it to match, then blend only the teeth ellipse region
-// back onto the original, so the face is always 100% original pixels.
+/* ── Composite AI mouth onto original face ─────────────────────── */
+// Strategy: draw original on top of AI result using a gradient that
+// fades from fully-opaque (top of image) to fully-transparent just
+// above the mouth zone. Everything above the fade = 100% original.
+// Everything in/below the mouth zone = 100% AI (dramatic smile).
+// Soft feather at the boundary makes it seamless.
 async function compositeTeeth(origUrl, aiUrl, bounds, origW, origH) {
   const [origImg, aiImg] = await Promise.all([loadImage(origUrl), loadImage(aiUrl)]);
 
-  // Scale AI result to original dimensions
-  const aiCanvas = document.createElement('canvas');
-  aiCanvas.width = origW; aiCanvas.height = origH;
-  const aiCtx = aiCanvas.getContext('2d');
-  aiCtx.drawImage(aiImg, 0, 0, origW, origH);
-
-  // Mouth zone geometry (matches buildTeethMask)
-  const px = (bounds.x / 100) * origW;
-  const py = (bounds.y / 100) * origH;
-  const pw = (bounds.w / 100) * origW;
-  const ph = (bounds.h / 100) * origH;
-
-  // Feathered mask — blur a rounded rect to get a soft edge over the mouth zone
-  const feather = Math.round(Math.min(pw, ph) * 0.12);
-  const radius  = Math.min(pw, ph) * 0.35;
-  const maskCanvas = document.createElement('canvas');
-  maskCanvas.width = origW; maskCanvas.height = origH;
-  const mCtx = maskCanvas.getContext('2d');
-  mCtx.filter    = `blur(${feather}px)`;
-  mCtx.fillStyle = 'black';
-  mCtx.beginPath();
-  mCtx.roundRect(px + feather * 0.5, py + feather * 0.5, Math.max(pw - feather, 1), Math.max(ph - feather, 1), radius);
-  mCtx.fill();
-  mCtx.filter = 'none';
-
-  // Clip AI image to feathered mask
-  aiCtx.globalCompositeOperation = 'destination-in';
-  aiCtx.drawImage(maskCanvas, 0, 0);
-  aiCtx.globalCompositeOperation = 'source-over';
-
-  // Composite: original base + AI teeth on top
   const out = document.createElement('canvas');
   out.width = origW; out.height = origH;
   const ctx = out.getContext('2d');
-  ctx.drawImage(origImg, 0, 0, origW, origH);
-  ctx.drawImage(aiCanvas, 0, 0);
+
+  // Layer 1: AI result (full image, scaled to original dimensions)
+  ctx.drawImage(aiImg, 0, 0, origW, origH);
+
+  // Fade boundary: top of mouth zone, with a feather zone above it
+  const py      = (bounds.y / 100) * origH;
+  const ph      = (bounds.h / 100) * origH;
+  const feather = ph * 0.55; // tall fade so there's no hard line
+  const fadeTop = Math.max(0, py - feather);
+  const fadeBot = py + ph * 0.15; // blend ends just into the mouth zone
+
+  // Layer 2: original image masked by a vertical gradient
+  // Gradient goes opaque (original shows) → transparent (AI shows through)
+  const offscreen = document.createElement('canvas');
+  offscreen.width = origW; offscreen.height = origH;
+  const offCtx = offscreen.getContext('2d');
+  offCtx.drawImage(origImg, 0, 0, origW, origH);
+
+  const grad = offCtx.createLinearGradient(0, fadeTop, 0, fadeBot);
+  grad.addColorStop(0,   'rgba(0,0,0,1)');  // fully opaque → original visible
+  grad.addColorStop(1,   'rgba(0,0,0,0)');  // fully transparent → AI shows through
+  offCtx.globalCompositeOperation = 'destination-in';
+  offCtx.fillStyle = grad;
+  offCtx.fillRect(0, 0, origW, origH);
+
+  ctx.drawImage(offscreen, 0, 0);
 
   return out.toDataURL('image/jpeg', 0.95);
 }
@@ -1354,12 +1349,8 @@ async function generateSmile(dataUrl) {
   const aiUrl = item.b64_json ? `data:image/png;base64,${item.b64_json}` : item.url;
   if (!aiUrl) throw new Error('Unexpected response format from OpenAI.');
 
-  // DEBUG: return raw AI result to see what gpt-image-1 produces unmodified
-  return aiUrl;
-
-  // Composite: take only the mouth zone from the AI result,
-  // paste it back onto the original — face is always 100% original pixels.
-  // eslint-disable-next-line no-unreachable
+  // Composite: take the mouth zone from the dramatic AI result,
+  // lock everything above onto the original face pixels.
   updateProgress('Compositing result…', 90);
   return await compositeTeeth(dataUrl, aiUrl, bounds, W, H);
 }
