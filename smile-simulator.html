@@ -1224,6 +1224,25 @@ async function resizeForAPI(dataUrl, maxDim = 1536) {
 function rgbToHsl(r,g,b){r/=255;g/=255;b/=255;const max=Math.max(r,g,b),min=Math.min(r,g,b);let h,s,l=(max+min)/2;if(max===min){h=s=0;}else{const d=max-min;s=l>.5?d/(2-max-min):d/(max+min);switch(max){case r:h=((g-b)/d+(g<b?6:0))/6;break;case g:h=((b-r)/d+2)/6;break;default:h=((r-g)/d+4)/6;}}return[h,s,l];}
 function hslToRgb(h,s,l){if(s===0){const v=Math.round(l*255);return[v,v,v];}const q=l<.5?l*(1+s):l+s-l*s,p=2*l-q,f=t=>{if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return p+(q-p)*6*t;if(t<1/2)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p;};return[Math.round(f(h+1/3)*255),Math.round(f(h)*255),Math.round(f(h-1/3)*255)];}
 
+/* ── Poll RunPod job until complete ───────────────────────────── */
+async function pollRunpod(jobId, timeoutMs = 300000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    await new Promise(r => setTimeout(r, 4000));
+    const res  = await fetch(`${PROXY_URL}/api/runpod/status?jobId=${encodeURIComponent(jobId)}`);
+    const data = await res.json();
+    const status = data.status;
+    if (status === 'COMPLETED') {
+      // runpod/worker-comfyui returns output.images array with base64
+      const imgs = data.output?.images;
+      if (!imgs?.length) throw new Error('No images in RunPod output');
+      return `data:image/png;base64,${imgs[0].image}`;
+    }
+    if (status === 'FAILED') throw new Error('RunPod job failed: ' + JSON.stringify(data.error));
+  }
+  throw new Error('RunPod job timed out');
+}
+
 /* ── Poll fal.ai queue via our kling/status proxy ─────────────── */
 async function pollFal(statusUrl, maxWait = 180000) {
   const t0 = Date.now();
@@ -1464,35 +1483,55 @@ async function generateSmile(dataUrl) {
   updateProgress('Analyzing your smile…', 15);
   const { width, height, resized: resizedUrl } = await resizeForAPI(dataUrl);
 
-  // --- Primary: FLUX Pro Fill inpainting ---
+  // Build the tooth mask (shared by all AI paths)
+  updateProgress('Building tooth mask…', 25);
+  const origImg = await loadImage(resizedUrl);
+  const c       = document.createElement('canvas');
+  c.width = width; c.height = height;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(origImg, 0, 0, width, height);
+  const id = ctx.getImageData(0, 0, width, height);
+
+  const toothMask = buildToothMask(id.data, width, height);
+  if (!toothMask) throw new Error('Could not detect teeth. Please use a photo with a clear, open smile.');
+
+  // White-on-black mask PNG (white = inpaint here)
+  const maskC = document.createElement('canvas');
+  maskC.width = width; maskC.height = height;
+  const mCtx = maskC.getContext('2d');
+  const mId  = mCtx.createImageData(width, height);
+  const md   = mId.data;
+  for (let i = 0; i < toothMask.length; i++) {
+    const p = i * 4;
+    const v = toothMask[i] ? 255 : 0;
+    md[p]=v; md[p+1]=v; md[p+2]=v; md[p+3]=255;
+  }
+  mCtx.putImageData(mId, 0, 0);
+
+  const image = c.toDataURL('image/png');
+  const mask  = maskC.toDataURL('image/png');
+
+  // --- Primary: RunPod ComfyUI dental workflow ---
   try {
-    updateProgress('Building tooth mask…', 30);
-    const origImg = await loadImage(resizedUrl);
-    const c       = document.createElement('canvas');
-    c.width = width; c.height = height;
-    const ctx = c.getContext('2d');
-    ctx.drawImage(origImg, 0, 0, width, height);
-    const id = ctx.getImageData(0, 0, width, height);
+    updateProgress('Transforming your smile…', 40);
+    const startRes  = await fetch(`${PROXY_URL}/api/runpod/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image, mask }),
+    });
+    const startData = await startRes.json();
+    if (startData.error) throw new Error(startData.error);
+    if (!startData.id) throw new Error('No job ID from RunPod: ' + JSON.stringify(startData));
 
-    const toothMask = buildToothMask(id.data, width, height);
-    if (!toothMask) throw new Error('No teeth detected');
+    updateProgress('Applying Hollywood smile…', 55);
+    const resultUrl = await pollRunpod(startData.id);
+    return resultUrl;
+  } catch(e) {
+    console.warn('RunPod path failed, trying FLUX:', e.message);
+  }
 
-    // White-on-black mask for FLUX convention (white = inpaint here)
-    const maskC = document.createElement('canvas');
-    maskC.width = width; maskC.height = height;
-    const mCtx = maskC.getContext('2d');
-    const mId  = mCtx.createImageData(width, height);
-    const md   = mId.data;
-    for (let i = 0; i < toothMask.length; i++) {
-      const p = i * 4;
-      const v = toothMask[i] ? 255 : 0;
-      md[p]=v; md[p+1]=v; md[p+2]=v; md[p+3]=255;
-    }
-    mCtx.putImageData(mId, 0, 0);
-
-    const image = c.toDataURL('image/png');
-    const mask  = maskC.toDataURL('image/png');
-
+  // --- Fallback 1: FLUX Pro Fill ---
+  try {
     updateProgress('Transforming your smile…', 45);
     const startRes  = await fetch(`${PROXY_URL}/api/flux/inpaint`, {
       method: 'POST',
@@ -1501,22 +1540,15 @@ async function generateSmile(dataUrl) {
     });
     const startData = await startRes.json();
     if (startData.error) throw new Error(startData.error);
-
     const statusUrl = startData.status_url || startData.response_url;
-    if (!statusUrl) throw new Error('No status URL from FLUX: ' + JSON.stringify(startData));
-
-    updateProgress('Applying Hollywood smile…', 55);
+    if (!statusUrl) throw new Error('No status URL from FLUX');
+    updateProgress('Applying Hollywood smile…', 60);
     const result    = await pollFal(statusUrl);
-    const resultUrl = result?.output?.images?.[0]?.url
-                   || result?.output?.image?.url
-                   || result?.output?.url;
-    if (!resultUrl) throw new Error('No image URL in FLUX output: ' + JSON.stringify(result?.output));
-
+    const resultUrl = result?.output?.images?.[0]?.url || result?.output?.image?.url;
+    if (!resultUrl) throw new Error('No image URL in FLUX output');
     return resultUrl;
   } catch(e) {
-    console.error('FLUX inpaint failed:', e.message);
-    updateProgress('FLUX error: ' + e.message.slice(0, 80), 50);
-    await new Promise(r => setTimeout(r, 3000)); // show error for 3s before fallback
+    console.warn('FLUX failed, falling back to HSL:', e.message);
   }
 
   // --- Fallback: client-side HSL whitening ---

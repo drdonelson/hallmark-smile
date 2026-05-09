@@ -360,7 +360,9 @@ async function handleFluxInpaint(request, env, origin) {
   }
 }
 
-// --- RunPod: ComfyUI dental workflow (Phase 2 — add RUNPOD_ENDPOINT_ID + RUNPOD_API_KEY secrets) ---
+// --- RunPod: ComfyUI dental workflow ---
+// Expects { image: "base64...", mask: "base64..." }
+// Formats for runpod/worker-comfyui which accepts { images: [{name, image}] }
 async function handleRunpodGenerate(request, env, origin) {
   const endpointId = env.RUNPOD_ENDPOINT_ID;
   if (!endpointId) {
@@ -374,11 +376,26 @@ async function handleRunpodGenerate(request, env, origin) {
       status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
   }
+  const { image, mask } = body;
+  if (!image || !mask) {
+    return new Response(JSON.stringify({ error: 'Missing image or mask' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  // Strip data URI prefix — runpod/worker-comfyui expects raw base64
+  const stripPrefix = d => d.includes(',') ? d.split(',')[1] : d;
   try {
     const rp = await fetch(`https://api.runpod.ai/v2/${endpointId}/run`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${env.RUNPOD_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ input: body }),
+      body: JSON.stringify({
+        input: {
+          images: [
+            { name: 'photo.png', image: stripPrefix(image) },
+            { name: 'mask.png',  image: stripPrefix(mask)  },
+          ],
+        },
+      }),
     });
     const text = await rp.text();
     let data;
