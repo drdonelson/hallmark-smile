@@ -209,25 +209,27 @@ async function handleVideoStatus(request, env, origin) {
   });
 }
 
-// --- fal.ai: Upload image to fal CDN storage ---
-async function handleFalUpload(request, env, origin) {
+// --- Image proxy: fetch external URL with our CORS headers ---
+// Needed so the browser can call getImageData() on SAM mask images (canvas CORS policy)
+async function handleProxyImage(request, env, origin) {
+  const url      = new URL(request.url);
+  const imageUrl = decodeURIComponent(url.searchParams.get('url') || '');
+
+  // Only allow fal.ai / Google Cloud Storage URLs (where SAM masks live)
+  const allowed = ['https://fal.ai/', 'https://v3.fal.media/', 'https://storage.googleapis.com/', 'https://fal.run/'];
+  if (!imageUrl || !allowed.some(p => imageUrl.startsWith(p))) {
+    return new Response('Forbidden', { status: 403, headers: corsHeaders(origin) });
+  }
+
   try {
-    const fal = await fetch('https://storage.fal.run', {
-      method: 'POST',
+    const res  = await fetch(imageUrl);
+    const data = await res.arrayBuffer();
+    return new Response(data, {
       headers: {
-        'Authorization': `Key ${env.FAL_API_KEY}`,
-        ...(request.headers.get('Content-Type')
-          ? { 'Content-Type': request.headers.get('Content-Type') }
-          : {}),
+        'Content-Type':  res.headers.get('Content-Type') || 'image/png',
+        'Cache-Control': 'public, max-age=3600',
+        ...corsHeaders(origin),
       },
-      body: request.body,
-    });
-    const text = await fal.text();
-    let data;
-    try { data = JSON.parse(text); } catch { data = { error: text }; }
-    return new Response(JSON.stringify(data), {
-      status: fal.status,
-      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
   } catch (err) {
     return new Response(JSON.stringify({ error: err.message }), {
@@ -236,34 +238,68 @@ async function handleFalUpload(request, env, origin) {
   }
 }
 
-// --- fal.ai: SAM2 tooth segmentation ---
-async function handleFalSegment(request, env, origin) {
+// --- SAM: Segment teeth pixels from image ---
+// Sends data URI directly to SAM2 (no storage upload needed — fal accepts data URIs).
+// Returns the queue envelope {status_url, response_url} for the client to poll.
+async function handleSAMStart(request, env, origin) {
   let body;
   try { body = await request.json(); } catch {
-    return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
       status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
   }
-  const { image_url, x1, y1, x2, y2 } = body;
-  if (!image_url) {
-    return new Response(JSON.stringify({ error: 'Missing image_url' }), {
+
+  const { image, width, height } = body;
+  if (!image || !width || !height) {
+    return new Response(JSON.stringify({ error: 'Missing image, width or height' }), {
       status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
   }
+
+  // fal.ai queue does NOT accept data URIs — store image in KV and serve it from this worker
+  let imageUrl;
   try {
-    const fal = await fetch(`${FAL_BASE}/fal-ai/sam2/image`, {
-      method: 'POST',
-      headers: { 'Authorization': `Key ${env.FAL_API_KEY}`, 'Content-Type': 'application/json' },
+    const [meta, b64] = image.split(',');
+    const mimeType    = (meta.match(/:(.*?);/) || [])[1] || 'image/png';
+    const imgId       = crypto.randomUUID();
+    // Store base64 string + mime type in KV with 5-minute TTL
+    await env.TEMP_IMAGES.put(imgId, JSON.stringify({ b64, mimeType }), { expirationTtl: 300 });
+    // Build the public URL that fal.ai can fetch
+    const workerHost = 'quiet-forest-e1f8.david-d73.workers.dev';
+    imageUrl = `https://${workerHost}/api/img/${imgId}`;
+  } catch (err) {
+    return new Response(JSON.stringify({ error: `image store failed: ${err.message}` }), {
+      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+
+  // Teeth box: horizontal center 25–75%, vertical 61–82%
+  const bx1 = Math.round(width  * 0.25);
+  const by1 = Math.round(height * 0.61);
+  const bx2 = Math.round(width  * 0.75);
+  const by2 = Math.round(height * 0.82);
+  const px  = Math.round(width  * 0.50);
+  const py  = Math.round(height * 0.69);
+
+  try {
+    const samRes = await fetch('https://queue.fal.run/fal-ai/sam2/image', {
+      method:  'POST',
+      headers: {
+        'Authorization': `Key ${env.FAL_API_KEY}`,
+        'Content-Type':  'application/json',
+      },
       body: JSON.stringify({
-        image_url,
-        prompts: [{ type: 'box', x_min: x1, y_min: y1, x_max: x2, y_max: y2 }],
+        image_url:             imageUrl,
+        box_prompts:           [[bx1, by1, bx2, by2]],
+        point_prompts:         [[px, py, 1]],
+        return_multiple_masks: false,
       }),
     });
-    const text = await fal.text();
+    const text = await samRes.text();
     let data;
     try { data = JSON.parse(text); } catch { data = { error: text }; }
     return new Response(JSON.stringify(data), {
-      status: fal.status,
+      status:  samRes.status,
       headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
   } catch (err) {
@@ -274,31 +310,56 @@ async function handleFalSegment(request, env, origin) {
 }
 
 // --- fal.ai: FLUX Pro Fill inpainting ---
-async function handleFalInpaint(request, env, origin) {
+// Stores image + mask in KV so fal.ai can fetch stable URLs, then calls FLUX fill.
+async function handleFluxInpaint(request, env, origin) {
   let body;
   try { body = await request.json(); } catch {
-    return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
       status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
   }
-  const { image_url, mask_url, prompt } = body;
-  if (!image_url || !mask_url || !prompt) {
-    return new Response(JSON.stringify({ error: 'Missing image_url, mask_url, or prompt' }), {
+
+  const { image, mask, width, height } = body;
+  if (!image || !mask || !width || !height) {
+    return new Response(JSON.stringify({ error: 'Missing image, mask, width, or height' }), {
       status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
   }
+
+  const workerHost = 'quiet-forest-e1f8.david-d73.workers.dev';
+
+  // Store image in KV (5-min TTL) and get a public URL fal.ai can fetch
+  async function storeImg(dataUri, suffix) {
+    const [meta, b64] = dataUri.split(',');
+    const mimeType    = (meta.match(/:(.*?);/) || [])[1] || 'image/png';
+    const imgId       = crypto.randomUUID();
+    await env.TEMP_IMAGES.put(imgId, JSON.stringify({ b64, mimeType }), { expirationTtl: 300 });
+    return `https://${workerHost}/api/img/${imgId}`;
+  }
+
+  let imageUrl, maskUrl;
   try {
-    const fal = await fetch(`${FAL_BASE}/fal-ai/flux-pro/v1/fill`, {
-      method: 'POST',
+    [imageUrl, maskUrl] = await Promise.all([storeImg(image, 'img'), storeImg(mask, 'mask')]);
+  } catch (err) {
+    return new Response(JSON.stringify({ error: `KV store failed: ${err.message}` }), {
+      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+
+  const prompt = 'Hollywood dental smile makeover, BL1 porcelain veneers, brilliant white teeth, dramatic transformation, perfect alignment, no gaps or crowding, full broad smile arc corner to corner, natural healthy pink gumline, photorealistic enamel with natural translucency at incisal edges, dental cosmetic marketing visualization, stunning jaw-dropping smile';
+
+  try {
+    const fal = await fetch('https://queue.fal.run/fal-ai/flux-pro/v1/fill', {
+      method:  'POST',
       headers: { 'Authorization': `Key ${env.FAL_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        image_url,
-        mask_url,
+        image_url:           imageUrl,
+        mask_url:            maskUrl,
         prompt,
         num_inference_steps: 28,
-        guidance_scale: 30,
-        output_format: 'jpeg',
-        sync_mode: false,
+        guidance_scale:      30,
+        output_format:       'jpeg',
+        sync_mode:           false,
       }),
     });
     const text = await fal.text();
@@ -315,7 +376,7 @@ async function handleFalInpaint(request, env, origin) {
   }
 }
 
-// --- RunPod: ComfyUI dental workflow (Phase 2 — needs RUNPOD_ENDPOINT_ID + RUNPOD_API_KEY secrets) ---
+// --- RunPod: ComfyUI dental workflow (Phase 2 — add RUNPOD_ENDPOINT_ID + RUNPOD_API_KEY secrets) ---
 async function handleRunpodGenerate(request, env, origin) {
   const endpointId = env.RUNPOD_ENDPOINT_ID;
   if (!endpointId) {
@@ -325,25 +386,21 @@ async function handleRunpodGenerate(request, env, origin) {
   }
   let body;
   try { body = await request.json(); } catch {
-    return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
       status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
   }
   try {
     const rp = await fetch(`https://api.runpod.ai/v2/${endpointId}/run`, {
       method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${env.RUNPOD_API_KEY}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Authorization': `Bearer ${env.RUNPOD_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ input: body }),
     });
     const text = await rp.text();
     let data;
     try { data = JSON.parse(text); } catch { data = { error: text }; }
     return new Response(JSON.stringify(data), {
-      status: rp.status,
-      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+      status: rp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
   } catch (err) {
     return new Response(JSON.stringify({ error: err.message }), {
@@ -362,7 +419,7 @@ async function handleRunpodStatus(request, env, origin) {
   const url   = new URL(request.url);
   const jobId = url.searchParams.get('jobId');
   if (!jobId) {
-    return new Response(JSON.stringify({ error: 'Missing jobId param' }), {
+    return new Response(JSON.stringify({ error: 'Missing jobId' }), {
       status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
   }
@@ -374,8 +431,7 @@ async function handleRunpodStatus(request, env, origin) {
     let data;
     try { data = JSON.parse(text); } catch { data = { error: text }; }
     return new Response(JSON.stringify(data), {
-      status: rp.status,
-      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+      status: rp.status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
   } catch (err) {
     return new Response(JSON.stringify({ error: err.message }), {
@@ -384,9 +440,32 @@ async function handleRunpodStatus(request, env, origin) {
   }
 }
 
+// --- Temp image serve: fal.ai fetches from here (no origin check needed) ---
+async function handleTempImage(request, env, imgId) {
+  try {
+    const stored = await env.TEMP_IMAGES.get(imgId);
+    if (!stored) return new Response('Not Found', { status: 404 });
+    const { b64, mimeType } = JSON.parse(stored);
+    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    return new Response(bytes, {
+      headers: { 'Content-Type': mimeType, 'Cache-Control': 'no-store' },
+    });
+  } catch (err) {
+    return new Response('Error', { status: 500 });
+  }
+}
+
 // --- Main handler ---
 export default {
   async fetch(request, env) {
+    const url = new URL(request.url);
+
+    // Public temp-image endpoint — fal.ai fetches from here, no Origin required
+    const imgMatch = url.pathname.match(/^\/api\/img\/([a-f0-9-]{36})$/);
+    if (imgMatch && request.method === 'GET') {
+      return handleTempImage(request, env, imgMatch[1]);
+    }
+
     const origin = getAllowedOrigin(request);
 
     // Reject requests from disallowed origins
@@ -402,17 +481,14 @@ export default {
       });
     }
 
-    const url = new URL(request.url);
+    // SAM teeth segmentation
+    if (url.pathname === '/api/sam/start' && request.method === 'POST') {
+      return handleSAMStart(request, env, origin);
+    }
 
-    // fal.ai image pipeline endpoints
-    if (url.pathname === '/api/fal/upload' && request.method === 'POST') {
-      return handleFalUpload(request, env, origin);
-    }
-    if (url.pathname === '/api/fal/segment' && request.method === 'POST') {
-      return handleFalSegment(request, env, origin);
-    }
-    if (url.pathname === '/api/fal/inpaint' && request.method === 'POST') {
-      return handleFalInpaint(request, env, origin);
+    // FLUX Pro Fill inpainting (Phase 1 AI path)
+    if (url.pathname === '/api/flux/inpaint' && request.method === 'POST') {
+      return handleFluxInpaint(request, env, origin);
     }
 
     // RunPod ComfyUI pipeline (Phase 2 — wired up, awaiting developer endpoint)
@@ -421,6 +497,11 @@ export default {
     }
     if (url.pathname === '/api/runpod/status' && request.method === 'GET') {
       return handleRunpodStatus(request, env, origin);
+    }
+
+    // Image proxy — lets the browser load cross-origin images into canvas safely
+    if (url.pathname === '/api/proxy' && request.method === 'GET') {
+      return handleProxyImage(request, env, origin);
     }
 
     // Kling / fal.ai video endpoints

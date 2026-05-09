@@ -274,7 +274,7 @@
       position: relative;
       border-radius: var(--radius-sm);
       overflow: hidden;
-      background: #000;
+      background: var(--off-white);
     }
     .preview-img {
       width: 100%;
@@ -1006,33 +1006,26 @@ const MAX_BYTES  = 1024 * 1024;
 const LS_LEADS   = 'hd_leads';
 const LS_URL     = 'hd_booking_url';
 
-const SMILE_PROMPT = `You are generating a dental cosmetic simulation for a licensed dental practice marketing tool. Transform only the teeth into a stunning, dramatic smile makeover while leaving the entire face completely untouched.
+// Prompt for GPT-image-1 edits API with explicit pixel mask.
+// The mask is transparent ONLY over the upper-tooth pixels; the entire face
+// (lips, skin, gums, lower teeth) is opaque and preserved by the API.
+// The prompt therefore describes ONLY what to paint inside the tooth zone.
+const SMILE_PROMPT = `Replace the stained or discolored upper teeth with bright, naturally white, healthy teeth. This is a cosmetic dental simulation.
 
-TEETH TRANSFORMATION — dramatic cosmetic changes:
-- Replace any missing or broken teeth with beautiful, natural-looking restorations
-- Create a bright, white Hollywood smile — significantly whiter than original (shade A1 to BL1)
-- Correct all crowding, gaps, spacing issues, and misalignment completely
-- Close dark buccal corridor gaps — full smile width
-- Perfect tooth proportions: central incisors dominant, laterals slightly shorter
-- Natural enamel translucency at incisal edges — slight blue-white tint
-- Slight natural size variation between individual teeth — not denture-uniform
-- Healthy, smooth gumline at natural gum height — do not raise or lower gums
-- Remove staining, discoloration, chips, and decay
+Paint ONLY the upper tooth surfaces visible in this photo:
+• Bright healthy white shade — natural, not glowing, not overly bright
+• Realistic enamel texture with subtle natural translucency at the incisal edges
+• Smooth, clean tooth surfaces — no staining, no discoloration
+• Maintain the existing tooth shapes, sizes, and positions exactly
+• Keep the same gumline level — do not change gum position
+• Keep the same tooth lengths — do not lengthen or shorten
+• NO braces, NO orthodontic brackets, NO wires, NO dental hardware
+• NO veneers look — just naturally white real teeth
 
-PRESERVE EVERYTHING OUTSIDE THE TEETH — absolutely no changes:
-- Lip position, mouth opening, and lip shape stay EXACTLY the same
-- Every skin detail identical: all pores, wrinkles, fine lines, freckles, age spots, scars, blemishes
-- Skin tone and color unchanged — no brightening, no smoothing, no beauty filter
-- Hair and facial hair unchanged pixel-for-pixel
-- Eyes, eyebrows, nose, ears, face shape unchanged
-- Background, studio lighting, shadows unchanged
-- Clothing and accessories unchanged
+Everything outside the upper teeth is already locked and must not be changed:
+lips, skin, gums, lower teeth, background, clothing are all preserved.
 
-OUTPUT STYLE:
-Professional dental marketing photography. Photorealistic — the face looks like an unedited photograph. Only the teeth show the transformation. This should look like a real before/after case photo a cosmetic dentist would proudly display in their office.`;
-
-// Used by FLUX Pro Fill inpainting — mask handles preservation, prompt focuses on teeth only
-const FLUX_DENTAL_PROMPT = `Hollywood dental smile makeover, BL1 porcelain veneers, brilliant white teeth, dramatic transformation, perfect alignment, no gaps or crowding, full broad smile arc corner to corner, natural healthy pink gumline, photorealistic enamel with natural translucency at incisal edges, dental cosmetic marketing visualization, stunning jaw-dropping smile`;
+Style: photorealistic dental photograph, natural enamel appearance, clinical accuracy.`;
 
 const MSGS = [
   'Detecting smile region…',
@@ -1199,189 +1192,339 @@ function validateForm() {
   return ok;
 }
 
-/* ── fal.ai helpers ────────────────────────────────────────────── */
+/* ── Helper: load an Image from a data URL ─────────────────────── */
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload  = () => resolve(img);
+    img.onerror = reject;
+    img.src = src;
+  });
+}
 
-// Upload a File/Blob to fal CDN → returns a stable HTTPS URL
-async function uploadToFal(file) {
+/* ── Helper: resize image to max dimension, return blob + dims ─── */
+async function resizeForAPI(dataUrl, maxDim = 1536) {
+  const img = await loadImage(dataUrl);
+  const { naturalWidth: w, naturalHeight: h } = img;
+  let nw = w, nh = h;
+  if (w > maxDim || h > maxDim) {
+    const ratio = Math.min(maxDim / w, maxDim / h);
+    nw = Math.round(w * ratio);
+    nh = Math.round(h * ratio);
+  }
+  const c = document.createElement('canvas');
+  c.width = nw; c.height = nh;
+  c.getContext('2d').drawImage(img, 0, 0, nw, nh);
+  const blob    = await new Promise(r => c.toBlob(r, 'image/png'));
+  const resized = c.toDataURL('image/png');
+  return { blob, width: nw, height: nh, resized };
+}
+
+/* ── HSL helpers ───────────────────────────────────────────────── */
+function rgbToHsl(r,g,b){r/=255;g/=255;b/=255;const max=Math.max(r,g,b),min=Math.min(r,g,b);let h,s,l=(max+min)/2;if(max===min){h=s=0;}else{const d=max-min;s=l>.5?d/(2-max-min):d/(max+min);switch(max){case r:h=((g-b)/d+(g<b?6:0))/6;break;case g:h=((b-r)/d+2)/6;break;default:h=((r-g)/d+4)/6;}}return[h,s,l];}
+function hslToRgb(h,s,l){if(s===0){const v=Math.round(l*255);return[v,v,v];}const q=l<.5?l*(1+s):l+s-l*s,p=2*l-q,f=t=>{if(t<0)t+=1;if(t>1)t-=1;if(t<1/6)return p+(q-p)*6*t;if(t<1/2)return q;if(t<2/3)return p+(q-p)*(2/3-t)*6;return p;};return[Math.round(f(h+1/3)*255),Math.round(f(h)*255),Math.round(f(h-1/3)*255)];}
+
+/* ── Poll fal.ai queue via our kling/status proxy ─────────────── */
+async function pollFal(statusUrl, maxWait = 180000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < maxWait) {
+    await new Promise(r => setTimeout(r, 3000));
+    try {
+      const r = await fetch(`${PROXY_URL}/api/kling/status?falUrl=${encodeURIComponent(statusUrl)}`);
+      const d = await r.json();
+      console.log('SAM poll:', d.status, Math.round((Date.now()-t0)/1000)+'s', JSON.stringify(d).slice(0,150));
+      if (d.status === 'COMPLETED') return d;
+      if (d.status === 'FAILED') throw new Error('SAM failed: ' + JSON.stringify(d));
+    } catch(e) {
+      console.warn('SAM poll error:', e.message);
+    }
+  }
+  throw new Error('SAM timed out');
+}
+
+/* ── Build pixel mask: brightest tooth rows, per-pixel exclusions ── */
+// Returns a Uint8Array where 1 = tooth pixel to edit, 0 = leave alone.
+// Strategy: hard-cap to the N brightest rows so we never mark the whole face.
+function buildToothMask(d, width, height) {
+  const portrait = height >= width;
+  // Horizontal zone: centre of face (teeth don't reach the edges)
+  const rxMin = Math.round(width  * (portrait ? 0.30 : 0.32));
+  const rxMax = Math.round(width  * (portrait ? 0.70 : 0.68));
+  // Vertical zone: upper-teeth band — start below the nose, stop before chin
+  const ryMin = Math.round(height * (portrait ? 0.63 : 0.54));
+  const ryMax = Math.round(height * (portrait ? 0.79 : 0.76));
+
+  // Compute per-row mean brightness (lightness = (max+min)/2)
+  const rowMeans = [];
+  for (let y = ryMin; y < ryMax; y++) {
+    let sum = 0;
+    for (let x = rxMin; x < rxMax; x++) {
+      const i = (y * width + x) * 4;
+      sum += (Math.max(d[i],d[i+1],d[i+2]) + Math.min(d[i],d[i+1],d[i+2])) / 2;
+    }
+    rowMeans.push({ y, mean: sum / (rxMax - rxMin) });
+  }
+
+  // Take ONLY the brightest N rows — hard cap prevents marking the whole face
+  // when skin and teeth are similarly bright (light-skinned subjects).
+  const sorted = [...rowMeans].sort((a,b) => b.mean - a.mean);
+  const MAX_ROWS = 22;
+  const topN     = Math.min(MAX_ROWS, sorted.length);
+  const cutoff   = sorted[topN - 1].mean;
+  if (cutoff / 255 < 0.42) return null;  // zone not bright enough to contain teeth
+
+  const teethRows = new Set(rowMeans.filter(r => r.mean >= cutoff).map(r => r.y));
+
+  // Per-pixel exclusions within the selected rows
+  const mask = new Uint8Array(width * height);
+  for (const y of teethRows) {
+    for (let x = rxMin; x < rxMax; x++) {
+      const i = (y * width + x) * 4;
+      const ri = d[i], gi = d[i+1], bi = d[i+2];
+      const lum = (Math.max(ri,gi,bi) + Math.min(ri,gi,bi)) / 2;
+      if (lum < 55) continue;                             // dark gaps / interdental
+      // Exclude warm skin/lip/gum pixels (R dominant over G and B).
+      // Teeth: R≈G (white) or R≈G>B (yellow-stained). Skin/lips: R>G significantly.
+      if (ri > gi * 1.20 && ri > bi * 1.20) continue;
+      mask[y * width + x] = 1;
+    }
+  }
+
+  const found = mask.reduce((a,v) => a+v, 0);
+  console.log('Mask pixels:', found, '| rows:', teethRows.size, '| cutoff:', (cutoff/255).toFixed(2));
+  return found >= 200 ? mask : null;
+}
+
+/* ── Path 1: GPT with explicit pixel mask ──────────────────────── */
+// Sends full image + a mask PNG where ONLY the tooth pixels are transparent.
+// GPT-image-1 can only generate inside the transparent region — the face
+// is 100% opaque in the mask so the model physically cannot touch it.
+async function gptMaskWhiten(resizedUrl, width, height) {
+  const origImg = await loadImage(resizedUrl);
+  const c = document.createElement('canvas');
+  c.width = width; c.height = height;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(origImg, 0, 0, width, height);
+  const id = ctx.getImageData(0, 0, width, height);
+
+  const toothMask = buildToothMask(id.data, width, height);
+  if (!toothMask) return null;
+
+  // Build mask image: tooth pixels → transparent, everything else → opaque black
+  const maskC = document.createElement('canvas');
+  maskC.width = width; maskC.height = height;
+  const mCtx  = maskC.getContext('2d');
+  const mId   = mCtx.createImageData(width, height);
+  const md    = mId.data;
+  for (let i = 0; i < toothMask.length; i++) {
+    const p = i * 4;
+    if (toothMask[i]) {
+      md[p]=0; md[p+1]=0; md[p+2]=0; md[p+3]=0;    // transparent = GPT edits here
+    } else {
+      md[p]=0; md[p+1]=0; md[p+2]=0; md[p+3]=255;  // opaque = GPT cannot touch
+    }
+  }
+  mCtx.putImageData(mId, 0, 0);
+
+  // Convert both to PNG blobs
+  const [imgBlob, maskBlob] = await Promise.all([
+    new Promise(r => c.toBlob(r, 'image/png')),
+    new Promise(r => maskC.toBlob(r, 'image/png')),
+  ]);
+
   const form = new FormData();
-  form.append('file', file);
-  const res  = await fetch(`${PROXY_URL}/api/fal/upload`, { method: 'POST', body: form });
+  form.append('model',   'gpt-image-1');
+  form.append('image',   new File([imgBlob],  'face.png', { type: 'image/png' }));
+  form.append('mask',    new File([maskBlob], 'mask.png', { type: 'image/png' }));
+  form.append('prompt',  SMILE_PROMPT);
+  form.append('n',       '1');
+  form.append('size',    'auto');
+  form.append('quality', 'high');
+
+  const res = await fetch(`${PROXY_URL}/v1/images/edits`, { method: 'POST', body: form });
+  if (!res.ok) { const t = await res.text().catch(()=>''); throw new Error(`GPT ${res.status}: ${t.slice(0,200)}`); }
   const data = await res.json();
-  if (!data.url) throw new Error('fal upload failed: ' + JSON.stringify(data));
-  return data.url;
-}
+  if (!data.data?.length) throw new Error('No image from OpenAI');
+  const item   = data.data[0];
+  const aiUrl  = item.b64_json ? `data:image/png;base64,${item.b64_json}` : item.url;
 
-// Poll a fal.ai status URL until COMPLETED or FAILED
-async function pollFalJob(statusUrl, timeoutMs = 180000) {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    await new Promise(r => setTimeout(r, 3500));
-    const res  = await fetch(`${PROXY_URL}/api/kling/status?falUrl=${encodeURIComponent(statusUrl)}`);
-    const data = await res.json();
-    if (data.status === 'COMPLETED') return data.output;
-    if (data.status === 'FAILED')    throw new Error('fal job failed: ' + JSON.stringify(data.error || data));
+  // Composite: draw original face, then overlay GPT result clipped to tooth pixels only.
+  // Stencil: opaque white where teeth, fully transparent elsewhere.
+  // destination-in with stencil zeros out all non-tooth pixels in the GPT layer,
+  // so only the reconstructed teeth are blended over the original face.
+  const aiImg = await loadImage(aiUrl);
+  const out   = document.createElement('canvas');
+  out.width   = width; out.height = height;
+  const oCtx  = out.getContext('2d');
+  oCtx.drawImage(origImg, 0, 0, width, height);   // layer 1: original (face preserved)
+
+  // Build tooth-only stencil (white+opaque=tooth, black+transparent=face)
+  const stencil = document.createElement('canvas');
+  stencil.width = width; stencil.height = height;
+  const sCtx = stencil.getContext('2d');
+  const sId  = sCtx.createImageData(width, height);
+  const sd   = sId.data;
+  for (let i = 0; i < toothMask.length; i++) {
+    const p = i * 4;
+    const v = toothMask[i] ? 255 : 0;
+    sd[p]=v; sd[p+1]=v; sd[p+2]=v; sd[p+3]=v;
   }
-  throw new Error('fal job timed out after 3 minutes');
+  sCtx.putImageData(sId, 0, 0);
+
+  // Clip GPT result to tooth area via destination-in, then composite over original
+  const gptLayer = document.createElement('canvas');
+  gptLayer.width = width; gptLayer.height = height;
+  const gCtx = gptLayer.getContext('2d');
+  gCtx.drawImage(aiImg, 0, 0, width, height);
+  gCtx.globalCompositeOperation = 'destination-in';
+  gCtx.drawImage(stencil, 0, 0);                  // zero out non-tooth pixels
+
+  oCtx.drawImage(gptLayer, 0, 0);                 // layer 2: GPT teeth only
+  return out.toDataURL('image/png');
 }
 
-// White-on-black mask for SD/FLUX inpainting convention (white = edit here)
-function buildTeethMaskWhite(imgWidth, imgHeight, bounds) {
-  const canvas = document.createElement('canvas');
-  canvas.width  = imgWidth;
-  canvas.height = imgHeight;
-  const ctx = canvas.getContext('2d');
-  ctx.fillStyle = '#000000';
-  ctx.fillRect(0, 0, imgWidth, imgHeight);
-  const px   = (bounds.x / 100) * imgWidth;
-  const py   = (bounds.y / 100) * imgHeight;
-  const pw   = (bounds.w / 100) * imgWidth;
-  const ph   = (bounds.h / 100) * imgHeight;
-  const padX = pw * 0.10;
-  const padY = ph * 0.15;
-  ctx.fillStyle = '#ffffff';
-  ctx.beginPath();
-  ctx.ellipse(px + pw / 2, py + ph / 2, pw / 2 + padX, ph / 2 + padY, 0, 0, Math.PI * 2);
-  ctx.fill();
-  return canvas.toDataURL('image/png');
-}
-
-/* ── Teeth detection + mask generation ─────────────────────────── */
-async function detectTeethBounds(dataUrl) {
-  try {
-    const res = await fetch(`${PROXY_URL}/v1/chat/completions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'gpt-4o',
-        messages: [{
-          role: 'user',
-          content: [
-            { type: 'image_url', image_url: { url: dataUrl, detail: 'low' } },
-            { type: 'text', text: 'Return ONLY a raw JSON object (no markdown, no explanation) with the bounding box of the visible teeth in this photo. Coordinates as percentages (0-100) of image width/height. Format exactly: {"x":N,"y":N,"w":N,"h":N} where x,y = top-left of teeth region, w,h = width and height. Include only actual tooth enamel surface, not lips or gums. If mouth is closed or teeth not visible, estimate where teeth would be.' }
-          ]
-        }],
-        max_tokens: 60,
-        temperature: 0
-      })
-    });
-    const data = await res.json();
-    const raw  = (data.choices[0].message.content || '').trim().replace(/```[a-z]*/g, '').replace(/```/g, '');
-    return JSON.parse(raw);
-  } catch {
-    // Fallback: center-lower area typical for a smile photo
-    return { x: 30, y: 55, w: 40, h: 15 };
+/* ── Texture-preserving tooth whitening ────────────────────────── */
+// Converts RGB ↔ HSL, boosts L toward white while keeping hue/saturation
+// variations (cracks, edges, translucency) — so the result looks like real
+// white teeth, not a painted-on blob.
+function rgbToHsl(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r,g,b), min = Math.min(r,g,b), d = max - min;
+  let h = 0, s = 0;
+  const l = (max + min) / 2;
+  if (d) {
+    s = d / (1 - Math.abs(2*l - 1));
+    switch (max) {
+      case r: h = ((g - b) / d + 6) % 6; break;
+      case g: h = (b - r) / d + 2;       break;
+      case b: h = (r - g) / d + 4;       break;
+    }
+    h /= 6;
   }
+  return [h, s, l];
+}
+function hslToRgb(h, s, l) {
+  const c = (1 - Math.abs(2*l - 1)) * s;
+  const x = c * (1 - Math.abs((h * 6) % 2 - 1));
+  const m = l - c/2;
+  let r=0, g=0, b=0;
+  if      (h < 1/6) { r=c; g=x; }
+  else if (h < 2/6) { r=x; g=c; }
+  else if (h < 3/6) { g=c; b=x; }
+  else if (h < 4/6) { g=x; b=c; }
+  else if (h < 5/6) { r=x; b=c; }
+  else              { r=c; b=x; }
+  return [Math.round((r+m)*255), Math.round((g+m)*255), Math.round((b+m)*255)];
 }
 
-function buildTeethMask(imgWidth, imgHeight, bounds) {
-  const canvas = document.createElement('canvas');
-  canvas.width  = imgWidth;
-  canvas.height = imgHeight;
-  const ctx = canvas.getContext('2d');
+async function colorWhitenTeeth(resizedUrl, width, height) {
+  const origImg = await loadImage(resizedUrl);
+  const c   = document.createElement('canvas');
+  c.width   = width; c.height = height;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(origImg, 0, 0, width, height);
+  const id  = ctx.getImageData(0, 0, width, height);
+  const d   = id.data;
 
-  // Opaque black everywhere = preserve all pixels
-  ctx.fillStyle = 'rgba(0,0,0,1)';
-  ctx.fillRect(0, 0, imgWidth, imgHeight);
+  const toothMask = buildToothMask(d, width, height);
+  if (!toothMask) return null;
 
-  // Cut out teeth region = transparent = AI edits here
-  const px = (bounds.x / 100) * imgWidth;
-  const py = (bounds.y / 100) * imgHeight;
-  const pw = (bounds.w / 100) * imgWidth;
-  const ph = (bounds.h / 100) * imgHeight;
+  // Target: natural BL1 shade in HSL — slightly warm white (H≈35°, S≈4%, L≈93%)
+  const TH = 35/360, TS = 0.04, TL = 0.93;
 
-  // Slight padding so we don't clip tooth edges
-  const padX = pw * 0.08;
-  const padY = ph * 0.12;
+  let whitened = 0;
+  for (let i = 0; i < toothMask.length; i++) {
+    if (!toothMask[i]) continue;
+    const p = i * 4;
+    const [h, s, l] = rgbToHsl(d[p], d[p+1], d[p+2]);
 
-  ctx.globalCompositeOperation = 'destination-out';
-  // Ellipse fits the natural arc of a smile row better than a rectangle
-  ctx.beginPath();
-  ctx.ellipse(
-    px + pw / 2,
-    py + ph / 2,
-    pw / 2 + padX,
-    ph / 2 + padY,
-    0, 0, Math.PI * 2
-  );
-  ctx.fill();
+    // Move L strongly toward target, preserve relative texture variation
+    // (a darker pixel stays relatively darker than its neighbours)
+    const newL = l + (TL - l) * 0.88;
+    // Desaturate toward target, keep a hint of original saturation for realism
+    const newS = s * 0.08 + TS * 0.92;
+    // Shift hue toward warm white; lock in for strongly coloured (yellow/grey) teeth
+    const newH = h + (TH - h) * 0.75;
 
-  return canvas.toDataURL('image/png');
+    const [nr, ng, nb] = hslToRgb(newH, newS, newL);
+    d[p]   = nr;
+    d[p+1] = ng;
+    d[p+2] = nb;
+    whitened++;
+  }
+  console.log('Whitening: pixels =', whitened);
+  ctx.putImageData(id, 0, 0);
+  return c.toDataURL('image/png');
 }
 
 /* ── Main generation flow ──────────────────────────────────────── */
+// Primary: FLUX Pro Fill AI inpainting — SAM-detected pixel mask + dramatic prompt.
+// Fallback: client-side HSL whitening — instant, face pixel-exact.
 async function generateSmile(dataUrl) {
-  // Step 1: Upload original photo to fal CDN for stable URLs
-  updateProgress('Uploading photo…', 10);
-  const imgBlob = await fetch(dataUrl).then(r => r.blob());
-  const imgFile = new File([imgBlob], 'photo.jpg', { type: 'image/jpeg' });
-  const imgUrl  = await uploadToFal(imgFile);
+  updateProgress('Analyzing your smile…', 15);
+  const { width, height, resized: resizedUrl } = await resizeForAPI(dataUrl);
 
-  // Step 2: Detect teeth bounds with GPT-4o vision
-  updateProgress('Detecting smile region…', 20);
-  const bounds = await detectTeethBounds(dataUrl);
-
-  // Step 3: Get pixel dimensions
-  const imgEl = await new Promise((resolve, reject) => {
-    const i = new Image(); i.onload = () => resolve(i); i.onerror = reject; i.src = dataUrl;
-  });
-  const W = imgEl.naturalWidth;
-  const H = imgEl.naturalHeight;
-
-  // Step 4: SAM2 — precise tooth segmentation (falls back to geometric mask)
-  let maskUrl;
+  // --- Primary: FLUX Pro Fill inpainting ---
   try {
-    updateProgress('Segmenting teeth precisely…', 35);
-    const x1 = Math.floor((bounds.x / 100) * W);
-    const y1 = Math.floor((bounds.y / 100) * H);
-    const x2 = Math.ceil(((bounds.x + bounds.w) / 100) * W);
-    const y2 = Math.ceil(((bounds.y + bounds.h) / 100) * H);
+    updateProgress('Building tooth mask…', 30);
+    const origImg = await loadImage(resizedUrl);
+    const c       = document.createElement('canvas');
+    c.width = width; c.height = height;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(origImg, 0, 0, width, height);
+    const id = ctx.getImageData(0, 0, width, height);
 
-    const segRes  = await fetch(`${PROXY_URL}/api/fal/segment`, {
+    const toothMask = buildToothMask(id.data, width, height);
+    if (!toothMask) throw new Error('No teeth detected');
+
+    // White-on-black mask for FLUX convention (white = inpaint here)
+    const maskC = document.createElement('canvas');
+    maskC.width = width; maskC.height = height;
+    const mCtx = maskC.getContext('2d');
+    const mId  = mCtx.createImageData(width, height);
+    const md   = mId.data;
+    for (let i = 0; i < toothMask.length; i++) {
+      const p = i * 4;
+      const v = toothMask[i] ? 255 : 0;
+      md[p]=v; md[p+1]=v; md[p+2]=v; md[p+3]=255;
+    }
+    mCtx.putImageData(mId, 0, 0);
+
+    const image = c.toDataURL('image/png');
+    const mask  = maskC.toDataURL('image/png');
+
+    updateProgress('Transforming your smile…', 45);
+    const startRes  = await fetch(`${PROXY_URL}/api/flux/inpaint`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image_url: imgUrl, x1, y1, x2, y2 }),
+      body: JSON.stringify({ image, mask, width, height }),
     });
-    const segData = await segRes.json();
-    if (segData.error) throw new Error(segData.error);
+    const startData = await startRes.json();
+    if (startData.error) throw new Error(startData.error);
 
-    const segOut = (segData.status === 'COMPLETED')
-      ? segData.output
-      : await pollFalJob(segData.status_url || segData.response_url);
+    const statusUrl = startData.status_url || startData.response_url;
+    if (!statusUrl) throw new Error('No status URL from FLUX: ' + JSON.stringify(startData));
 
-    maskUrl = segOut?.masks?.[0]?.url
-           || segOut?.combined_mask?.url
-           || segOut?.image?.url
-           || segOut?.mask_url;
-    if (!maskUrl) throw new Error('No mask URL in SAM2 response: ' + JSON.stringify(segOut));
-  } catch (err) {
-    console.warn('SAM2 segmentation failed, using geometric mask:', err.message);
-    updateProgress('Building smile mask…', 35);
-    const maskDataUrl = buildTeethMaskWhite(W, H, bounds);
-    const maskBlob    = await fetch(maskDataUrl).then(r => r.blob());
-    maskUrl = await uploadToFal(new File([maskBlob], 'mask.png', { type: 'image/png' }));
+    updateProgress('Applying Hollywood smile…', 55);
+    const result    = await pollFal(statusUrl);
+    const resultUrl = result?.output?.images?.[0]?.url
+                   || result?.output?.image?.url
+                   || result?.output?.url;
+    if (!resultUrl) throw new Error('No image URL in FLUX output: ' + JSON.stringify(result?.output));
+
+    return resultUrl;
+  } catch(e) {
+    console.warn('FLUX inpaint failed, falling back to HSL whitening:', e.message);
   }
 
-  // Step 5: FLUX Pro Fill — inpaint the teeth region
-  updateProgress('Transforming your smile…', 55);
-  const inpaintRes  = await fetch(`${PROXY_URL}/api/fal/inpaint`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ image_url: imgUrl, mask_url: maskUrl, prompt: FLUX_DENTAL_PROMPT }),
-  });
-  const inpaintData = await inpaintRes.json();
-  if (inpaintData.error) throw new Error('FLUX inpaint failed: ' + inpaintData.error);
+  // --- Fallback: client-side HSL whitening ---
+  updateProgress('Whitening teeth…', 60);
+  try {
+    const result = await colorWhitenTeeth(resizedUrl, width, height);
+    if (result) return result;
+  } catch(e) { console.warn('HSL whitening error:', e.message); }
 
-  updateProgress('Applying Hollywood smile…', 65);
-  const inpaintOut = (inpaintData.status === 'COMPLETED')
-    ? inpaintData.output
-    : await pollFalJob(inpaintData.status_url || inpaintData.response_url);
-
-  const resultUrl = inpaintOut?.images?.[0]?.url
-                 || inpaintOut?.image?.url
-                 || inpaintOut?.url;
-  if (!resultUrl) throw new Error('No result image from FLUX: ' + JSON.stringify(inpaintOut));
-
-  return resultUrl;
+  throw new Error('Could not detect teeth. Please use a photo with a clear, open smile.');
 }
 
 /* ── Progress messages ─────────────────────────────────────────── */
@@ -1431,6 +1574,14 @@ $('leadForm').addEventListener('submit', async e => {
 
     // Calculate generation time for the badge
     const secs = Math.round((Date.now() - genStartTime) / 1000);
+
+    // Reset video state — clear any previous video before showing new result
+    $('createVideoBtn').disabled = false;
+    $('videoProgressWrap').classList.remove('active');
+    $('videoReadyWrap').classList.remove('active');
+    $('resultVideo').src = '';
+    $('resultVideo').style.display = 'none';
+    runwayVideoUrl = null;
 
     // Load both images
     $('beforeImg').src = imgDataUrl;
