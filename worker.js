@@ -310,7 +310,7 @@ async function handleSAMStart(request, env, origin) {
 }
 
 // --- fal.ai: FLUX Pro Fill inpainting ---
-// Stores image + mask in KV so fal.ai can fetch stable URLs, then calls FLUX fill.
+// Uploads image + mask to fal.ai storage (no KV needed), then calls FLUX fill.
 async function handleFluxInpaint(request, env, origin) {
   let body;
   try { body = await request.json(); } catch {
@@ -326,22 +326,31 @@ async function handleFluxInpaint(request, env, origin) {
     });
   }
 
-  const workerHost = 'quiet-forest-e1f8.david-d73.workers.dev';
-
-  // Store image in KV (5-min TTL) and get a public URL fal.ai can fetch
-  async function storeImg(dataUri, suffix) {
+  // Upload a base64 data URI to fal.ai storage → returns a stable CDN URL
+  async function uploadToFal(dataUri, filename) {
     const [meta, b64] = dataUri.split(',');
     const mimeType    = (meta.match(/:(.*?);/) || [])[1] || 'image/png';
-    const imgId       = crypto.randomUUID();
-    await env.TEMP_IMAGES.put(imgId, JSON.stringify({ b64, mimeType }), { expirationTtl: 300 });
-    return `https://${workerHost}/api/img/${imgId}`;
+    const bytes       = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    const form        = new FormData();
+    form.append('file', new Blob([bytes], { type: mimeType }), filename);
+    const res  = await fetch('https://storage.fal.run', {
+      method:  'POST',
+      headers: { 'Authorization': `Key ${env.FAL_API_KEY}` },
+      body:    form,
+    });
+    const data = await res.json();
+    if (!data.url) throw new Error('fal storage upload failed: ' + JSON.stringify(data));
+    return data.url;
   }
 
   let imageUrl, maskUrl;
   try {
-    [imageUrl, maskUrl] = await Promise.all([storeImg(image, 'img'), storeImg(mask, 'mask')]);
+    [imageUrl, maskUrl] = await Promise.all([
+      uploadToFal(image, 'photo.png'),
+      uploadToFal(mask,  'mask.png'),
+    ]);
   } catch (err) {
-    return new Response(JSON.stringify({ error: `KV store failed: ${err.message}` }), {
+    return new Response(JSON.stringify({ error: `fal upload failed: ${err.message}` }), {
       status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
   }
