@@ -360,6 +360,20 @@ async function handleFluxInpaint(request, env, origin) {
   }
 }
 
+// ComfyUI workflow sent with every RunPod job (5.x requires it in the request)
+const COMFY_WORKFLOW = {
+  "1": { "class_type": "CheckpointLoaderSimple", "inputs": { "ckpt_name": "dreamshaper_8Inpainting.inpainting.safetensors" } },
+  "2": { "class_type": "CLIPTextEncode", "inputs": { "text": "professional dental photo, perfect Hollywood smile, BL1 porcelain veneers, brilliant white teeth, perfectly aligned teeth, full broad smile, natural healthy pink gumline, photorealistic, 8k uhd, sharp focus, studio lighting", "clip": ["1", 1] } },
+  "3": { "class_type": "CLIPTextEncode", "inputs": { "text": "yellow teeth, stained teeth, crooked teeth, missing teeth, gaps, dark teeth, bad teeth, decay, cartoon, painting, illustration, deformed, distorted, blurry, low quality", "clip": ["1", 1] } },
+  "4": { "class_type": "LoadImage", "inputs": { "image": "photo.png", "upload": "image" } },
+  "5": { "class_type": "LoadImage", "inputs": { "image": "mask.png", "upload": "image" } },
+  "6": { "class_type": "ImageToMask", "inputs": { "image": ["5", 0], "channel": "red" } },
+  "7": { "class_type": "VAEEncodeForInpaint", "inputs": { "pixels": ["4", 0], "vae": ["1", 2], "mask": ["6", 0], "grow_mask_by": 12 } },
+  "8": { "class_type": "KSampler", "inputs": { "model": ["1", 0], "positive": ["2", 0], "negative": ["3", 0], "latent_image": ["7", 0], "seed": 0, "control_after_generate": "randomize", "steps": 30, "cfg": 8.0, "sampler_name": "dpmpp_2m", "scheduler": "karras", "denoise": 1.0 } },
+  "9": { "class_type": "VAEDecode", "inputs": { "samples": ["8", 0], "vae": ["1", 2] } },
+  "10": { "class_type": "SaveImage", "inputs": { "images": ["9", 0], "filename_prefix": "dental_result" } }
+};
+
 // --- RunPod: ComfyUI dental workflow ---
 // Expects { image: "base64...", mask: "base64..." }
 // Formats for runpod/worker-comfyui which accepts { images: [{name, image}] }
@@ -390,6 +404,7 @@ async function handleRunpodGenerate(request, env, origin) {
       headers: { 'Authorization': `Bearer ${env.RUNPOD_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         input: {
+          workflow: COMFY_WORKFLOW,
           images: [
             { name: 'photo.png', image: stripPrefix(image) },
             { name: 'mask.png',  image: stripPrefix(mask)  },
