@@ -1514,7 +1514,9 @@ async function generateSmile(dataUrl) {
 
     return resultUrl;
   } catch(e) {
-    console.warn('FLUX inpaint failed, falling back to HSL whitening:', e.message);
+    console.error('FLUX inpaint failed:', e.message);
+    updateProgress('FLUX error: ' + e.message.slice(0, 80), 50);
+    await new Promise(r => setTimeout(r, 3000)); // show error for 3s before fallback
   }
 
   // --- Fallback: client-side HSL whitening ---
