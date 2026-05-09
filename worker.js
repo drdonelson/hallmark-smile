@@ -209,6 +209,181 @@ async function handleVideoStatus(request, env, origin) {
   });
 }
 
+// --- fal.ai: Upload image to fal CDN storage ---
+async function handleFalUpload(request, env, origin) {
+  try {
+    const fal = await fetch('https://storage.fal.run', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Key ${env.FAL_API_KEY}`,
+        ...(request.headers.get('Content-Type')
+          ? { 'Content-Type': request.headers.get('Content-Type') }
+          : {}),
+      },
+      body: request.body,
+    });
+    const text = await fal.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = { error: text }; }
+    return new Response(JSON.stringify(data), {
+      status: fal.status,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+}
+
+// --- fal.ai: SAM2 tooth segmentation ---
+async function handleFalSegment(request, env, origin) {
+  let body;
+  try { body = await request.json(); } catch {
+    return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  const { image_url, x1, y1, x2, y2 } = body;
+  if (!image_url) {
+    return new Response(JSON.stringify({ error: 'Missing image_url' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  try {
+    const fal = await fetch(`${FAL_BASE}/fal-ai/sam2/image`, {
+      method: 'POST',
+      headers: { 'Authorization': `Key ${env.FAL_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        image_url,
+        prompts: [{ type: 'box', x_min: x1, y_min: y1, x_max: x2, y_max: y2 }],
+      }),
+    });
+    const text = await fal.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = { error: text }; }
+    return new Response(JSON.stringify(data), {
+      status: fal.status,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+}
+
+// --- fal.ai: FLUX Pro Fill inpainting ---
+async function handleFalInpaint(request, env, origin) {
+  let body;
+  try { body = await request.json(); } catch {
+    return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  const { image_url, mask_url, prompt } = body;
+  if (!image_url || !mask_url || !prompt) {
+    return new Response(JSON.stringify({ error: 'Missing image_url, mask_url, or prompt' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  try {
+    const fal = await fetch(`${FAL_BASE}/fal-ai/flux-pro/v1/fill`, {
+      method: 'POST',
+      headers: { 'Authorization': `Key ${env.FAL_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        image_url,
+        mask_url,
+        prompt,
+        num_inference_steps: 28,
+        guidance_scale: 30,
+        output_format: 'jpeg',
+        sync_mode: false,
+      }),
+    });
+    const text = await fal.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = { error: text }; }
+    return new Response(JSON.stringify(data), {
+      status: fal.status,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+}
+
+// --- RunPod: ComfyUI dental workflow (Phase 2 — needs RUNPOD_ENDPOINT_ID + RUNPOD_API_KEY secrets) ---
+async function handleRunpodGenerate(request, env, origin) {
+  const endpointId = env.RUNPOD_ENDPOINT_ID;
+  if (!endpointId) {
+    return new Response(JSON.stringify({ error: 'RUNPOD_ENDPOINT_ID secret not configured' }), {
+      status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  let body;
+  try { body = await request.json(); } catch {
+    return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  try {
+    const rp = await fetch(`https://api.runpod.ai/v2/${endpointId}/run`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${env.RUNPOD_API_KEY}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ input: body }),
+    });
+    const text = await rp.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = { error: text }; }
+    return new Response(JSON.stringify(data), {
+      status: rp.status,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+}
+
+async function handleRunpodStatus(request, env, origin) {
+  const endpointId = env.RUNPOD_ENDPOINT_ID;
+  if (!endpointId) {
+    return new Response(JSON.stringify({ error: 'RUNPOD_ENDPOINT_ID secret not configured' }), {
+      status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  const url   = new URL(request.url);
+  const jobId = url.searchParams.get('jobId');
+  if (!jobId) {
+    return new Response(JSON.stringify({ error: 'Missing jobId param' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  try {
+    const rp = await fetch(`https://api.runpod.ai/v2/${endpointId}/status/${jobId}`, {
+      headers: { 'Authorization': `Bearer ${env.RUNPOD_API_KEY}` },
+    });
+    const text = await rp.text();
+    let data;
+    try { data = JSON.parse(text); } catch { data = { error: text }; }
+    return new Response(JSON.stringify(data), {
+      status: rp.status,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+}
+
 // --- Main handler ---
 export default {
   async fetch(request, env) {
@@ -228,6 +403,25 @@ export default {
     }
 
     const url = new URL(request.url);
+
+    // fal.ai image pipeline endpoints
+    if (url.pathname === '/api/fal/upload' && request.method === 'POST') {
+      return handleFalUpload(request, env, origin);
+    }
+    if (url.pathname === '/api/fal/segment' && request.method === 'POST') {
+      return handleFalSegment(request, env, origin);
+    }
+    if (url.pathname === '/api/fal/inpaint' && request.method === 'POST') {
+      return handleFalInpaint(request, env, origin);
+    }
+
+    // RunPod ComfyUI pipeline (Phase 2 — wired up, awaiting developer endpoint)
+    if (url.pathname === '/api/runpod/generate' && request.method === 'POST') {
+      return handleRunpodGenerate(request, env, origin);
+    }
+    if (url.pathname === '/api/runpod/status' && request.method === 'GET') {
+      return handleRunpodStatus(request, env, origin);
+    }
 
     // Kling / fal.ai video endpoints
     if (url.pathname === '/api/kling/start' && request.method === 'POST') {

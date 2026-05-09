@@ -1031,6 +1031,9 @@ PRESERVE EVERYTHING OUTSIDE THE TEETH — absolutely no changes:
 OUTPUT STYLE:
 Professional dental marketing photography. Photorealistic — the face looks like an unedited photograph. Only the teeth show the transformation. This should look like a real before/after case photo a cosmetic dentist would proudly display in their office.`;
 
+// Used by FLUX Pro Fill inpainting — mask handles preservation, prompt focuses on teeth only
+const FLUX_DENTAL_PROMPT = `Hollywood dental smile makeover, BL1 porcelain veneers, brilliant white teeth, dramatic transformation, perfect alignment, no gaps or crowding, full broad smile arc corner to corner, natural healthy pink gumline, photorealistic enamel with natural translucency at incisal edges, dental cosmetic marketing visualization, stunning jaw-dropping smile`;
+
 const MSGS = [
   'Detecting smile region…',
   'Analyzing your smile…',
@@ -1196,6 +1199,52 @@ function validateForm() {
   return ok;
 }
 
+/* ── fal.ai helpers ────────────────────────────────────────────── */
+
+// Upload a File/Blob to fal CDN → returns a stable HTTPS URL
+async function uploadToFal(file) {
+  const form = new FormData();
+  form.append('file', file);
+  const res  = await fetch(`${PROXY_URL}/api/fal/upload`, { method: 'POST', body: form });
+  const data = await res.json();
+  if (!data.url) throw new Error('fal upload failed: ' + JSON.stringify(data));
+  return data.url;
+}
+
+// Poll a fal.ai status URL until COMPLETED or FAILED
+async function pollFalJob(statusUrl, timeoutMs = 180000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    await new Promise(r => setTimeout(r, 3500));
+    const res  = await fetch(`${PROXY_URL}/api/kling/status?falUrl=${encodeURIComponent(statusUrl)}`);
+    const data = await res.json();
+    if (data.status === 'COMPLETED') return data.output;
+    if (data.status === 'FAILED')    throw new Error('fal job failed: ' + JSON.stringify(data.error || data));
+  }
+  throw new Error('fal job timed out after 3 minutes');
+}
+
+// White-on-black mask for SD/FLUX inpainting convention (white = edit here)
+function buildTeethMaskWhite(imgWidth, imgHeight, bounds) {
+  const canvas = document.createElement('canvas');
+  canvas.width  = imgWidth;
+  canvas.height = imgHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, imgWidth, imgHeight);
+  const px   = (bounds.x / 100) * imgWidth;
+  const py   = (bounds.y / 100) * imgHeight;
+  const pw   = (bounds.w / 100) * imgWidth;
+  const ph   = (bounds.h / 100) * imgHeight;
+  const padX = pw * 0.10;
+  const padY = ph * 0.15;
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.ellipse(px + pw / 2, py + ph / 2, pw / 2 + padX, ph / 2 + padY, 0, 0, Math.PI * 2);
+  ctx.fill();
+  return canvas.toDataURL('image/png');
+}
+
 /* ── Teeth detection + mask generation ─────────────────────────── */
 async function detectTeethBounds(dataUrl) {
   try {
@@ -1261,60 +1310,78 @@ function buildTeethMask(imgWidth, imgHeight, bounds) {
 
 /* ── Main generation flow ──────────────────────────────────────── */
 async function generateSmile(dataUrl) {
-  // Step 1: Detect teeth location with GPT-4o vision
-  updateProgress('Detecting smile region…', 15);
+  // Step 1: Upload original photo to fal CDN for stable URLs
+  updateProgress('Uploading photo…', 10);
+  const imgBlob = await fetch(dataUrl).then(r => r.blob());
+  const imgFile = new File([imgBlob], 'photo.jpg', { type: 'image/jpeg' });
+  const imgUrl  = await uploadToFal(imgFile);
+
+  // Step 2: Detect teeth bounds with GPT-4o vision
+  updateProgress('Detecting smile region…', 20);
   const bounds = await detectTeethBounds(dataUrl);
 
-  // Step 2: Load original image to get dimensions
-  updateProgress('Building smile mask…', 25);
+  // Step 3: Get pixel dimensions
   const imgEl = await new Promise((resolve, reject) => {
-    const i = new Image();
-    i.onload  = () => resolve(i);
-    i.onerror = reject;
-    i.src     = dataUrl;
+    const i = new Image(); i.onload = () => resolve(i); i.onerror = reject; i.src = dataUrl;
   });
   const W = imgEl.naturalWidth;
   const H = imgEl.naturalHeight;
 
-  // Step 3: Build mask — transparent over teeth (AI edits here),
-  // opaque black everywhere else (AI preserves these pixels).
-  const maskDataUrl = buildTeethMask(W, H, bounds);
-  const maskBlob    = await fetch(maskDataUrl).then(r => r.blob());
-  const maskFile    = new File([maskBlob], 'mask.png', { type: 'image/png' });
+  // Step 4: SAM2 — precise tooth segmentation (falls back to geometric mask)
+  let maskUrl;
+  try {
+    updateProgress('Segmenting teeth precisely…', 35);
+    const x1 = Math.floor((bounds.x / 100) * W);
+    const y1 = Math.floor((bounds.y / 100) * H);
+    const x2 = Math.ceil(((bounds.x + bounds.w) / 100) * W);
+    const y2 = Math.ceil(((bounds.y + bounds.h) / 100) * H);
 
-  // Step 4: Send full image + mask to OpenAI.
-  // No compositing — show the result directly so teeth stay exactly
-  // where OpenAI placed them (compositing caused coordinate mismatch).
-  updateProgress('Transforming your smile…', 35);
-  const blob = await fetch(dataUrl).then(r => r.blob());
-  const file = new File([blob], 'photo.png', { type: 'image/png' });
+    const segRes  = await fetch(`${PROXY_URL}/api/fal/segment`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image_url: imgUrl, x1, y1, x2, y2 }),
+    });
+    const segData = await segRes.json();
+    if (segData.error) throw new Error(segData.error);
 
-  const form = new FormData();
-  form.append('model',   'gpt-image-1');
-  form.append('image',   file);
-  form.append('mask',    maskFile);
-  form.append('prompt',  SMILE_PROMPT);
-  form.append('n',       '1');
-  form.append('size',    'auto');
-  form.append('quality', 'high');
+    const segOut = (segData.status === 'COMPLETED')
+      ? segData.output
+      : await pollFalJob(segData.status_url || segData.response_url);
 
-  const res = await fetch(`${PROXY_URL}/v1/images/edits`, {
-    method: 'POST',
-    body:   form,
-  });
-
-  if (!res.ok) {
-    const t = await res.text().catch(() => '');
-    throw new Error(`Image generation failed (${res.status}): ${t}`);
+    maskUrl = segOut?.masks?.[0]?.url
+           || segOut?.combined_mask?.url
+           || segOut?.image?.url
+           || segOut?.mask_url;
+    if (!maskUrl) throw new Error('No mask URL in SAM2 response: ' + JSON.stringify(segOut));
+  } catch (err) {
+    console.warn('SAM2 segmentation failed, using geometric mask:', err.message);
+    updateProgress('Building smile mask…', 35);
+    const maskDataUrl = buildTeethMaskWhite(W, H, bounds);
+    const maskBlob    = await fetch(maskDataUrl).then(r => r.blob());
+    maskUrl = await uploadToFal(new File([maskBlob], 'mask.png', { type: 'image/png' }));
   }
 
-  const data = await res.json();
-  if (!data.data?.length) throw new Error('No image returned from OpenAI.');
+  // Step 5: FLUX Pro Fill — inpaint the teeth region
+  updateProgress('Transforming your smile…', 55);
+  const inpaintRes  = await fetch(`${PROXY_URL}/api/fal/inpaint`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image_url: imgUrl, mask_url: maskUrl, prompt: FLUX_DENTAL_PROMPT }),
+  });
+  const inpaintData = await inpaintRes.json();
+  if (inpaintData.error) throw new Error('FLUX inpaint failed: ' + inpaintData.error);
 
-  const item = data.data[0];
-  if (item.b64_json) return `data:image/png;base64,${item.b64_json}`;
-  if (item.url)      return item.url;
-  throw new Error('Unexpected response format from OpenAI.');
+  updateProgress('Applying Hollywood smile…', 65);
+  const inpaintOut = (inpaintData.status === 'COMPLETED')
+    ? inpaintData.output
+    : await pollFalJob(inpaintData.status_url || inpaintData.response_url);
+
+  const resultUrl = inpaintOut?.images?.[0]?.url
+                 || inpaintOut?.image?.url
+                 || inpaintOut?.url;
+  if (!resultUrl) throw new Error('No result image from FLUX: ' + JSON.stringify(inpaintOut));
+
+  return resultUrl;
 }
 
 /* ── Progress messages ─────────────────────────────────────────── */
