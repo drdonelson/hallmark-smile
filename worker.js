@@ -326,34 +326,9 @@ async function handleFluxInpaint(request, env, origin) {
     });
   }
 
-  // Upload a base64 data URI to fal.ai storage → returns a stable CDN URL
-  async function uploadToFal(dataUri, filename) {
-    const [meta, b64] = dataUri.split(',');
-    const mimeType    = (meta.match(/:(.*?);/) || [])[1] || 'image/png';
-    const bytes       = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-    const form        = new FormData();
-    form.append('file', new Blob([bytes], { type: mimeType }), filename);
-    const res  = await fetch('https://storage.fal.run', {
-      method:  'POST',
-      headers: { 'Authorization': `Key ${env.FAL_API_KEY}` },
-      body:    form,
-    });
-    const data = await res.json();
-    if (!data.url) throw new Error('fal storage upload failed: ' + JSON.stringify(data));
-    return data.url;
-  }
-
-  let imageUrl, maskUrl;
-  try {
-    [imageUrl, maskUrl] = await Promise.all([
-      uploadToFal(image, 'photo.png'),
-      uploadToFal(mask,  'mask.png'),
-    ]);
-  } catch (err) {
-    return new Response(JSON.stringify({ error: `fal upload failed: ${err.message}` }), {
-      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
-    });
-  }
+  // Send data URIs directly — fal-ai/flux-pro/v1/fill accepts base64 data URIs
+  const imageUrl = image;
+  const maskUrl  = mask;
 
   const prompt = 'Hollywood dental smile makeover, BL1 porcelain veneers, brilliant white teeth, dramatic transformation, perfect alignment, no gaps or crowding, full broad smile arc corner to corner, natural healthy pink gumline, photorealistic enamel with natural translucency at incisal edges, dental cosmetic marketing visualization, stunning jaw-dropping smile';
 
