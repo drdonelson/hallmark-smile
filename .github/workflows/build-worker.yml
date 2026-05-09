@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - 'comfyui-worker/**'
+  workflow_dispatch:
 
 jobs:
   build-and-push:
