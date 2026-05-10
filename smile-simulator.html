@@ -1196,6 +1196,7 @@ function validateForm() {
 function loadImage(src) {
   return new Promise((resolve, reject) => {
     const img = new Image();
+    img.crossOrigin = 'anonymous';   // prevent canvas taint for CDN URLs
     img.onload  = () => resolve(img);
     img.onerror = reject;
     img.src = src;
@@ -1523,9 +1524,10 @@ async function cropToBox(imageUrl, box) {
 
 /* ── Run SAM2 on crop image, return mask URL string ─────────────── */
 async function runSAM2(cropDataUrl, cw, ch) {
-  // On the crop, upper teeth occupy roughly top 55% horizontally full-width
-  const boxPrompt  = [Math.round(cw*0.05), Math.round(ch*0.05), Math.round(cw*0.95), Math.round(ch*0.55)];
-  const pointPrompt = [Math.round(cw*0.50), Math.round(ch*0.30)];
+  // The crop covers face y 55-85%, so teeth sit in the bottom ~40-90% of the crop.
+  // Box spans full width, lower half of crop. Point at center of teeth zone.
+  const boxPrompt  = [Math.round(cw*0.05), Math.round(ch*0.40), Math.round(cw*0.95), Math.round(ch*0.92)];
+  const pointPrompt = [Math.round(cw*0.50), Math.round(ch*0.65)];
 
   const startRes  = await fetch(`${PROXY_URL}/api/sam/start`, {
     method: 'POST',
