@@ -249,7 +249,7 @@ async function handleSAMStart(request, env, origin) {
     });
   }
 
-  const { image, width, height } = body;
+  const { image, width, height, boxPrompt, pointPrompt } = body;
   if (!image || !width || !height) {
     return new Response(JSON.stringify({ error: 'Missing image, width or height' }), {
       status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
@@ -273,13 +273,13 @@ async function handleSAMStart(request, env, origin) {
     });
   }
 
-  // Teeth box: horizontal center 25–75%, vertical 61–82%
-  const bx1 = Math.round(width  * 0.25);
-  const by1 = Math.round(height * 0.61);
-  const bx2 = Math.round(width  * 0.75);
-  const by2 = Math.round(height * 0.82);
-  const px  = Math.round(width  * 0.50);
-  const py  = Math.round(height * 0.69);
+  // Allow caller to supply box/point prompts (used for crop-relative coordinates).
+  // Default: teeth box at horizontal center 25–75%, vertical 61–82% of full face.
+  const [bx1, by1, bx2, by2] = boxPrompt || [
+    Math.round(width * 0.25), Math.round(height * 0.61),
+    Math.round(width * 0.75), Math.round(height * 0.82),
+  ];
+  const [px, py] = pointPrompt || [Math.round(width * 0.50), Math.round(height * 0.69)];
 
   try {
     const samRes = await fetch('https://queue.fal.run/fal-ai/sam2/image', {
@@ -319,16 +319,16 @@ async function handleFluxInpaint(request, env, origin) {
     });
   }
 
-  const { image, mask, width, height } = body;
-  if (!image || !mask || !width || !height) {
-    return new Response(JSON.stringify({ error: 'Missing image, mask, width, or height' }), {
+  const { image, mask, mask_url, width, height } = body;
+  if (!image || (!mask && !mask_url) || !width || !height) {
+    return new Response(JSON.stringify({ error: 'Missing image, mask (or mask_url), width, or height' }), {
       status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
   }
 
-  // Send data URIs directly — fal-ai/flux-pro/v1/fill accepts base64 data URIs
+  // mask_url (fal.ai hosted URL) takes priority over mask (data URI)
   const imageUrl = image;
-  const maskUrl  = mask;
+  const maskUrl  = mask_url || mask;
 
   const prompt = 'Photorealistic dental after photo, ideal natural cosmetic dental outcome, symmetrical maxillary anterior teeth only, central incisors dominant with harmonious laterals and canines, ovoid tooth shape, smooth incisal edges with subtle natural translucency, healthy realistic enamel texture, uniform natural bright shade, correct spacing and alignment, midline balance, natural emergence profile at gingival margins, buccal corridors present, clinical realism, macro dental photography, neutral color balance, sharp focus on teeth, authentic dental esthetics, high-quality cosmetic dentistry case photo';
 
