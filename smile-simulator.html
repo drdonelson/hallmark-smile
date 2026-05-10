@@ -1233,10 +1233,14 @@ async function pollRunpod(jobId, timeoutMs = 300000) {
     const data = await res.json();
     const status = data.status;
     if (status === 'COMPLETED') {
-      // runpod/worker-comfyui returns output.images array with base64
+      console.log('RunPod raw output:', JSON.stringify(data.output));
       const imgs = data.output?.images;
       if (!imgs?.length) throw new Error('No images in RunPod output');
-      return `data:image/png;base64,${imgs[0].image}`;
+      const img = imgs[0];
+      // 5.x returns {url:...}, 3.x returned {image: base64}
+      if (img.url) return img.url;
+      if (img.image) return `data:image/png;base64,${img.image}`;
+      throw new Error('Unknown image format: ' + JSON.stringify(img));
     }
     if (status === 'FAILED') throw new Error('RunPod job failed: ' + JSON.stringify(data.error));
   }
