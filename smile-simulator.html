@@ -1518,8 +1518,8 @@ async function generateSmile(dataUrl) {
   const toothMask = buildToothMask(id.data, width, height);
   if (!toothMask) throw new Error('Could not detect teeth. Please use a photo with a clear, open smile.');
 
-  // Dilated mask for AI inpainting — gives the model room to reshape teeth
-  const dilatedMask = dilateMask(toothMask, width, height, Math.round(width * 0.025));
+  // Minimal dilation to soften mask edges — just enough for clean blending
+  const dilatedMask = dilateMask(toothMask, width, height, 6);
 
   // White-on-black mask PNG (white = inpaint here)
   const maskC = document.createElement('canvas');
