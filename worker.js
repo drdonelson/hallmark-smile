@@ -351,7 +351,7 @@ async function handleFluxInpaint(request, env, origin) {
         prompt,
         negative_prompt,
         num_inference_steps: 28,
-        guidance_scale:      15,
+        guidance_scale:      18,
         output_format:       'jpeg',
         sync_mode:           false,
       }),
