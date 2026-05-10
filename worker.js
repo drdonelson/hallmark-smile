@@ -256,29 +256,8 @@ async function handleSAMStart(request, env, origin) {
     });
   }
 
-  // Upload image to fal.ai storage so SAM2 can fetch it by URL (SAM2 requires an HTTP URL)
-  let imageUrl;
-  try {
-    const [meta, b64] = image.split(',');
-    const mimeType = (meta.match(/:(.*?);/) || [])[1] || 'image/png';
-    const bytes      = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-    const uploadRes  = await fetch('https://rest.alpha.fal.ai/storage/upload', {
-      method:  'POST',
-      headers: {
-        'Authorization':   `Key ${env.FAL_API_KEY}`,
-        'Content-Type':    mimeType,
-        'X-Fal-File-Name': 'image.png',
-      },
-      body: bytes,
-    });
-    const uploadData = await uploadRes.json();
-    imageUrl = uploadData.url || uploadData.access_url;
-    if (!imageUrl) throw new Error('No URL in upload response: ' + JSON.stringify(uploadData));
-  } catch (err) {
-    return new Response(JSON.stringify({ error: `image upload failed: ${err.message}` }), {
-      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
-    });
-  }
+  // Pass data URI directly — fal-ai/sam2/image accepts base64 data URIs
+  const imageUrl = image;
 
   // Allow caller to supply box/point prompts (used for crop-relative coordinates).
   // Default: teeth box at horizontal center 25–75%, vertical 61–82% of full face.

@@ -1639,26 +1639,9 @@ async function generateSmile(dataUrl) {
     ctx.drawImage(origImg, 0, 0, width, height);
     const id = ctx.getImageData(0, 0, width, height);
 
-    const brightMask   = buildToothMask(id.data, width, height);
-    const brightPixels = brightMask ? brightMask.reduce((a, v) => a + v, 0) : 0;
-
-    let dilatedMask;
-    if (brightMask && brightPixels >= 2000) {
-      // Brightness detection found a solid tooth region — dilate and use it
-      dilatedMask = dilateMask(brightMask, width, height, Math.round(width * 0.025));
-      console.log('Using brightness mask:', brightPixels, 'px');
-    } else {
-      // Brightness mask too small or failed (stained/dark teeth) — use mouth zone rectangle
-      console.log('Brightness mask inadequate (' + brightPixels + ' px) — using mouth zone rectangle');
-      dilatedMask = new Uint8Array(width * height);
-      const mx1 = Math.round(width  * 0.20);
-      const mx2 = Math.round(width  * 0.80);
-      const my1 = Math.round(height * 0.62);
-      const my2 = Math.round(height * 0.83);
-      for (let y = my1; y < my2; y++)
-        for (let x = mx1; x < mx2; x++)
-          dilatedMask[y * width + x] = 1;
-    }
+    const brightMask = buildToothMask(id.data, width, height);
+    if (!brightMask) throw new Error('Could not detect teeth with brightness mask');
+    const dilatedMask = dilateMask(brightMask, width, height, Math.round(width * 0.025));
     const maskC = document.createElement('canvas');
     maskC.width = width; maskC.height = height;
     const mCtx = maskC.getContext('2d');
