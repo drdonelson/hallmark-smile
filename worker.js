@@ -261,14 +261,15 @@ async function handleSAMStart(request, env, origin) {
   try {
     const [meta, b64] = image.split(',');
     const mimeType = (meta.match(/:(.*?);/) || [])[1] || 'image/png';
-    const bytes    = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-    const blob     = new Blob([bytes], { type: mimeType });
-    const form     = new FormData();
-    form.append('file', blob, 'image.png');
+    const bytes      = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
     const uploadRes  = await fetch('https://rest.alpha.fal.ai/storage/upload', {
       method:  'POST',
-      headers: { 'Authorization': `Key ${env.FAL_API_KEY}` },
-      body:    form,
+      headers: {
+        'Authorization':   `Key ${env.FAL_API_KEY}`,
+        'Content-Type':    mimeType,
+        'X-Fal-File-Name': 'image.png',
+      },
+      body: bytes,
     });
     const uploadData = await uploadRes.json();
     imageUrl = uploadData.url || uploadData.access_url;
