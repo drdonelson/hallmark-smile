@@ -1237,9 +1237,10 @@ async function pollRunpod(jobId, timeoutMs = 300000) {
       const imgs = data.output?.images;
       if (!imgs?.length) throw new Error('No images in RunPod output');
       const img = imgs[0];
-      // 5.x returns {url:...}, 3.x returned {image: base64}
+      // 5.x returns {url:...} or {data: base64}, 3.x returned {image: base64}
       if (img.url) return img.url;
       if (img.image) return `data:image/png;base64,${img.image}`;
+      if (img.data) return `data:image/png;base64,${img.data}`;
       throw new Error('Unknown image format: ' + JSON.stringify(img));
     }
     if (status === 'FAILED') throw new Error('RunPod job failed: ' + JSON.stringify(data.error));
