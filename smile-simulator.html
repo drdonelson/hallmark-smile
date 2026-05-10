@@ -1274,9 +1274,9 @@ function buildToothMask(d, width, height) {
   // Horizontal zone: centre of face (teeth don't reach the edges)
   const rxMin = Math.round(width  * (portrait ? 0.30 : 0.32));
   const rxMax = Math.round(width  * (portrait ? 0.70 : 0.68));
-  // Vertical zone: UPPER teeth only — stop before the lip line to exclude lowers
+  // Vertical zone: upper-teeth band — start below the nose, stop before chin
   const ryMin = Math.round(height * (portrait ? 0.63 : 0.54));
-  const ryMax = Math.round(height * (portrait ? 0.72 : 0.66));
+  const ryMax = Math.round(height * (portrait ? 0.79 : 0.76));
 
   // Compute per-row mean brightness (lightness = (max+min)/2)
   const rowMeans = [];
@@ -1518,8 +1518,8 @@ async function generateSmile(dataUrl) {
   const toothMask = buildToothMask(id.data, width, height);
   if (!toothMask) throw new Error('Could not detect teeth. Please use a photo with a clear, open smile.');
 
-  // Minimal dilation to soften mask edges — just enough for clean blending
-  const dilatedMask = dilateMask(toothMask, width, height, 6);
+  // Dilated mask for AI inpainting — gives the model room to reshape teeth
+  const dilatedMask = dilateMask(toothMask, width, height, Math.round(width * 0.025));
 
   // White-on-black mask PNG (white = inpaint here)
   const maskC = document.createElement('canvas');
