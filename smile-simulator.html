@@ -1529,7 +1529,7 @@ async function generateSmile(dataUrl) {
     if (!startData.id) throw new Error('No job ID from RunPod: ' + JSON.stringify(startData));
 
     updateProgress('Applying Hollywood smile…', 55);
-    const resultUrl = await pollRunpod(startData.id);
+    const resultUrl = await pollRunpod(startData.id, 120000);
     return resultUrl;
   } catch(e) {
     console.warn('RunPod path failed, trying FLUX:', e.message);
@@ -1545,11 +1545,16 @@ async function generateSmile(dataUrl) {
     });
     const startData = await startRes.json();
     if (startData.error) throw new Error(startData.error);
-    const statusUrl = startData.status_url || startData.response_url;
-    if (!statusUrl) throw new Error('No status URL from FLUX');
+    const statusUrl   = startData.status_url;
+    const responseUrl = startData.response_url;
+    if (!statusUrl || !responseUrl) throw new Error('No status/response URL from FLUX: ' + JSON.stringify(startData));
     updateProgress('Applying Hollywood smile…', 60);
-    const result    = await pollFal(statusUrl);
-    const resultUrl = result?.output?.images?.[0]?.url || result?.output?.image?.url;
+    await pollFal(statusUrl);
+    // status_url only returns {status}, fetch response_url for the actual output
+    const resultRes = await fetch(`${PROXY_URL}/api/kling/status?falUrl=${encodeURIComponent(responseUrl)}`);
+    const result    = await resultRes.json();
+    console.log('FLUX result:', JSON.stringify(result).slice(0, 200));
+    const resultUrl = result?.images?.[0]?.url || result?.output?.images?.[0]?.url;
     if (!resultUrl) throw new Error('No image URL in FLUX output');
     return resultUrl;
   } catch(e) {

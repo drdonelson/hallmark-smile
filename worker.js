@@ -369,7 +369,7 @@ const COMFY_WORKFLOW = {
   "5": { "class_type": "LoadImage", "inputs": { "image": "mask.png", "upload": "image" } },
   "6": { "class_type": "ImageToMask", "inputs": { "image": ["5", 0], "channel": "red" } },
   "7": { "class_type": "VAEEncodeForInpaint", "inputs": { "pixels": ["4", 0], "vae": ["1", 2], "mask": ["6", 0], "grow_mask_by": 12 } },
-  "8": { "class_type": "KSampler", "inputs": { "model": ["1", 0], "positive": ["2", 0], "negative": ["3", 0], "latent_image": ["7", 0], "seed": 0, "control_after_generate": "randomize", "steps": 30, "cfg": 8.0, "sampler_name": "dpmpp_2m", "scheduler": "karras", "denoise": 1.0 } },
+  "8": { "class_type": "KSampler", "inputs": { "model": ["1", 0], "positive": ["2", 0], "negative": ["3", 0], "latent_image": ["7", 0], "seed": 0, "control_after_generate": "randomize", "steps": 15, "cfg": 8.0, "sampler_name": "dpmpp_2m", "scheduler": "karras", "denoise": 1.0 } },
   "9": { "class_type": "VAEDecode", "inputs": { "samples": ["8", 0], "vae": ["1", 2] } },
   "10": { "class_type": "SaveImage", "inputs": { "images": ["9", 0], "filename_prefix": "dental_result" } }
 };
