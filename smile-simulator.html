@@ -1499,13 +1499,13 @@ async function colorWhitenTeeth(resizedUrl, width, height) {
   return c.toDataURL('image/png');
 }
 
-/* ── Mouth crop box: 20-80% x, 58-82% y of full-face image ─────── */
+/* ── Mouth crop box: 15-85% x, 55-85% y of full-face image ─────── */
 function getMouthCropBox(w, h) {
   return {
-    x: Math.round(w * 0.20),
-    y: Math.round(h * 0.58),
-    w: Math.round(w * 0.60),
-    h: Math.round(h * 0.24),
+    x: Math.round(w * 0.15),
+    y: Math.round(h * 0.55),
+    w: Math.round(w * 0.70),
+    h: Math.round(h * 0.30),
   };
 }
 

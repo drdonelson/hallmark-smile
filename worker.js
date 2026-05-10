@@ -330,9 +330,9 @@ async function handleFluxInpaint(request, env, origin) {
   const imageUrl = image;
   const maskUrl  = mask_url || mask;
 
-  const prompt = 'Photorealistic dental after photo, ideal natural cosmetic dental outcome, symmetrical maxillary anterior teeth only, central incisors dominant with harmonious laterals and canines, ovoid tooth shape, smooth incisal edges with subtle natural translucency, healthy realistic enamel texture, uniform natural bright shade, correct spacing and alignment, midline balance, natural emergence profile at gingival margins, buccal corridors present, clinical realism, macro dental photography, neutral color balance, sharp focus on teeth, authentic dental esthetics, high-quality cosmetic dentistry case photo';
+  const prompt = 'Photorealistic dental after photo. Teeth are now shade A1 bright white, clean, polished. Ideal cosmetic dental outcome: symmetrical maxillary anterior teeth, central incisors dominant with harmonious laterals and canines, ovoid tooth shape, smooth incisal edges with subtle natural translucency, healthy realistic enamel texture, correct spacing and alignment, midline balance, natural emergence profile at gingival margins, buccal corridors present, clinical realism, macro dental photography, sharp focus on teeth, authentic dental esthetics, high-quality cosmetic dentistry case photo';
 
-  const negative_prompt = 'cartoon teeth, Hollywood glow, overly square veneers, exaggerated gums, symmetry that looks artificial, plastic texture, AI artifacts, altered lips, altered skin, altered lighting, smile widening, face reshaping, over-whitening, artificial glow, flat texture, uncanny smoothness, lengthened centrals, changed gingival levels';
+  const negative_prompt = 'yellow teeth, stained teeth, discolored teeth, cartoon teeth, Hollywood glow, overly square veneers, exaggerated gums, plastic texture, AI artifacts, altered lips, altered skin, altered lighting, smile widening, face reshaping, artificial glow, flat texture, uncanny smoothness';
 
   try {
     const fal = await fetch('https://queue.fal.run/fal-ai/flux-pro/v1/fill', {
@@ -344,7 +344,7 @@ async function handleFluxInpaint(request, env, origin) {
         prompt,
         negative_prompt,
         num_inference_steps: 28,
-        guidance_scale:      10,
+        guidance_scale:      15,
         output_format:       'jpeg',
         sync_mode:           false,
       }),
