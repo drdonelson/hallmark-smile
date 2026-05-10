@@ -1274,9 +1274,9 @@ function buildToothMask(d, width, height) {
   // Horizontal zone: centre of face (teeth don't reach the edges)
   const rxMin = Math.round(width  * (portrait ? 0.30 : 0.32));
   const rxMax = Math.round(width  * (portrait ? 0.70 : 0.68));
-  // Vertical zone: upper-teeth band — start below the nose, stop before chin
+  // Vertical zone: UPPER teeth only — stop before the lip line to exclude lowers
   const ryMin = Math.round(height * (portrait ? 0.63 : 0.54));
-  const ryMax = Math.round(height * (portrait ? 0.79 : 0.76));
+  const ryMax = Math.round(height * (portrait ? 0.72 : 0.66));
 
   // Compute per-row mean brightness (lightness = (max+min)/2)
   const rowMeans = [];
