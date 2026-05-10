@@ -330,7 +330,9 @@ async function handleFluxInpaint(request, env, origin) {
   const imageUrl = image;
   const maskUrl  = mask;
 
-  const prompt = 'Hollywood dental smile makeover, BL1 porcelain veneers, brilliant white teeth, dramatic transformation, perfect alignment, no gaps or crowding, full broad smile arc corner to corner, natural healthy pink gumline, photorealistic enamel with natural translucency at incisal edges, dental cosmetic marketing visualization, stunning jaw-dropping smile';
+  const prompt = 'Photorealistic dental after photo, ideal natural cosmetic dental outcome, symmetrical maxillary anterior teeth only, central incisors dominant with harmonious laterals and canines, ovoid tooth shape, smooth incisal edges with subtle natural translucency, healthy realistic enamel texture, uniform natural bright shade, correct spacing and alignment, midline balance, natural emergence profile at gingival margins, buccal corridors present, clinical realism, macro dental photography, neutral color balance, sharp focus on teeth, authentic dental esthetics, high-quality cosmetic dentistry case photo';
+
+  const negative_prompt = 'cartoon teeth, Hollywood glow, overly square veneers, exaggerated gums, symmetry that looks artificial, plastic texture, AI artifacts, altered lips, altered skin, altered lighting, smile widening, face reshaping, over-whitening, artificial glow, flat texture, uncanny smoothness, lengthened centrals, changed gingival levels';
 
   try {
     const fal = await fetch('https://queue.fal.run/fal-ai/flux-pro/v1/fill', {
@@ -340,6 +342,7 @@ async function handleFluxInpaint(request, env, origin) {
         image_url:           imageUrl,
         mask_url:            maskUrl,
         prompt,
+        negative_prompt,
         num_inference_steps: 28,
         guidance_scale:      30,
         output_format:       'jpeg',

@@ -1516,28 +1516,9 @@ async function generateSmile(dataUrl) {
   const image = c.toDataURL('image/png');
   const mask  = maskC.toDataURL('image/png');
 
-  // --- Primary: RunPod ComfyUI dental workflow ---
+  // --- Primary: FLUX Pro Fill ---
   try {
-    updateProgress('Transforming your smile…', 40);
-    const startRes  = await fetch(`${PROXY_URL}/api/runpod/generate`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image, mask }),
-    });
-    const startData = await startRes.json();
-    if (startData.error) throw new Error(startData.error);
-    if (!startData.id) throw new Error('No job ID from RunPod: ' + JSON.stringify(startData));
-
-    updateProgress('Applying Hollywood smile…', 55);
-    const resultUrl = await pollRunpod(startData.id, 120000);
-    return resultUrl;
-  } catch(e) {
-    console.warn('RunPod path failed, trying FLUX:', e.message);
-  }
-
-  // --- Fallback 1: FLUX Pro Fill ---
-  try {
-    updateProgress('Transforming your smile…', 45);
+    updateProgress('Designing your smile…', 40);
     const startRes  = await fetch(`${PROXY_URL}/api/flux/inpaint`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -1548,7 +1529,7 @@ async function generateSmile(dataUrl) {
     const statusUrl   = startData.status_url;
     const responseUrl = startData.response_url;
     if (!statusUrl || !responseUrl) throw new Error('No status/response URL from FLUX: ' + JSON.stringify(startData));
-    updateProgress('Applying Hollywood smile…', 60);
+    updateProgress('Applying cosmetic details…', 60);
     await pollFal(statusUrl);
     // status_url only returns {status}, fetch response_url for the actual output
     const resultRes = await fetch(`${PROXY_URL}/api/kling/status?falUrl=${encodeURIComponent(responseUrl)}`);
@@ -1558,7 +1539,25 @@ async function generateSmile(dataUrl) {
     if (!resultUrl) throw new Error('No image URL in FLUX output');
     return resultUrl;
   } catch(e) {
-    console.warn('FLUX failed, falling back to HSL:', e.message);
+    console.warn('FLUX failed, trying RunPod:', e.message);
+  }
+
+  // --- Fallback: RunPod ComfyUI ---
+  try {
+    updateProgress('Transforming your smile…', 45);
+    const startRes  = await fetch(`${PROXY_URL}/api/runpod/generate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image, mask }),
+    });
+    const startData = await startRes.json();
+    if (startData.error) throw new Error(startData.error);
+    if (!startData.id) throw new Error('No job ID from RunPod: ' + JSON.stringify(startData));
+    updateProgress('Applying Hollywood smile…', 60);
+    const resultUrl = await pollRunpod(startData.id, 120000);
+    return resultUrl;
+  } catch(e) {
+    console.warn('RunPod failed, falling back to HSL:', e.message);
   }
 
   // --- Fallback: client-side HSL whitening ---
