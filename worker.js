@@ -256,19 +256,25 @@ async function handleSAMStart(request, env, origin) {
     });
   }
 
-  // fal.ai queue does NOT accept data URIs — store image in KV and serve it from this worker
+  // Upload image to fal.ai storage so SAM2 can fetch it by URL (SAM2 requires an HTTP URL)
   let imageUrl;
   try {
     const [meta, b64] = image.split(',');
-    const mimeType    = (meta.match(/:(.*?);/) || [])[1] || 'image/png';
-    const imgId       = crypto.randomUUID();
-    // Store base64 string + mime type in KV with 5-minute TTL
-    await env.TEMP_IMAGES.put(imgId, JSON.stringify({ b64, mimeType }), { expirationTtl: 300 });
-    // Build the public URL that fal.ai can fetch
-    const workerHost = 'quiet-forest-e1f8.david-d73.workers.dev';
-    imageUrl = `https://${workerHost}/api/img/${imgId}`;
+    const mimeType = (meta.match(/:(.*?);/) || [])[1] || 'image/png';
+    const bytes    = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    const blob     = new Blob([bytes], { type: mimeType });
+    const form     = new FormData();
+    form.append('file', blob, 'image.png');
+    const uploadRes  = await fetch('https://rest.alpha.fal.ai/storage/upload', {
+      method:  'POST',
+      headers: { 'Authorization': `Key ${env.FAL_API_KEY}` },
+      body:    form,
+    });
+    const uploadData = await uploadRes.json();
+    imageUrl = uploadData.url || uploadData.access_url;
+    if (!imageUrl) throw new Error('No URL in upload response: ' + JSON.stringify(uploadData));
   } catch (err) {
-    return new Response(JSON.stringify({ error: `image store failed: ${err.message}` }), {
+    return new Response(JSON.stringify({ error: `image upload failed: ${err.message}` }), {
       status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
   }
