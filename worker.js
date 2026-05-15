@@ -256,8 +256,24 @@ async function handleSAMStart(request, env, origin) {
     });
   }
 
-  // Pass data URI directly — fal-ai/sam2/image accepts base64 data URIs
-  const imageUrl = image;
+  // Store image in R2 and serve it via this worker so SAM2 can fetch it by URL
+  let imageUrl;
+  try {
+    const [meta, b64] = image.split(',');
+    const mimeType = (meta.match(/:(.*?);/) || [])[1] || 'image/png';
+    const bytes    = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    const imgId    = crypto.randomUUID();
+    await env.TEMP_IMAGES.put(imgId, bytes, {
+      httpMetadata: { contentType: mimeType },
+      customMetadata: { expires: String(Date.now() + 300_000) },
+    });
+    const workerHost = 'quiet-forest-e1f8.david-d73.workers.dev';
+    imageUrl = `https://${workerHost}/api/img/${imgId}`;
+  } catch (err) {
+    return new Response(JSON.stringify({ error: `R2 store failed: ${err.message}` }), {
+      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
 
   // Allow caller to supply box/point prompts (used for crop-relative coordinates).
   // Default: teeth box at horizontal center 25–75%, vertical 61–82% of full face.
@@ -448,11 +464,10 @@ async function handleRunpodStatus(request, env, origin) {
 // --- Temp image serve: fal.ai fetches from here (no origin check needed) ---
 async function handleTempImage(request, env, imgId) {
   try {
-    const stored = await env.TEMP_IMAGES.get(imgId);
-    if (!stored) return new Response('Not Found', { status: 404 });
-    const { b64, mimeType } = JSON.parse(stored);
-    const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-    return new Response(bytes, {
+    const obj = await env.TEMP_IMAGES.get(imgId);
+    if (!obj) return new Response('Not Found', { status: 404 });
+    const mimeType = obj.httpMetadata?.contentType || 'image/png';
+    return new Response(obj.body, {
       headers: { 'Content-Type': mimeType, 'Cache-Control': 'no-store' },
     });
   } catch (err) {
