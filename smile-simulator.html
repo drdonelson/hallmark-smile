@@ -1781,7 +1781,7 @@ async function generateSmile(dataUrl) {
       const brightenedCropUrl = await preBrightenCrop(cropDataUrl, cropMaskDataUrl, cw, ch);
 
       updateProgress('Designing your smile…', 40);
-      const repStart = await fetch(`${PROXY_URL}/api/replicate/inpaint`, {
+      const repStart = await fetch(`${PROXY_URL}/api/dental/inpaint`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: brightenedCropUrl, mask: cropMaskDataUrl, width: cw, height: ch }),
