@@ -1781,7 +1781,7 @@ async function generateSmile(dataUrl) {
       const brightenedCropUrl = await preBrightenCrop(cropDataUrl, cropMaskDataUrl, cw, ch);
 
       updateProgress('Designing your smile…', 40);
-      const modalRes = await fetch(`${PROXY_URL}/api/modal/inpaint`, {
+      const modalRes = await fetch('https://drdonelson--dental-lora-dentalmodel-inpaint.modal.run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: brightenedCropUrl, mask: cropMaskDataUrl }),
