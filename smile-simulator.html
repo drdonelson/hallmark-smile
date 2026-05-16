@@ -1267,6 +1267,19 @@ async function pollFal(statusUrl, maxWait = 180000) {
   throw new Error('SAM timed out');
 }
 
+async function pollReplicate(predictionId, maxWait = 120000) {
+  const t0 = Date.now();
+  while (Date.now() - t0 < maxWait) {
+    await new Promise(r => setTimeout(r, 3000));
+    const r = await fetch(`${PROXY_URL}/api/replicate/status?id=${encodeURIComponent(predictionId)}`);
+    const d = await r.json();
+    console.log('Replicate poll:', d.status, Math.round((Date.now()-t0)/1000)+'s');
+    if (d.status === 'succeeded') return d.output?.[0];
+    if (d.status === 'failed' || d.status === 'canceled') throw new Error('Replicate failed: ' + JSON.stringify(d.error));
+  }
+  throw new Error('Replicate timed out');
+}
+
 /* ── MediaPipe Face Landmarker ─────────────────────────────────── */
 let _faceLandmarker = null;
 // Inner lip contour indices in MediaPipe's 468-point face mesh.
@@ -1710,11 +1723,10 @@ async function generateSmile(dataUrl) {
     console.warn('MediaPipe failed:', e.message);
   }
 
-  // --- Primary: MediaPipe crop + FLUX Pro Fill + composite ---
+  // --- Primary: MediaPipe crop + SDXL Inpainting (Replicate) + composite ---
   if (mpResult) {
     try {
       const { landmarks, bounds } = mpResult;
-      // Expand landmark bounds for surrounding lip/gum context
       const padX = (bounds.xMax - bounds.xMin) * 0.8;
       const padY = (bounds.yMax - bounds.yMin) * 1.0;
       const cropBox = {
@@ -1731,30 +1743,25 @@ async function generateSmile(dataUrl) {
       const brightenedCropUrl = await preBrightenCrop(cropDataUrl, cropMaskDataUrl, cw, ch);
 
       updateProgress('Designing your smile…', 40);
-      const fluxStart = await fetch(`${PROXY_URL}/api/flux/inpaint`, {
+      const repStart = await fetch(`${PROXY_URL}/api/replicate/inpaint`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ image: brightenedCropUrl, mask: cropMaskDataUrl, width: cw, height: ch }),
       });
-      const fluxData = await fluxStart.json();
-      if (fluxData.error) throw new Error('FLUX start: ' + fluxData.error);
-      const { status_url, response_url } = fluxData;
-      if (!status_url || !response_url) throw new Error('No FLUX queue URLs');
+      const repData = await repStart.json();
+      if (repData.error) throw new Error('Replicate start: ' + repData.error);
+      if (!repData.id) throw new Error('No prediction ID from Replicate');
 
       updateProgress('Applying cosmetic details…', 60);
-      await pollFal(status_url);
-      const fluxRes    = await fetch(`${PROXY_URL}/api/kling/status?falUrl=${encodeURIComponent(response_url)}`);
-      const fluxResult = await fluxRes.json();
-      console.log('FLUX crop result:', JSON.stringify(fluxResult).slice(0, 200));
-      const fluxUrl = fluxResult?.images?.[0]?.url || fluxResult?.output?.images?.[0]?.url;
-      if (!fluxUrl) throw new Error('No image URL in FLUX output');
+      const repUrl = await pollReplicate(repData.id);
+      if (!repUrl) throw new Error('No image URL in Replicate output');
 
       updateProgress('Compositing result…', 85);
-      const composited = await compositeResult(resizedUrl, fluxUrl, cropMaskDataUrl, cropBox, width, height);
-      console.log('✅ Result from: MediaPipe + FLUX crop + composite');
+      const composited = await compositeResult(resizedUrl, repUrl, cropMaskDataUrl, cropBox, width, height);
+      console.log('✅ Result from: MediaPipe + SDXL crop + composite');
       return composited;
     } catch(e) {
-      console.warn('MediaPipe+FLUX crop failed, trying full-image FLUX:', e.message);
+      console.warn('MediaPipe+Replicate crop failed, trying FLUX:', e.message);
     }
   }
 

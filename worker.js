@@ -461,6 +461,117 @@ async function handleRunpodStatus(request, env, origin) {
   }
 }
 
+// --- Replicate: SDXL Inpainting (lucataco/sdxl-inpainting) ---
+// Uploads image + mask to R2, submits to Replicate, returns prediction ID for polling.
+const REPLICATE_SDXL_VERSION = 'a5b13068cc81a89a4fbeefeccc774869fcb34df4dbc92c1555e0f2771d49dde7';
+const WORKER_HOST = 'quiet-forest-e1f8.david-d73.workers.dev';
+
+async function r2Upload(env, dataUrl) {
+  const [header, b64] = dataUrl.split(',');
+  const mimeType = header.match(/:(.*?);/)?.[1] || 'image/png';
+  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  const imgId = crypto.randomUUID();
+  await env.TEMP_IMAGES.put(imgId, bytes, {
+    httpMetadata: { contentType: mimeType },
+    customMetadata: { expires: String(Date.now() + 600_000) },
+  });
+  return `https://${WORKER_HOST}/api/img/${imgId}`;
+}
+
+async function handleReplicateInpaint(request, env, origin) {
+  if (!env.REPLICATE_API_TOKEN) {
+    return new Response(JSON.stringify({ error: 'REPLICATE_API_TOKEN not configured in Worker secrets' }), {
+      status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  let body;
+  try { body = await request.json(); } catch {
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  const { image, mask, width, height } = body;
+  if (!image || !mask || !width || !height) {
+    return new Response(JSON.stringify({ error: 'Missing image, mask, width, or height' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+
+  let imageUrl, maskUrl;
+  try {
+    [imageUrl, maskUrl] = await Promise.all([r2Upload(env, image), r2Upload(env, mask)]);
+  } catch (err) {
+    return new Response(JSON.stringify({ error: 'R2 upload failed: ' + err.message }), {
+      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+
+  const prompt = 'Photorealistic cosmetic dental result photo. Upper teeth whitened to shade BL1 bright natural white. Teeth are horizontally level following the natural occlusal plane and smile curve. Central incisors dominant width, lateral incisors slightly narrower, canines tapered — golden proportion. Individual tooth edges clearly defined. Realistic enamel surface texture with natural micro-variation and translucency at incisal edges. Healthy pink gingival margins intact and unchanged. Midline centered. Clinical macro dental photography, authentic cosmetic dentistry result.';
+  const negative_prompt = 'yellow teeth, stained teeth, discolored teeth, flat uniform white blob, no tooth detail, all teeth same width, plastic texture, AI artifacts, altered lips, altered skin, altered face, tilted teeth, canted smile, wrong proportions, cartoon, painting, blurry';
+
+  try {
+    const rep = await fetch('https://api.replicate.com/v1/predictions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${env.REPLICATE_API_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        version: REPLICATE_SDXL_VERSION,
+        input: {
+          image:           imageUrl,
+          mask:            maskUrl,
+          prompt,
+          negative_prompt,
+          guidance_scale:  8.5,
+          strength:        0.80,
+          steps:           25,
+          scheduler:       'K_EULER',
+          num_outputs:     1,
+        },
+      }),
+    });
+    const data = await rep.json();
+    if (!rep.ok) {
+      return new Response(JSON.stringify({ error: data.detail || 'Replicate error', detail: data }), {
+        status: rep.status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+      });
+    }
+    return new Response(JSON.stringify({ id: data.id, status: data.status }), {
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+}
+
+async function handleReplicateStatus(request, env, origin) {
+  if (!env.REPLICATE_API_TOKEN) {
+    return new Response(JSON.stringify({ error: 'REPLICATE_API_TOKEN not configured' }), {
+      status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  const url = new URL(request.url);
+  const id  = url.searchParams.get('id');
+  if (!id) {
+    return new Response(JSON.stringify({ error: 'Missing id param' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  try {
+    const rep = await fetch(`https://api.replicate.com/v1/predictions/${id}`, {
+      headers: { 'Authorization': `Bearer ${env.REPLICATE_API_TOKEN}` },
+    });
+    const data = await rep.json();
+    return new Response(JSON.stringify(data), {
+      status: rep.status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+}
+
 // --- Temp image serve: fal.ai fetches from here (no origin check needed) ---
 async function handleTempImage(request, env, imgId) {
   try {
@@ -511,7 +622,15 @@ export default {
       return handleFluxInpaint(request, env, origin);
     }
 
-    // RunPod ComfyUI pipeline (Phase 2 — wired up, awaiting developer endpoint)
+    // Replicate SDXL Inpainting (primary AI path)
+    if (url.pathname === '/api/replicate/inpaint' && request.method === 'POST') {
+      return handleReplicateInpaint(request, env, origin);
+    }
+    if (url.pathname === '/api/replicate/status' && request.method === 'GET') {
+      return handleReplicateStatus(request, env, origin);
+    }
+
+    // RunPod ComfyUI pipeline (fallback)
     if (url.pathname === '/api/runpod/generate' && request.method === 'POST') {
       return handleRunpodGenerate(request, env, origin);
     }
