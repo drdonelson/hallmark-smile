@@ -1643,8 +1643,8 @@ async function postProcessWhiteness(compositeDataUrl, maskDataUrl, box, origW, o
     if (strength < 0.05) continue;
     const p = i * 4;
     const [h, s, l] = rgbToHsl(imgData.data[p], imgData.data[p+1], imgData.data[p+2]);
-    const newL = l + (Math.max(l, 0.88) - l) * strength;
-    const newS = s + (s * 0.12 - s) * strength; // strip ~88% saturation in masked area
+    const newL = l + (Math.max(l, 0.85) - l) * strength * 0.75; // gentle push, preserve variation
+    const newS = s + (s * 0.35 - s) * strength; // reduce saturation ~65%, keep warmth
     const [r, g, b] = hslToRgb(h, newS, newL);
     imgData.data[p] = r; imgData.data[p+1] = g; imgData.data[p+2] = b;
   }
@@ -1758,8 +1758,8 @@ async function generateSmile(dataUrl) {
   if (mpResult) {
     try {
       const { landmarks, bounds } = mpResult;
-      const padX = (bounds.xMax - bounds.xMin) * 0.8;
-      const padY = (bounds.yMax - bounds.yMin) * 1.0;
+      const padX = (bounds.xMax - bounds.xMin) * 0.6;
+      const padY = (bounds.yMax - bounds.yMin) * 0.4;
       const cropBox = {
         x: Math.max(0, Math.round(bounds.xMin - padX)),
         y: Math.max(0, Math.round(bounds.yMin - padY)),

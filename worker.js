@@ -506,8 +506,8 @@ async function handleReplicateInpaint(request, env, origin) {
     });
   }
 
-  const prompt = 'Photorealistic cosmetic dental result photo. Upper teeth whitened to shade BL1 bright natural white. Teeth are horizontally level following the natural occlusal plane and smile curve. Central incisors dominant width, lateral incisors slightly narrower, canines tapered — golden proportion. Individual tooth edges clearly defined. Realistic enamel surface texture with natural micro-variation and translucency at incisal edges. Healthy pink gingival margins intact and unchanged. Midline centered. Clinical macro dental photography, authentic cosmetic dentistry result.';
-  const negative_prompt = 'yellow teeth, stained teeth, discolored teeth, flat uniform white blob, no tooth detail, all teeth same width, plastic texture, AI artifacts, altered lips, altered skin, altered face, tilted teeth, canted smile, wrong proportions, cartoon, painting, blurry';
+  const prompt = 'Photorealistic cosmetic dental result photo. Upper teeth whitened to shade BL1 bright natural white. Same smile width and natural mouth shape as original — do not widen smile or add extra teeth. Central incisors dominant width, lateral incisors slightly narrower, canines tapered — golden proportion. Individual tooth edges clearly defined with natural inter-dental shadows. Realistic enamel surface texture with subtle micro-variation and translucency at incisal edges. Healthy pink gingival margins intact. Midline centered. Clinical macro dental photography, authentic cosmetic dentistry result.';
+  const negative_prompt = 'yellow teeth, stained teeth, discolored teeth, flat uniform white blob, no tooth detail, all teeth same width, plastic texture, denture, fake teeth, wider smile than original, extra teeth, dark buccal corridor, black corners of mouth, shadow at mouth corners, AI artifacts, altered lips, altered skin, altered face, tilted teeth, canted smile, wrong proportions, cartoon, painting, blurry';
 
   try {
     const rep = await fetch('https://api.replicate.com/v1/predictions', {
@@ -520,8 +520,8 @@ async function handleReplicateInpaint(request, env, origin) {
           mask:            maskUrl,
           prompt,
           negative_prompt,
-          guidance_scale:  9.5,
-          strength:        0.90,
+          guidance_scale:  9.0,
+          strength:        0.85,
           steps:           30,
           scheduler:       'K_EULER',
           num_outputs:     1,
