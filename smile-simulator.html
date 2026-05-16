@@ -1267,7 +1267,7 @@ async function pollFal(statusUrl, maxWait = 180000) {
   throw new Error('SAM timed out');
 }
 
-async function pollReplicate(predictionId, maxWait = 120000) {
+async function pollReplicate(predictionId, maxWait = 300000) {
   const t0 = Date.now();
   while (Date.now() - t0 < maxWait) {
     await new Promise(r => setTimeout(r, 3000));
