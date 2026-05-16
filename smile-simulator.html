@@ -1579,6 +1579,35 @@ async function colorWhitenTeeth(resizedUrl, width, height, precomputedMask = nul
   return c.toDataURL('image/png');
 }
 
+/* ── Pre-brighten crop teeth area before FLUX sees it ───────────── */
+// Boosts lightness of mask pixels ~50% toward white and desaturates yellow.
+// FLUX then works from a lighter baseline instead of fighting all the staining.
+async function preBrightenCrop(cropDataUrl, maskDataUrl, cropW, cropH) {
+  const [cropImg, maskImg] = await Promise.all([loadImage(cropDataUrl), loadImage(maskDataUrl)]);
+  const c = document.createElement('canvas');
+  c.width = cropW; c.height = cropH;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(cropImg, 0, 0, cropW, cropH);
+
+  const mc = document.createElement('canvas');
+  mc.width = cropW; mc.height = cropH;
+  mc.getContext('2d').drawImage(maskImg, 0, 0, cropW, cropH);
+  const mid = mc.getContext('2d').getImageData(0, 0, cropW, cropH);
+
+  const id = ctx.getImageData(0, 0, cropW, cropH);
+  for (let i = 0; i < id.data.length >> 2; i++) {
+    if (mid.data[i * 4] < 128) continue;
+    const p = i * 4;
+    const [h, s, l] = rgbToHsl(id.data[p], id.data[p+1], id.data[p+2]);
+    const newL = l + (0.88 - l) * 0.55;  // push ~55% toward 88% lightness
+    const newS = s * 0.25;               // strip most yellow saturation
+    const [r, g, b] = hslToRgb(h, newS, newL);
+    id.data[p] = r; id.data[p+1] = g; id.data[p+2] = b;
+  }
+  ctx.putImageData(id, 0, 0);
+  return c.toDataURL('image/png');
+}
+
 /* ── Mouth crop box: 15-85% x, 55-85% y of full-face image ─────── */
 function getMouthCropBox(w, h) {
   return {
@@ -1699,12 +1728,13 @@ async function generateSmile(dataUrl) {
       updateProgress('Cropping mouth region…', 25);
       const { dataUrl: cropDataUrl, cw, ch } = await cropToBox(resizedUrl, cropBox);
       const cropMaskDataUrl = buildLandmarkMaskForCrop(landmarks, cropBox, cw, ch, width, height);
+      const brightenedCropUrl = await preBrightenCrop(cropDataUrl, cropMaskDataUrl, cw, ch);
 
       updateProgress('Designing your smile…', 40);
       const fluxStart = await fetch(`${PROXY_URL}/api/flux/inpaint`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: cropDataUrl, mask: cropMaskDataUrl, width: cw, height: ch }),
+        body: JSON.stringify({ image: brightenedCropUrl, mask: cropMaskDataUrl, width: cw, height: ch }),
       });
       const fluxData = await fluxStart.json();
       if (fluxData.error) throw new Error('FLUX start: ' + fluxData.error);

@@ -332,9 +332,9 @@ async function handleFluxInpaint(request, env, origin) {
   const imageUrl = image;
   const maskUrl  = mask_url || mask;
 
-  const prompt = 'Photorealistic dental after photo. Teeth are now shade A1 bright white, clean, polished. Ideal cosmetic dental outcome: symmetrical maxillary anterior teeth, central incisors dominant with harmonious laterals and canines, ovoid tooth shape, smooth incisal edges with subtle natural translucency, healthy realistic enamel texture, correct spacing and alignment, midline balance, natural emergence profile at gingival margins, buccal corridors present, clinical realism, macro dental photography, sharp focus on teeth, authentic dental esthetics, high-quality cosmetic dentistry case photo';
+  const prompt = 'Photorealistic cosmetic dental result photo. Upper teeth whitened to shade BL1 bright natural white. Teeth are horizontally level, following the natural occlusal plane and smile curvature of this patient. Central incisors are the widest teeth, lateral incisors slightly narrower, canines tapered — natural golden proportion. Teeth shape matches the patient\'s existing tooth anatomy. Smooth incisal edges with subtle translucency at tips. Realistic enamel surface texture with natural micro-variation. Healthy pink gingival margins unchanged. Midline aligned. Buccal corridors preserved. Clinical macro dental photography, authentic cosmetic dentistry outcome.';
 
-  const negative_prompt = 'yellow teeth, stained teeth, discolored teeth, cartoon teeth, Hollywood glow, overly square veneers, exaggerated gums, plastic texture, AI artifacts, altered lips, altered skin, altered lighting, smile widening, face reshaping, artificial glow, flat texture, uncanny smoothness';
+  const negative_prompt = 'yellow teeth, stained teeth, discolored teeth, cartoon teeth, Hollywood white glow, tilted teeth, canted smile, wrong proportion, too large teeth, too small teeth, square veneers, gummy smile, plastic texture, AI artifacts, altered lips, altered skin, altered face, smile widening, face reshaping, uncanny smoothness, flat texture';
 
   try {
     const fal = await fetch('https://queue.fal.run/fal-ai/flux-pro/v1/fill', {
@@ -345,8 +345,8 @@ async function handleFluxInpaint(request, env, origin) {
         mask_url:            maskUrl,
         prompt,
         negative_prompt,
-        num_inference_steps: 28,
-        guidance_scale:      18,
+        num_inference_steps: 30,
+        guidance_scale:      20,
         output_format:       'jpeg',
         sync_mode:           false,
       }),
