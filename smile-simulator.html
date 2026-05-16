@@ -1767,6 +1767,13 @@ async function generateSmile(dataUrl) {
       };
       cropBox.w = Math.min(width  - cropBox.x, Math.round(bounds.xMax - bounds.xMin + padX * 2));
       cropBox.h = Math.min(height - cropBox.y, Math.round(bounds.yMax - bounds.yMin + padY * 2));
+      // Enforce 2.5:1 min aspect ratio — SDXL fills crop shape, tall crops = elongated teeth
+      const maxH = Math.round(cropBox.w / 2.5);
+      if (cropBox.h > maxH) {
+        const excess = cropBox.h - maxH;
+        cropBox.y = Math.min(height - maxH, cropBox.y + Math.round(excess * 0.3));
+        cropBox.h = maxH;
+      }
 
       updateProgress('Cropping mouth region…', 25);
       const { dataUrl: cropDataUrl, cw, ch } = await cropToBox(resizedUrl, cropBox);
