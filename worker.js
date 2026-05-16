@@ -461,9 +461,46 @@ async function handleRunpodStatus(request, env, origin) {
   }
 }
 
+// --- Modal: Dental LoRA inpainting (synchronous, no polling) ---
+const MODAL_DENTAL_URL = 'https://drdonelson--dental-lora-dentalmodel-inpaint.modal.run';
+
+async function handleModalInpaint(request, env, origin) {
+  let body;
+  try { body = await request.json(); } catch {
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  const { image, mask } = body;
+  if (!image || !mask) {
+    return new Response(JSON.stringify({ error: 'Missing image or mask' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  try {
+    const res  = await fetch(MODAL_DENTAL_URL, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({ image, mask }),
+    });
+    const data = await res.json();
+    return new Response(JSON.stringify(data), {
+      status:  res.status,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+}
+
 // --- Replicate: SDXL Inpainting (lucataco/sdxl-inpainting) ---
 // Uploads image + mask to R2, submits to Replicate, returns prediction ID for polling.
 const REPLICATE_SDXL_VERSION = 'a5b13068cc81a89a4fbeefeccc774869fcb34df4dbc92c1555e0f2771d49dde7';
+// Set DENTAL_MODEL_VERSION in Worker secrets after deploying the dental LoRA to Replicate.
+// Format: "username/model-name:version-hash"  e.g. "drdonelson/dental-inpaint:abc123..."
+// When unset, /api/dental/inpaint falls back to the generic SDXL inpainting model.
 const WORKER_HOST = 'quiet-forest-e1f8.david-d73.workers.dev';
 
 async function r2Upload(env, dataUrl) {
@@ -572,6 +609,65 @@ async function handleReplicateStatus(request, env, origin) {
   }
 }
 
+async function handleDentalInpaint(request, env, origin) {
+  if (!env.REPLICATE_API_TOKEN) {
+    return new Response(JSON.stringify({ error: 'REPLICATE_API_TOKEN not configured' }), {
+      status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  let body;
+  try { body = await request.json(); } catch {
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  const { image, mask, width, height } = body;
+  if (!image || !mask || !width || !height) {
+    return new Response(JSON.stringify({ error: 'Missing image, mask, width, or height' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+
+  let imageUrl, maskUrl;
+  try {
+    [imageUrl, maskUrl] = await Promise.all([r2Upload(env, image), r2Upload(env, mask)]);
+  } catch (err) {
+    return new Response(JSON.stringify({ error: 'R2 upload failed: ' + err.message }), {
+      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+
+  const prompt = 'Photorealistic cosmetic dental result photo. Upper teeth whitened to shade BL1 bright natural white. Same smile width and natural mouth shape as original — do not widen smile or add extra teeth. Central incisors dominant width, lateral incisors slightly narrower, canines tapered — golden proportion. Individual tooth edges clearly defined with natural inter-dental shadows. Realistic enamel surface texture with subtle micro-variation and translucency at incisal edges. Healthy pink gingival margins intact. Midline centered. Clinical macro dental photography, authentic cosmetic dentistry result.';
+  const negative_prompt = 'yellow teeth, stained teeth, discolored teeth, flat uniform white blob, no tooth detail, all teeth same width, plastic texture, denture, fake teeth, wider smile than original, extra teeth, dark buccal corridor, black corners of mouth, shadow at mouth corners, AI artifacts, altered lips, altered skin, altered face, tilted teeth, canted smile, wrong proportions, cartoon, painting, blurry';
+
+  // Use the trained dental LoRA model if available, otherwise fall back to generic SDXL
+  const dentalVersion = env.DENTAL_MODEL_VERSION;
+  const replicateBody = dentalVersion
+    ? { version: dentalVersion, input: { image: imageUrl, mask: maskUrl, prompt, negative_prompt, steps: 30, guidance_scale: 8.5, strength: 0.88 } }
+    : { version: REPLICATE_SDXL_VERSION, input: { image: imageUrl, mask: maskUrl, prompt, negative_prompt, guidance_scale: 9.0, strength: 0.85, steps: 30, scheduler: 'K_EULER', num_outputs: 1 } };
+
+  try {
+    const rep = await fetch('https://api.replicate.com/v1/predictions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${env.REPLICATE_API_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(replicateBody),
+    });
+    const data = await rep.json();
+    if (!rep.ok) {
+      return new Response(JSON.stringify({ error: data.detail || 'Replicate error', detail: data }), {
+        status: rep.status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+      });
+    }
+    return new Response(JSON.stringify({ id: data.id, status: data.status, model: dentalVersion ? 'dental-lora' : 'sdxl-generic' }), {
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+}
+
 // --- Temp image serve: fal.ai fetches from here (no origin check needed) ---
 async function handleTempImage(request, env, imgId) {
   try {
@@ -628,6 +724,16 @@ export default {
     }
     if (url.pathname === '/api/replicate/status' && request.method === 'GET') {
       return handleReplicateStatus(request, env, origin);
+    }
+
+    // Modal dental LoRA inpainting (synchronous, no polling needed)
+    if (url.pathname === '/api/modal/inpaint' && request.method === 'POST') {
+      return handleModalInpaint(request, env, origin);
+    }
+
+    // Dental LoRA inpainting (uses DENTAL_MODEL_VERSION secret when available)
+    if (url.pathname === '/api/dental/inpaint' && request.method === 'POST') {
+      return handleDentalInpaint(request, env, origin);
     }
 
     // RunPod ComfyUI pipeline (fallback)

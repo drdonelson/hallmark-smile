@@ -1781,27 +1781,23 @@ async function generateSmile(dataUrl) {
       const brightenedCropUrl = await preBrightenCrop(cropDataUrl, cropMaskDataUrl, cw, ch);
 
       updateProgress('Designing your smile…', 40);
-      const repStart = await fetch(`${PROXY_URL}/api/dental/inpaint`, {
+      const modalRes = await fetch(`${PROXY_URL}/api/modal/inpaint`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: brightenedCropUrl, mask: cropMaskDataUrl, width: cw, height: ch }),
+        body: JSON.stringify({ image: brightenedCropUrl, mask: cropMaskDataUrl }),
       });
-      const repData = await repStart.json();
-      if (repData.error) throw new Error('Replicate start: ' + repData.error);
-      if (!repData.id) throw new Error('No prediction ID from Replicate');
-
-      updateProgress('Applying cosmetic details…', 60);
-      const repUrl = await pollReplicate(repData.id);
-      if (!repUrl) throw new Error('No image URL in Replicate output');
+      const modalData = await modalRes.json();
+      if (modalData.error) throw new Error('Modal inpaint: ' + modalData.error);
+      if (!modalData.image) throw new Error('No image in Modal response');
 
       updateProgress('Compositing result…', 85);
-      const composited = await compositeResult(resizedUrl, repUrl, cropMaskDataUrl, cropBox, width, height);
+      const composited = await compositeResult(resizedUrl, modalData.image, cropMaskDataUrl, cropBox, width, height);
       updateProgress('Finalizing whiteness…', 95);
       const whitened = await postProcessWhiteness(composited, cropMaskDataUrl, cropBox, width, height);
-      console.log('✅ Result from: MediaPipe + SDXL crop + composite + whiteness boost');
+      console.log('✅ Result from: MediaPipe + Modal dental LoRA + composite + whiteness boost');
       return whitened;
     } catch(e) {
-      console.warn('MediaPipe+Replicate crop failed, trying FLUX:', e.message);
+      console.warn('MediaPipe+Modal crop failed, trying FLUX:', e.message);
     }
   }
 
