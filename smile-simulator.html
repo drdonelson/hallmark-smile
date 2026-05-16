@@ -1267,6 +1267,85 @@ async function pollFal(statusUrl, maxWait = 180000) {
   throw new Error('SAM timed out');
 }
 
+/* ── MediaPipe Face Landmarker ─────────────────────────────────── */
+let _faceLandmarker = null;
+// Inner lip contour indices in MediaPipe's 468-point face mesh.
+// Forms a polygon around the mouth opening — exactly where teeth are visible.
+const INNER_LIP = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
+
+async function initMediaPipe() {
+  if (_faceLandmarker) return _faceLandmarker;
+  const { FaceLandmarker, FilesetResolver } = await import(
+    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs'
+  );
+  const vision = await FilesetResolver.forVisionTasks(
+    'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm'
+  );
+  _faceLandmarker = await FaceLandmarker.createFromOptions(vision, {
+    baseOptions: {
+      modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
+      delegate: 'GPU',
+    },
+    runningMode: 'IMAGE',
+    numFaces: 1,
+  });
+  return _faceLandmarker;
+}
+
+// Run MediaPipe on imageUrl. Returns { mask, maskDataUrl, landmarks, bounds } or null.
+async function buildMediaPipeMask(imageUrl, width, height) {
+  const landmarker = await initMediaPipe();
+  const img = await loadImage(imageUrl);
+  const c = document.createElement('canvas');
+  c.width = width; c.height = height;
+  c.getContext('2d').drawImage(img, 0, 0, width, height);
+
+  const results = landmarker.detect(c);
+  if (!results.faceLandmarks?.length) { console.warn('MediaPipe: no face detected'); return null; }
+
+  const lm  = results.faceLandmarks[0];
+  const pts = INNER_LIP.map(i => ({ x: lm[i].x * width, y: lm[i].y * height }));
+  const bounds = {
+    xMin: Math.min(...pts.map(p => p.x)), xMax: Math.max(...pts.map(p => p.x)),
+    yMin: Math.min(...pts.map(p => p.y)), yMax: Math.max(...pts.map(p => p.y)),
+  };
+
+  const maskC = document.createElement('canvas');
+  maskC.width = width; maskC.height = height;
+  const mCtx = maskC.getContext('2d');
+  mCtx.fillStyle = '#000'; mCtx.fillRect(0, 0, width, height);
+  mCtx.fillStyle = '#fff';
+  mCtx.beginPath(); mCtx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) mCtx.lineTo(pts[i].x, pts[i].y);
+  mCtx.closePath(); mCtx.fill();
+
+  const maskId = mCtx.getImageData(0, 0, width, height);
+  const mask = new Uint8Array(width * height);
+  let found = 0;
+  for (let i = 0; i < mask.length; i++) { if (maskId.data[i * 4] > 128) { mask[i] = 1; found++; } }
+  console.log('MediaPipe mask px:', found, JSON.stringify(bounds));
+  if (found < 100) { console.warn('MediaPipe: mouth closed or teeth not visible'); return null; }
+  return { mask, maskDataUrl: maskC.toDataURL('image/png'), landmarks: lm, bounds };
+}
+
+// Build white-polygon mask in CROP space from already-detected landmarks.
+function buildLandmarkMaskForCrop(landmarks, cropBox, cropW, cropH, origW, origH) {
+  const scale = cropW / cropBox.w;
+  const pts = INNER_LIP.map(i => ({
+    x: (landmarks[i].x * origW - cropBox.x) * scale,
+    y: (landmarks[i].y * origH - cropBox.y) * scale,
+  }));
+  const c = document.createElement('canvas');
+  c.width = cropW; c.height = cropH;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = '#000'; ctx.fillRect(0, 0, cropW, cropH);
+  ctx.fillStyle = '#fff';
+  ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
+  ctx.closePath(); ctx.fill();
+  return c.toDataURL('image/png');
+}
+
 /* ── Build pixel mask: brightest tooth rows, per-pixel exclusions ── */
 // Returns a Uint8Array where 1 = tooth pixel to edit, 0 = leave alone.
 // Strategy: hard-cap to the N brightest rows so we never mark the whole face.
@@ -1460,7 +1539,7 @@ function hslToRgb(h, s, l) {
   return [Math.round((r+m)*255), Math.round((g+m)*255), Math.round((b+m)*255)];
 }
 
-async function colorWhitenTeeth(resizedUrl, width, height) {
+async function colorWhitenTeeth(resizedUrl, width, height, precomputedMask = null) {
   const origImg = await loadImage(resizedUrl);
   const c   = document.createElement('canvas');
   c.width   = width; c.height = height;
@@ -1469,7 +1548,7 @@ async function colorWhitenTeeth(resizedUrl, width, height) {
   const id  = ctx.getImageData(0, 0, width, height);
   const d   = id.data;
 
-  const toothMask = buildToothMask(d, width, height);
+  const toothMask = precomputedMask || buildToothMask(d, width, height);
   if (!toothMask) return null;
 
   // Target: natural BL1 shade in HSL — slightly warm white (H≈35°, S≈4%, L≈93%)
@@ -1585,87 +1664,106 @@ async function compositeResult(origUrl, fluxCropUrl, maskUrl, box, origW, origH)
 }
 
 /* ── Main generation flow ──────────────────────────────────────── */
-// Primary: SAM2 segmentation → FLUX Pro Fill on mouth crop → composite back.
-// Fallback 1: FLUX Pro Fill on full image with brightness mask.
-// Fallback 2: RunPod ComfyUI.
+// Primary: MediaPipe landmarks → adaptive crop → FLUX inpaint → composite back.
+// Fallback 1: MediaPipe or brightness mask → FLUX on full image.
+// Fallback 2: RunPod ComfyUI with best available mask.
 // Fallback 3: client-side HSL whitening.
 async function generateSmile(dataUrl) {
   updateProgress('Analyzing your smile…', 10);
   const { width, height, resized: resizedUrl } = await resizeForAPI(dataUrl);
 
-  // --- Primary: SAM2 crop + FLUX Pro Fill + composite ---
+  // Run MediaPipe once — result reused across all pipeline stages
+  let mpResult = null;
   try {
-    updateProgress('Detecting tooth pixels…', 20);
-    const cropBox = getMouthCropBox(width, height);
-    const { dataUrl: cropDataUrl, cw, ch } = await cropToBox(resizedUrl, cropBox);
-
-    updateProgress('Segmenting teeth with AI…', 30);
-    const maskUrl = await runSAM2(cropDataUrl, cw, ch);
-
-    updateProgress('Designing your smile…', 50);
-    const fluxStart = await fetch(`${PROXY_URL}/api/flux/inpaint`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: cropDataUrl, mask_url: maskUrl, width: cw, height: ch }),
-    });
-    const fluxData = await fluxStart.json();
-    if (fluxData.error) throw new Error('FLUX start: ' + fluxData.error);
-    const { status_url: fluxStatus, response_url: fluxResponse } = fluxData;
-    if (!fluxStatus || !fluxResponse) throw new Error('No FLUX queue URLs: ' + JSON.stringify(fluxData));
-
-    updateProgress('Applying cosmetic details…', 65);
-    await pollFal(fluxStatus);
-    const fluxRes    = await fetch(`${PROXY_URL}/api/kling/status?falUrl=${encodeURIComponent(fluxResponse)}`);
-    const fluxResult = await fluxRes.json();
-    console.log('FLUX crop result:', JSON.stringify(fluxResult).slice(0, 200));
-    const fluxUrl = fluxResult?.images?.[0]?.url || fluxResult?.output?.images?.[0]?.url;
-    if (!fluxUrl) throw new Error('No image URL in FLUX output');
-
-    updateProgress('Compositing result…', 85);
-    const composited = await compositeResult(resizedUrl, fluxUrl, maskUrl, cropBox, width, height);
-    console.log('✅ Result from: SAM2 + FLUX crop + composite');
-    return composited;
+    updateProgress('Detecting your teeth…', 15);
+    mpResult = await buildMediaPipeMask(resizedUrl, width, height);
   } catch(e) {
-    console.warn('SAM2+FLUX crop failed, trying full-image FLUX:', e.message);
+    console.warn('MediaPipe failed:', e.message);
+  }
+
+  // --- Primary: MediaPipe crop + FLUX Pro Fill + composite ---
+  if (mpResult) {
+    try {
+      const { landmarks, bounds } = mpResult;
+      // Expand landmark bounds for surrounding lip/gum context
+      const padX = (bounds.xMax - bounds.xMin) * 0.8;
+      const padY = (bounds.yMax - bounds.yMin) * 1.0;
+      const cropBox = {
+        x: Math.max(0, Math.round(bounds.xMin - padX)),
+        y: Math.max(0, Math.round(bounds.yMin - padY)),
+        w: 0, h: 0,
+      };
+      cropBox.w = Math.min(width  - cropBox.x, Math.round(bounds.xMax - bounds.xMin + padX * 2));
+      cropBox.h = Math.min(height - cropBox.y, Math.round(bounds.yMax - bounds.yMin + padY * 2));
+
+      updateProgress('Cropping mouth region…', 25);
+      const { dataUrl: cropDataUrl, cw, ch } = await cropToBox(resizedUrl, cropBox);
+      const cropMaskDataUrl = buildLandmarkMaskForCrop(landmarks, cropBox, cw, ch, width, height);
+
+      updateProgress('Designing your smile…', 40);
+      const fluxStart = await fetch(`${PROXY_URL}/api/flux/inpaint`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: cropDataUrl, mask: cropMaskDataUrl, width: cw, height: ch }),
+      });
+      const fluxData = await fluxStart.json();
+      if (fluxData.error) throw new Error('FLUX start: ' + fluxData.error);
+      const { status_url, response_url } = fluxData;
+      if (!status_url || !response_url) throw new Error('No FLUX queue URLs');
+
+      updateProgress('Applying cosmetic details…', 60);
+      await pollFal(status_url);
+      const fluxRes    = await fetch(`${PROXY_URL}/api/kling/status?falUrl=${encodeURIComponent(response_url)}`);
+      const fluxResult = await fluxRes.json();
+      console.log('FLUX crop result:', JSON.stringify(fluxResult).slice(0, 200));
+      const fluxUrl = fluxResult?.images?.[0]?.url || fluxResult?.output?.images?.[0]?.url;
+      if (!fluxUrl) throw new Error('No image URL in FLUX output');
+
+      updateProgress('Compositing result…', 85);
+      const composited = await compositeResult(resizedUrl, fluxUrl, cropMaskDataUrl, cropBox, width, height);
+      console.log('✅ Result from: MediaPipe + FLUX crop + composite');
+      return composited;
+    } catch(e) {
+      console.warn('MediaPipe+FLUX crop failed, trying full-image FLUX:', e.message);
+    }
   }
 
   // --- Fallback 1: FLUX Pro Fill on full image ---
   try {
     updateProgress('Building tooth mask…', 25);
-    const origImg = await loadImage(resizedUrl);
-    const c       = document.createElement('canvas');
-    c.width = width; c.height = height;
-    const ctx = c.getContext('2d');
-    ctx.drawImage(origImg, 0, 0, width, height);
-    const id = ctx.getImageData(0, 0, width, height);
-
-    const brightMask = buildToothMask(id.data, width, height);
-    if (!brightMask) throw new Error('Could not detect teeth with brightness mask');
-    const dilatedMask = dilateMask(brightMask, width, height, Math.round(width * 0.025));
-    const maskC = document.createElement('canvas');
-    maskC.width = width; maskC.height = height;
-    const mCtx = maskC.getContext('2d');
-    const mId  = mCtx.createImageData(width, height);
-    const md   = mId.data;
-    for (let i = 0; i < dilatedMask.length; i++) {
-      const p = i * 4; const v = dilatedMask[i] ? 255 : 0;
-      md[p]=v; md[p+1]=v; md[p+2]=v; md[p+3]=255;
+    let maskDataUrl;
+    if (mpResult) {
+      maskDataUrl = mpResult.maskDataUrl;
+    } else {
+      const origImg = await loadImage(resizedUrl);
+      const c = document.createElement('canvas');
+      c.width = width; c.height = height;
+      c.getContext('2d').drawImage(origImg, 0, 0, width, height);
+      const id = c.getContext('2d').getImageData(0, 0, width, height);
+      const brightMask = buildToothMask(id.data, width, height);
+      if (!brightMask) throw new Error('Could not detect teeth with brightness mask');
+      const dilated = dilateMask(brightMask, width, height, Math.round(width * 0.025));
+      const maskC = document.createElement('canvas');
+      maskC.width = width; maskC.height = height;
+      const mCtx = maskC.getContext('2d');
+      const mId  = mCtx.createImageData(width, height);
+      for (let i = 0; i < dilated.length; i++) {
+        const p = i*4; const v = dilated[i] ? 255 : 0;
+        mId.data[p]=v; mId.data[p+1]=v; mId.data[p+2]=v; mId.data[p+3]=255;
+      }
+      mCtx.putImageData(mId, 0, 0);
+      maskDataUrl = maskC.toDataURL('image/png');
     }
-    mCtx.putImageData(mId, 0, 0);
-
-    const image = c.toDataURL('image/png');
-    const mask  = maskC.toDataURL('image/png');
 
     updateProgress('Designing your smile…', 40);
-    const startRes  = await fetch(`${PROXY_URL}/api/flux/inpaint`, {
+    const startRes = await fetch(`${PROXY_URL}/api/flux/inpaint`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image, mask, width, height }),
+      body: JSON.stringify({ image: resizedUrl, mask: maskDataUrl, width, height }),
     });
     const startData = await startRes.json();
     if (startData.error) throw new Error(startData.error);
-    const statusUrl   = startData.status_url;
-    const responseUrl = startData.response_url;
+    const { status_url: statusUrl, response_url: responseUrl } = startData;
     if (!statusUrl || !responseUrl) throw new Error('No status/response URL from FLUX');
 
     updateProgress('Applying cosmetic details…', 60);
@@ -1675,7 +1773,7 @@ async function generateSmile(dataUrl) {
     console.log('FLUX full result:', JSON.stringify(result).slice(0, 200));
     const resultUrl = result?.images?.[0]?.url || result?.output?.images?.[0]?.url;
     if (!resultUrl) throw new Error('No image URL in FLUX output');
-    console.log('✅ Result from: FLUX Pro Fill (full image)');
+    console.log('✅ Result from: FLUX full image (' + (mpResult ? 'MediaPipe' : 'brightness') + ' mask)');
     return resultUrl;
   } catch(e) {
     console.warn('Full-image FLUX failed, trying RunPod:', e.message);
@@ -1684,28 +1782,36 @@ async function generateSmile(dataUrl) {
   // --- Fallback 2: RunPod ComfyUI ---
   try {
     updateProgress('Transforming your smile…', 45);
+    let maskDataUrl = mpResult?.maskDataUrl;
+    if (!maskDataUrl) {
+      const origImg2 = await loadImage(resizedUrl);
+      const c2 = document.createElement('canvas');
+      c2.width = width; c2.height = height;
+      c2.getContext('2d').drawImage(origImg2, 0, 0, width, height);
+      const id2 = c2.getContext('2d').getImageData(0, 0, width, height);
+      const toothMask2 = buildToothMask(id2.data, width, height);
+      const dilated2   = toothMask2 ? dilateMask(toothMask2, width, height, Math.round(width * 0.025)) : null;
+      const maskC2 = document.createElement('canvas');
+      maskC2.width = width; maskC2.height = height;
+      if (dilated2) {
+        const mCtx2 = maskC2.getContext('2d');
+        const mId2  = mCtx2.createImageData(width, height);
+        for (let i = 0; i < dilated2.length; i++) {
+          const p=i*4; const v=dilated2[i]?255:0;
+          mId2.data[p]=v; mId2.data[p+1]=v; mId2.data[p+2]=v; mId2.data[p+3]=255;
+        }
+        mCtx2.putImageData(mId2, 0, 0);
+      }
+      maskDataUrl = maskC2.toDataURL('image/png');
+    }
     const origImg2 = await loadImage(resizedUrl);
     const c2 = document.createElement('canvas');
     c2.width = width; c2.height = height;
     c2.getContext('2d').drawImage(origImg2, 0, 0, width, height);
-    const id2 = c2.getContext('2d').getImageData(0, 0, width, height);
-    const toothMask2 = buildToothMask(id2.data, width, height);
-    const dilated2   = toothMask2 ? dilateMask(toothMask2, width, height, Math.round(width * 0.025)) : null;
-    const maskC2 = document.createElement('canvas');
-    maskC2.width = width; maskC2.height = height;
-    if (dilated2) {
-      const mCtx2 = maskC2.getContext('2d');
-      const mId2  = mCtx2.createImageData(width, height);
-      for (let i = 0; i < dilated2.length; i++) {
-        const p = i*4; const v = dilated2[i] ? 255 : 0;
-        mId2.data[p]=v; mId2.data[p+1]=v; mId2.data[p+2]=v; mId2.data[p+3]=255;
-      }
-      mCtx2.putImageData(mId2, 0, 0);
-    }
     const startRes2  = await fetch(`${PROXY_URL}/api/runpod/generate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: c2.toDataURL('image/png'), mask: maskC2.toDataURL('image/png') }),
+      body: JSON.stringify({ image: c2.toDataURL('image/png'), mask: maskDataUrl }),
     });
     const startData2 = await startRes2.json();
     if (startData2.error) throw new Error(startData2.error);
@@ -1721,7 +1827,7 @@ async function generateSmile(dataUrl) {
   // --- Fallback 3: client-side HSL whitening ---
   updateProgress('Whitening teeth…', 60);
   try {
-    const result = await colorWhitenTeeth(resizedUrl, width, height);
+    const result = await colorWhitenTeeth(resizedUrl, width, height, mpResult?.mask || null);
     if (result) return result;
   } catch(e) { console.warn('HSL whitening error:', e.message); }
 
