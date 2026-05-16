@@ -1621,6 +1621,37 @@ async function preBrightenCrop(cropDataUrl, maskDataUrl, cropW, cropH) {
   return c.toDataURL('image/png');
 }
 
+// After SDXL compositing, force tooth pixels to BL1-white.
+// SDXL handles anatomy/texture; this handles the final color level.
+async function postProcessWhiteness(compositeDataUrl, maskDataUrl, box, origW, origH) {
+  const [compImg, maskImg] = await Promise.all([loadImage(compositeDataUrl), loadImage(maskDataUrl)]);
+
+  const c = document.createElement('canvas');
+  c.width = origW; c.height = origH;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(compImg, 0, 0, origW, origH);
+  const imgData = ctx.getImageData(0, 0, origW, origH);
+
+  // Scale mask (crop dimensions) into full-image coordinate space
+  const maskC = document.createElement('canvas');
+  maskC.width = origW; maskC.height = origH;
+  maskC.getContext('2d').drawImage(maskImg, box.x, box.y, box.w, box.h);
+  const maskData = maskC.getContext('2d').getImageData(0, 0, origW, origH);
+
+  for (let i = 0; i < imgData.data.length >> 2; i++) {
+    const strength = maskData.data[i * 4] / 255;
+    if (strength < 0.05) continue;
+    const p = i * 4;
+    const [h, s, l] = rgbToHsl(imgData.data[p], imgData.data[p+1], imgData.data[p+2]);
+    const newL = l + (Math.max(l, 0.88) - l) * strength;
+    const newS = s + (s * 0.12 - s) * strength; // strip ~88% saturation in masked area
+    const [r, g, b] = hslToRgb(h, newS, newL);
+    imgData.data[p] = r; imgData.data[p+1] = g; imgData.data[p+2] = b;
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return c.toDataURL('image/jpeg', 0.92);
+}
+
 /* ── Mouth crop box: 15-85% x, 55-85% y of full-face image ─────── */
 function getMouthCropBox(w, h) {
   return {
@@ -1758,8 +1789,10 @@ async function generateSmile(dataUrl) {
 
       updateProgress('Compositing result…', 85);
       const composited = await compositeResult(resizedUrl, repUrl, cropMaskDataUrl, cropBox, width, height);
-      console.log('✅ Result from: MediaPipe + SDXL crop + composite');
-      return composited;
+      updateProgress('Finalizing whiteness…', 95);
+      const whitened = await postProcessWhiteness(composited, cropMaskDataUrl, cropBox, width, height);
+      console.log('✅ Result from: MediaPipe + SDXL crop + composite + whiteness boost');
+      return whitened;
     } catch(e) {
       console.warn('MediaPipe+Replicate crop failed, trying FLUX:', e.message);
     }
