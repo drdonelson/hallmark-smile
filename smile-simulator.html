@@ -1781,14 +1781,39 @@ async function generateSmile(dataUrl) {
       const brightenedCropUrl = await preBrightenCrop(cropDataUrl, cropMaskDataUrl, cw, ch);
 
       updateProgress('Designing your smile…', 40);
-      const modalRes = await fetch('https://drdonelson--dental-lora-dentalmodel-inpaint.modal.run', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: brightenedCropUrl, mask: cropMaskDataUrl }),
-      });
-      const modalData = await modalRes.json();
-      if (modalData.error) throw new Error('Modal inpaint: ' + modalData.error);
-      if (!modalData.image) throw new Error('No image in Modal response');
+      const MODAL_URL = 'https://drdonelson--dental-lora-dentalmodel-inpaint.modal.run';
+      const modalPayload = JSON.stringify({ image: brightenedCropUrl, mask: cropMaskDataUrl });
+
+      let modalData = null;
+      for (let attempt = 0; attempt < 2; attempt++) {
+        if (attempt > 0) {
+          updateProgress('AI warming up, retrying…', 45);
+          await new Promise(r => setTimeout(r, 5000));
+        }
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 90000);
+        try {
+          const res = await fetch(MODAL_URL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: modalPayload,
+            signal: ctrl.signal,
+          });
+          clearTimeout(timer);
+          if (!res.ok) throw new Error(`Modal HTTP ${res.status}`);
+          modalData = await res.json();
+          if (modalData.error) throw new Error('Modal: ' + modalData.error);
+          if (!modalData.image) throw new Error('No image in Modal response');
+          break;
+        } catch (fetchErr) {
+          clearTimeout(timer);
+          if (attempt < 1) {
+            console.warn('Modal attempt 1 failed, retrying:', fetchErr.message);
+          } else {
+            throw fetchErr;
+          }
+        }
+      }
 
       updateProgress('Compositing result…', 85);
       const composited = await compositeResult(resizedUrl, modalData.image, cropMaskDataUrl, cropBox, width, height);
