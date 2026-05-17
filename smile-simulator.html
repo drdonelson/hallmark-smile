@@ -1434,30 +1434,22 @@ function dilateMask(src, width, height, radius) {
 // Sends full image + a mask PNG where ONLY the tooth pixels are transparent.
 // GPT-image-1 can only generate inside the transparent region — the face
 // is 100% opaque in the mask so the model physically cannot touch it.
-async function gptMaskWhiten(resizedUrl, width, height) {
+// mpMaskDataUrl: grayscale PNG from MediaPipe (white=teeth, black=rest)
+async function gptMaskWhiten(resizedUrl, width, height, mpMaskDataUrl) {
   const origImg = await loadImage(resizedUrl);
-  const c = document.createElement('canvas');
-  c.width = width; c.height = height;
-  const ctx = c.getContext('2d');
-  ctx.drawImage(origImg, 0, 0, width, height);
-  const id = ctx.getImageData(0, 0, width, height);
 
-  const toothMask = buildToothMask(id.data, width, height);
-  if (!toothMask) return null;
-
-  // Build mask image: tooth pixels → transparent, everything else → opaque black
+  // Convert MediaPipe grayscale mask → OpenAI RGBA mask (transparent=edit, opaque=keep)
+  const srcMask = await loadImage(mpMaskDataUrl);
   const maskC = document.createElement('canvas');
   maskC.width = width; maskC.height = height;
-  const mCtx  = maskC.getContext('2d');
-  const mId   = mCtx.createImageData(width, height);
-  const md    = mId.data;
-  for (let i = 0; i < toothMask.length; i++) {
-    const p = i * 4;
-    if (toothMask[i]) {
-      md[p]=0; md[p+1]=0; md[p+2]=0; md[p+3]=0;    // transparent = GPT edits here
-    } else {
-      md[p]=0; md[p+1]=0; md[p+2]=0; md[p+3]=255;  // opaque = GPT cannot touch
-    }
+  const mCtx = maskC.getContext('2d');
+  mCtx.drawImage(srcMask, 0, 0, width, height);
+  const mId = mCtx.getImageData(0, 0, width, height);
+  const md = mId.data;
+  for (let i = 0; i < md.length; i += 4) {
+    const isT = md[i] > 64; // white pixel = tooth
+    md[i]=0; md[i+1]=0; md[i+2]=0;
+    md[i+3] = isT ? 0 : 255; // transparent=edit here, opaque=keep
   }
   mCtx.putImageData(mId, 0, 0);
 
@@ -1493,18 +1485,10 @@ async function gptMaskWhiten(resizedUrl, width, height) {
   const oCtx  = out.getContext('2d');
   oCtx.drawImage(origImg, 0, 0, width, height);   // layer 1: original (face preserved)
 
-  // Build tooth-only stencil (white+opaque=tooth, black+transparent=face)
+  // Stencil: reuse the MediaPipe mask (white=tooth → opaque, black=rest → transparent)
   const stencil = document.createElement('canvas');
   stencil.width = width; stencil.height = height;
-  const sCtx = stencil.getContext('2d');
-  const sId  = sCtx.createImageData(width, height);
-  const sd   = sId.data;
-  for (let i = 0; i < toothMask.length; i++) {
-    const p = i * 4;
-    const v = toothMask[i] ? 255 : 0;
-    sd[p]=v; sd[p+1]=v; sd[p+2]=v; sd[p+3]=v;
-  }
-  sCtx.putImageData(sId, 0, 0);
+  stencil.getContext('2d').drawImage(srcMask, 0, 0, width, height);
 
   // Clip GPT result to tooth area via destination-in, then composite over original
   const gptLayer = document.createElement('canvas');
@@ -1754,16 +1738,18 @@ async function generateSmile(dataUrl) {
     console.warn('MediaPipe failed:', e.message);
   }
 
-  // --- Primary: gpt-image-2 with pixel-accurate tooth mask ---
-  try {
-    updateProgress('Designing your smile…', 30);
-    const gptResult = await gptMaskWhiten(resizedUrl, width, height);
-    if (gptResult) {
-      console.log('✅ Result from: gpt-image-2 + pixel mask');
-      return gptResult;
+  // --- Primary: gpt-image-2 with MediaPipe pixel-accurate tooth mask ---
+  if (mpResult) {
+    try {
+      updateProgress('Designing your smile…', 30);
+      const gptResult = await gptMaskWhiten(resizedUrl, width, height, mpResult.maskDataUrl);
+      if (gptResult) {
+        console.log('✅ Result from: gpt-image-2 + MediaPipe mask');
+        return gptResult;
+      }
+    } catch(e) {
+      console.warn('gpt-image-2 failed, trying LoRA:', e.message);
     }
-  } catch(e) {
-    console.warn('gpt-image-2 failed, trying LoRA:', e.message);
   }
 
   // --- Fallback 1: Modal dental LoRA full-face ---
