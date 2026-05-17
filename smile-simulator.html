@@ -1010,22 +1010,22 @@ const LS_URL     = 'hd_booking_url';
 // The mask is transparent ONLY over the upper-tooth pixels; the entire face
 // (lips, skin, gums, lower teeth) is opaque and preserved by the API.
 // The prompt therefore describes ONLY what to paint inside the tooth zone.
-const SMILE_PROMPT = `Replace the stained or discolored upper teeth with bright, naturally white, healthy teeth. This is a cosmetic dental simulation.
+const SMILE_PROMPT = `Generate a photorealistic dental after image. Only modify the upper teeth visible in the transparent mask region. Do not alter lips, skin texture, facial proportions, lighting, camera angle, or anything outside the teeth.
 
-Paint ONLY the upper tooth surfaces visible in this photo:
-• Bright healthy white shade — natural, not glowing, not overly bright
-• Realistic enamel texture with subtle natural translucency at the incisal edges
-• Smooth, clean tooth surfaces — no staining, no discoloration
-• Maintain the existing tooth shapes, sizes, and positions exactly
-• Keep the same gumline level — do not change gum position
-• Keep the same tooth lengths — do not lengthen or shorten
-• NO braces, NO orthodontic brackets, NO wires, NO dental hardware
-• NO veneers look — just naturally white real teeth
+Create an ideal natural cosmetic dental outcome:
+• Symmetrical upper anterior teeth with proper golden-proportion tooth widths — central incisors dominant, lateral incisors slightly narrower, canines tapered
+• Ovoid tooth shape — do not change the length of the central incisors
+• Smooth incisal edges with subtle natural translucency
+• Healthy realistic enamel texture — not flat, not plastic, not glossy
+• Uniform naturally bright shade — no artificial glow, no Hollywood over-whitening
+• Correct spacing, alignment, and midline balance
+• Natural gingival emergence profile — do not change gingival levels
+• Buccal corridors slightly filled for a fuller smile arc
+• Individual tooth boundaries clearly visible with natural inter-dental shadows
 
-Everything outside the upper teeth is already locked and must not be changed:
-lips, skin, gums, lower teeth, background, clothing are all preserved.
+The result must look like a high-quality cosmetic dentistry case photo suitable for professional before-and-after comparison.
 
-Style: photorealistic dental photograph, natural enamel appearance, clinical accuracy.`;
+Style: clinical realism, macro dental photography, neutral color balance, sharp focus on teeth, authentic dental esthetics. Avoid: cartoon teeth, veneers look, plastic texture, AI artifacts, altered lips, altered skin, smile widening, face reshaping.`;
 
 const MSGS = [
   'Detecting smile region…',
@@ -1468,7 +1468,7 @@ async function gptMaskWhiten(resizedUrl, width, height) {
   ]);
 
   const form = new FormData();
-  form.append('model',   'gpt-image-1');
+  form.append('model',   'gpt-image-2');
   form.append('image',   new File([imgBlob],  'face.png', { type: 'image/png' }));
   form.append('mask',    new File([maskBlob], 'mask.png', { type: 'image/png' }));
   form.append('prompt',  SMILE_PROMPT);
@@ -1754,7 +1754,19 @@ async function generateSmile(dataUrl) {
     console.warn('MediaPipe failed:', e.message);
   }
 
-  // --- Primary: MediaPipe crop + SDXL Inpainting (Replicate) + composite ---
+  // --- Primary: gpt-image-2 with pixel-accurate tooth mask ---
+  try {
+    updateProgress('Designing your smile…', 30);
+    const gptResult = await gptMaskWhiten(resizedUrl, width, height);
+    if (gptResult) {
+      console.log('✅ Result from: gpt-image-2 + pixel mask');
+      return gptResult;
+    }
+  } catch(e) {
+    console.warn('gpt-image-2 failed, trying LoRA:', e.message);
+  }
+
+  // --- Fallback 1: Modal dental LoRA full-face ---
   if (mpResult) {
     try {
       const { landmarks, bounds } = mpResult;
