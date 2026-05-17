@@ -1775,14 +1775,10 @@ async function generateSmile(dataUrl) {
         cropBox.h = maxH;
       }
 
-      updateProgress('Cropping mouth region…', 25);
-      const { dataUrl: cropDataUrl, cw, ch } = await cropToBox(resizedUrl, cropBox);
-      const cropMaskDataUrl = buildLandmarkMaskForCrop(landmarks, cropBox, cw, ch, width, height);
-      const brightenedCropUrl = await preBrightenCrop(cropDataUrl, cropMaskDataUrl, cw, ch);
-
       updateProgress('Designing your smile…', 40);
       const MODAL_URL = 'https://drdonelson--dental-lora-dentalmodel-inpaint.modal.run';
-      const modalPayload = JSON.stringify({ image: brightenedCropUrl, mask: cropMaskDataUrl });
+      // Send full face + full-face mask — LoRA sees complete facial context as trained
+      const modalPayload = JSON.stringify({ image: resizedUrl, mask: mpResult.maskDataUrl });
 
       let modalData = null;
       for (let attempt = 0; attempt < 2; attempt++) {
@@ -1815,11 +1811,11 @@ async function generateSmile(dataUrl) {
         }
       }
 
-      updateProgress('Compositing result…', 85);
-      const composited = await compositeResult(resizedUrl, modalData.image, cropMaskDataUrl, cropBox, width, height);
+      // Modal returns full face with teeth composited server-side — no crop repositioning needed
       updateProgress('Finalizing whiteness…', 95);
-      const whitened = await postProcessWhiteness(composited, cropMaskDataUrl, cropBox, width, height);
-      console.log('✅ Result from: MediaPipe + Modal dental LoRA + composite + whiteness boost');
+      const fullBox = { x: 0, y: 0, w: width, h: height };
+      const whitened = await postProcessWhiteness(modalData.image, mpResult.maskDataUrl, fullBox, width, height);
+      console.log('✅ Result from: MediaPipe + Modal dental LoRA full-face + whiteness boost');
       return whitened;
     } catch(e) {
       console.warn('MediaPipe+Modal crop failed, trying FLUX:', e.message);
