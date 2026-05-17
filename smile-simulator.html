@@ -1430,32 +1430,47 @@ function dilateMask(src, width, height, radius) {
   return dst;
 }
 
-/* ── Path 1: GPT with explicit pixel mask ──────────────────────── */
-// Sends full image + a mask PNG where ONLY the tooth pixels are transparent.
-// GPT-image-1 can only generate inside the transparent region — the face
-// is 100% opaque in the mask so the model physically cannot touch it.
-// mpMaskDataUrl: grayscale PNG from MediaPipe (white=teeth, black=rest)
-async function gptMaskWhiten(resizedUrl, width, height, mpMaskDataUrl) {
-  const origImg = await loadImage(resizedUrl);
+/* ── Path 1: gpt-image-2 with zoomed mouth crop ─────────────────── */
+// Crops to the mouth region so teeth fill more of the frame, giving
+// gpt-image-2 enough resolution to render individual tooth anatomy.
+// Composites the GPT result back into the original face.
+async function gptMaskWhiten(resizedUrl, width, height, mpMaskDataUrl, bounds) {
+  const [origImg, srcMask] = await Promise.all([loadImage(resizedUrl), loadImage(mpMaskDataUrl)]);
 
-  // Convert MediaPipe grayscale mask → OpenAI RGBA mask (transparent=edit, opaque=keep)
-  const srcMask = await loadImage(mpMaskDataUrl);
+  // Crop box: generous padding around the teeth bounds
+  const padX = (bounds.xMax - bounds.xMin) * 1.0;
+  const padY = (bounds.yMax - bounds.yMin) * 1.5;
+  const cx = Math.max(0, Math.round(bounds.xMin - padX));
+  const cy = Math.max(0, Math.round(bounds.yMin - padY));
+  const cw = Math.min(width  - cx, Math.round(bounds.xMax - bounds.xMin + padX * 2));
+  const ch = Math.min(height - cy, Math.round(bounds.yMax - bounds.yMin + padY * 2));
+
+  // Scale crop to 1024px on longest side
+  const scale = Math.min(1024 / cw, 1024 / ch);
+  const outW = Math.round(cw * scale / 64) * 64;
+  const outH = Math.round(ch * scale / 64) * 64;
+
+  // Cropped image canvas
+  const imgC = document.createElement('canvas');
+  imgC.width = outW; imgC.height = outH;
+  imgC.getContext('2d').drawImage(origImg, cx, cy, cw, ch, 0, 0, outW, outH);
+
+  // Cropped mask → RGBA (transparent where teeth, opaque where not)
   const maskC = document.createElement('canvas');
-  maskC.width = width; maskC.height = height;
+  maskC.width = outW; maskC.height = outH;
   const mCtx = maskC.getContext('2d');
-  mCtx.drawImage(srcMask, 0, 0, width, height);
-  const mId = mCtx.getImageData(0, 0, width, height);
+  mCtx.drawImage(srcMask, cx, cy, cw, ch, 0, 0, outW, outH);
+  const mId = mCtx.getImageData(0, 0, outW, outH);
   const md = mId.data;
   for (let i = 0; i < md.length; i += 4) {
-    const isT = md[i] > 64; // white pixel = tooth
+    const isT = md[i] > 64;
     md[i]=0; md[i+1]=0; md[i+2]=0;
-    md[i+3] = isT ? 0 : 255; // transparent=edit here, opaque=keep
+    md[i+3] = isT ? 0 : 255;
   }
   mCtx.putImageData(mId, 0, 0);
 
-  // Convert both to PNG blobs
   const [imgBlob, maskBlob] = await Promise.all([
-    new Promise(r => c.toBlob(r, 'image/png')),
+    new Promise(r => imgC.toBlob(r, 'image/png')),
     new Promise(r => maskC.toBlob(r, 'image/png')),
   ]);
 
@@ -1472,34 +1487,40 @@ async function gptMaskWhiten(resizedUrl, width, height, mpMaskDataUrl) {
   if (!res.ok) { const t = await res.text().catch(()=>''); throw new Error(`GPT ${res.status}: ${t.slice(0,200)}`); }
   const data = await res.json();
   if (!data.data?.length) throw new Error('No image from OpenAI');
-  const item   = data.data[0];
-  const aiUrl  = item.b64_json ? `data:image/png;base64,${item.b64_json}` : item.url;
-
-  // Composite: draw original face, then overlay GPT result clipped to tooth pixels only.
-  // Stencil: opaque white where teeth, fully transparent elsewhere.
-  // destination-in with stencil zeros out all non-tooth pixels in the GPT layer,
-  // so only the reconstructed teeth are blended over the original face.
+  const item = data.data[0];
+  const aiUrl = item.b64_json ? `data:image/png;base64,${item.b64_json}` : item.url;
   const aiImg = await loadImage(aiUrl);
-  const out   = document.createElement('canvas');
-  out.width   = width; out.height = height;
-  const oCtx  = out.getContext('2d');
-  oCtx.drawImage(origImg, 0, 0, width, height);   // layer 1: original (face preserved)
 
-  // Stencil: reuse the MediaPipe mask (white=tooth → opaque, black=rest → transparent)
-  const stencil = document.createElement('canvas');
-  stencil.width = width; stencil.height = height;
-  stencil.getContext('2d').drawImage(srcMask, 0, 0, width, height);
+  // Stencil: tooth pixels opaque, rest transparent (for destination-in clip)
+  const stencilC = document.createElement('canvas');
+  stencilC.width = outW; stencilC.height = outH;
+  const stCtx = stencilC.getContext('2d');
+  stCtx.drawImage(srcMask, cx, cy, cw, ch, 0, 0, outW, outH);
+  const stId = stCtx.getImageData(0, 0, outW, outH);
+  const sd = stId.data;
+  for (let i = 0; i < sd.length; i += 4) {
+    const brightness = sd[i];
+    sd[i]=255; sd[i+1]=255; sd[i+2]=255;
+    sd[i+3] = brightness; // white=fully opaque, black=transparent
+  }
+  stCtx.putImageData(stId, 0, 0);
 
-  // Clip GPT result to tooth area via destination-in, then composite over original
-  const gptLayer = document.createElement('canvas');
-  gptLayer.width = width; gptLayer.height = height;
-  const gCtx = gptLayer.getContext('2d');
-  gCtx.drawImage(aiImg, 0, 0, width, height);
+  // Clip GPT crop result to teeth only
+  const gptC = document.createElement('canvas');
+  gptC.width = outW; gptC.height = outH;
+  const gCtx = gptC.getContext('2d');
+  gCtx.drawImage(aiImg, 0, 0, outW, outH);
   gCtx.globalCompositeOperation = 'destination-in';
-  gCtx.drawImage(stencil, 0, 0);                  // zero out non-tooth pixels
+  gCtx.drawImage(stencilC, 0, 0);
 
-  oCtx.drawImage(gptLayer, 0, 0);                 // layer 2: GPT teeth only
-  return out.toDataURL('image/png');
+  // Final: original full face with GPT teeth pasted back at crop position
+  const out = document.createElement('canvas');
+  out.width = width; out.height = height;
+  const oCtx = out.getContext('2d');
+  oCtx.drawImage(origImg, 0, 0, width, height);
+  oCtx.drawImage(gptC, 0, 0, outW, outH, cx, cy, cw, ch);
+
+  return out.toDataURL('image/jpeg', 0.93);
 }
 
 /* ── Texture-preserving tooth whitening ────────────────────────── */
@@ -1742,7 +1763,7 @@ async function generateSmile(dataUrl) {
   if (mpResult) {
     try {
       updateProgress('Designing your smile…', 30);
-      const gptResult = await gptMaskWhiten(resizedUrl, width, height, mpResult.maskDataUrl);
+      const gptResult = await gptMaskWhiten(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds);
       if (gptResult) {
         console.log('✅ Result from: gpt-image-2 + MediaPipe mask');
         return gptResult;
