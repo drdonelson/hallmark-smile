@@ -1954,7 +1954,7 @@ async function compositeResult(origUrl, fluxCropUrl, maskUrl, box, origW, origH)
 }
 
 /* ── Path: Dr. Apa LoRA composite (full-face context, tooth-bbox extraction) ── */
-// Runs the LoRA on the full face at low strength (0.40) so the model sees the
+// Runs the LoRA on the full face at moderate strength so the model sees the
 // complete face — preserving the patient's lighting, skin tone, and oral anatomy
 // context that the LoRA was trained on. Then clips the result to the tooth
 // bounding box and composites ONLY those pixels onto the original, discarding
@@ -1964,7 +1964,7 @@ async function loraCompositeMakeover(resizedUrl, width, height, maskDataUrl, bou
   const modalPayload = JSON.stringify({
     image: resizedUrl,
     mask: maskDataUrl,
-    strength: 0.40,
+    strength: 0.55,
     guidance_scale: 8.5,
   });
 
@@ -2037,6 +2037,7 @@ async function loraCompositeMakeover(resizedUrl, width, height, maskDataUrl, bou
   const oCtx = out.getContext('2d');
   oCtx.drawImage(origImg, 0, 0, width, height);
   oCtx.drawImage(loraC, 0, 0);
+  console.log('✅ PATH: LoRA composite (strength=0.55, full-face → tooth-bbox extract)');
   return out.toDataURL('image/jpeg', 0.93);
 }
 
