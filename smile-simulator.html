@@ -1430,7 +1430,92 @@ function dilateMask(src, width, height, radius) {
   return dst;
 }
 
-/* ── Path 1: gpt-image-2 with zoomed mouth crop ─────────────────── */
+/* ── Path 1: FLUX Pro Fill with zoomed mouth crop ───────────────── */
+// Crops to the mouth region so teeth fill more of the frame, giving
+// FLUX enough resolution to generate a full cosmetic makeover.
+// FLUX mask convention: white = edit region (same as MediaPipe output — no inversion).
+// Composites only the tooth pixels back onto the original face.
+async function fluxCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bounds) {
+  const [origImg, srcMask] = await Promise.all([loadImage(resizedUrl), loadImage(mpMaskDataUrl)]);
+
+  // Wider horizontal padding than gpt-image-2 — captures full buccal corridors
+  const padX = (bounds.xMax - bounds.xMin) * 2.0;
+  const padY = (bounds.yMax - bounds.yMin) * 1.5;
+  const cx = Math.max(0, Math.round(bounds.xMin - padX));
+  const cy = Math.max(0, Math.round(bounds.yMin - padY));
+  const cw = Math.min(width  - cx, Math.round(bounds.xMax - bounds.xMin + padX * 2));
+  const ch = Math.min(height - cy, Math.round(bounds.yMax - bounds.yMin + padY * 2));
+
+  // Scale to 1024px on longest side, rounded to 64
+  const scale = Math.min(1024 / cw, 1024 / ch);
+  const outW = Math.round(cw * scale / 64) * 64;
+  const outH = Math.round(ch * scale / 64) * 64;
+
+  // Cropped face image
+  const imgC = document.createElement('canvas');
+  imgC.width = outW; imgC.height = outH;
+  imgC.getContext('2d').drawImage(origImg, cx, cy, cw, ch, 0, 0, outW, outH);
+
+  // Cropped mask — FLUX uses white=edit, black=keep (matches MediaPipe output directly)
+  const maskC = document.createElement('canvas');
+  maskC.width = outW; maskC.height = outH;
+  maskC.getContext('2d').drawImage(srcMask, cx, cy, cw, ch, 0, 0, outW, outH);
+
+  const cropImgUrl  = imgC.toDataURL('image/jpeg', 0.95);
+  const cropMaskUrl = maskC.toDataURL('image/png');
+
+  const startRes = await fetch(`${PROXY_URL}/api/flux/inpaint`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image: cropImgUrl, mask: cropMaskUrl, width: outW, height: outH }),
+  });
+  if (!startRes.ok) { const t = await startRes.text().catch(()=>''); throw new Error(`FLUX ${startRes.status}: ${t.slice(0,200)}`); }
+  const startData = await startRes.json();
+  if (startData.error) throw new Error('FLUX: ' + startData.error);
+  const { status_url: statusUrl, response_url: responseUrl } = startData;
+  if (!statusUrl || !responseUrl) throw new Error('No queue URLs from FLUX: ' + JSON.stringify(startData).slice(0,200));
+
+  await pollFal(statusUrl);
+  const resultRes = await fetch(`${PROXY_URL}/api/kling/status?falUrl=${encodeURIComponent(responseUrl)}`);
+  const result    = await resultRes.json();
+  const fluxUrl   = result?.images?.[0]?.url || result?.output?.images?.[0]?.url;
+  if (!fluxUrl) throw new Error('No image URL in FLUX output: ' + JSON.stringify(result).slice(0,200));
+
+  const fluxImg = await loadImage(fluxUrl);
+
+  // Stencil: tooth pixels opaque, rest transparent — clips FLUX result to tooth region only
+  const stencilC = document.createElement('canvas');
+  stencilC.width = outW; stencilC.height = outH;
+  const stCtx = stencilC.getContext('2d');
+  stCtx.drawImage(srcMask, cx, cy, cw, ch, 0, 0, outW, outH);
+  const stId = stCtx.getImageData(0, 0, outW, outH);
+  const sd = stId.data;
+  for (let i = 0; i < sd.length; i += 4) {
+    const v = sd[i];
+    sd[i] = 255; sd[i+1] = 255; sd[i+2] = 255;
+    sd[i+3] = v;
+  }
+  stCtx.putImageData(stId, 0, 0);
+
+  // Clip FLUX crop result to tooth pixels only
+  const fluxC = document.createElement('canvas');
+  fluxC.width = outW; fluxC.height = outH;
+  const fCtx = fluxC.getContext('2d');
+  fCtx.drawImage(fluxImg, 0, 0, outW, outH);
+  fCtx.globalCompositeOperation = 'destination-in';
+  fCtx.drawImage(stencilC, 0, 0);
+
+  // Composite tooth pixels back onto original full face
+  const out = document.createElement('canvas');
+  out.width = width; out.height = height;
+  const oCtx = out.getContext('2d');
+  oCtx.drawImage(origImg, 0, 0, width, height);
+  oCtx.drawImage(fluxC, 0, 0, outW, outH, cx, cy, cw, ch);
+
+  return out.toDataURL('image/jpeg', 0.93);
+}
+
+/* ── Path 2: gpt-image-2 with zoomed mouth crop (fallback) ──────── */
 // Crops to the mouth region so teeth fill more of the frame, giving
 // gpt-image-2 enough resolution to render individual tooth anatomy.
 // Composites the GPT result back into the original face.
@@ -1742,10 +1827,12 @@ async function compositeResult(origUrl, fluxCropUrl, maskUrl, box, origW, origH)
 }
 
 /* ── Main generation flow ──────────────────────────────────────── */
-// Primary: MediaPipe landmarks → adaptive crop → FLUX inpaint → composite back.
-// Fallback 1: MediaPipe or brightness mask → FLUX on full image.
-// Fallback 2: RunPod ComfyUI with best available mask.
-// Fallback 3: client-side HSL whitening.
+// Primary:   MediaPipe → FLUX Pro Fill crop-zoom → composite (full makeover)
+// Fallback 1: MediaPipe → gpt-image-2 crop-zoom → composite
+// Fallback 2: Modal dental LoRA full-face
+// Fallback 3: FLUX Pro Fill full image
+// Fallback 4: RunPod ComfyUI
+// Fallback 5: client-side HSL whitening
 async function generateSmile(dataUrl) {
   updateProgress('Analyzing your smile…', 10);
   const { width, height, resized: resizedUrl } = await resizeForAPI(dataUrl);
@@ -1759,10 +1846,24 @@ async function generateSmile(dataUrl) {
     console.warn('MediaPipe failed:', e.message);
   }
 
-  // --- Primary: gpt-image-2 with MediaPipe pixel-accurate tooth mask ---
+  // --- Primary: FLUX Pro Fill crop-zoom + MediaPipe mask (full makeover) ---
   if (mpResult) {
     try {
       updateProgress('Designing your smile…', 30);
+      const fluxResult = await fluxCropMakeover(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds);
+      if (fluxResult) {
+        console.log('✅ Result from: FLUX Pro Fill + MediaPipe crop-zoom');
+        return fluxResult;
+      }
+    } catch(e) {
+      console.warn('FLUX crop-zoom failed, trying gpt-image-2:', e.message);
+    }
+  }
+
+  // --- Fallback 1: gpt-image-2 with MediaPipe crop-zoom ---
+  if (mpResult) {
+    try {
+      updateProgress('Designing your smile…', 40);
       const gptResult = await gptMaskWhiten(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds);
       if (gptResult) {
         console.log('✅ Result from: gpt-image-2 + MediaPipe mask');
@@ -1773,7 +1874,7 @@ async function generateSmile(dataUrl) {
     }
   }
 
-  // --- Fallback 1: Modal dental LoRA full-face ---
+  // --- Fallback 2: Modal dental LoRA full-face ---
   if (mpResult) {
     try {
       const { landmarks, bounds } = mpResult;

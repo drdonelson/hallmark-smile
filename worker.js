@@ -332,9 +332,9 @@ async function handleFluxInpaint(request, env, origin) {
   const imageUrl = image;
   const maskUrl  = mask_url || mask;
 
-  const prompt = 'Photorealistic cosmetic dental result photo. Upper teeth whitened to shade BL1 bright natural white. Teeth are horizontally level, following the natural occlusal plane and smile curvature of this patient. Central incisors are the widest teeth, lateral incisors slightly narrower, canines tapered — natural golden proportion. Teeth shape matches the patient\'s existing tooth anatomy. Smooth incisal edges with subtle translucency at tips. Realistic enamel surface texture with natural micro-variation. Healthy pink gingival margins unchanged. Midline aligned. Buccal corridors preserved. Clinical macro dental photography, authentic cosmetic dentistry outcome.';
+  const prompt = 'Complete cosmetic dental makeover result. Full smile transformation: replace the teeth with ideal porcelain veneer quality — perfect golden proportion tooth widths, central incisors dominant, lateral incisors slightly narrower, canines tapering naturally. Ovoid tooth shape. Broad full smile arc filling buccal corridors completely. Bright naturally white shade. Smooth incisal edges with subtle natural translucency. Realistic enamel surface texture with individual tooth variation — not uniform. Correct midline alignment. Healthy natural gingival margins. Photorealistic cosmetic dentistry case photo — the kind a top cosmetic dentist would use in their portfolio.';
 
-  const negative_prompt = 'yellow teeth, stained teeth, discolored teeth, cartoon teeth, Hollywood white glow, tilted teeth, canted smile, wrong proportion, too large teeth, too small teeth, square veneers, gummy smile, plastic texture, AI artifacts, altered lips, altered skin, altered face, smile widening, face reshaping, uncanny smoothness, flat texture';
+  const negative_prompt = 'subtle change, minor whitening, existing tooth shape, crowding, gaps, missing teeth, broken teeth, yellow, stained, plastic slab, denture look, flat texture, uniform blob, artificial glow, AI artifacts, altered lips, altered skin, altered face, smile widening, face reshaping, uncanny smoothness';
 
   try {
     const fal = await fetch('https://queue.fal.run/fal-ai/flux-pro/v1/fill', {
