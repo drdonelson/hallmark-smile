@@ -1455,16 +1455,34 @@ async function fluxCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bounds
   const imgC = document.createElement('canvas');
   imgC.width = outW; imgC.height = outH;
   imgC.getContext('2d').drawImage(origImg, cx, cy, cw, ch, 0, 0, outW, outH);
-  const cropImgUrl = imgC.toDataURL('image/jpeg', 0.95);
 
-  // FLUX mask: tight bounding box of detected tooth pixels, scaled into crop space.
-  // Covers all teeth + gaps between them without including the tongue/mouth interior.
-  // (Inner-lip polygon went too deep and caused FLUX to generate tongue tissue.)
+  // Calculate tooth bbox in crop space first — needed for bib neutralization below.
   const cropScale = outW / cw;
   const tbX = Math.max(0, Math.round((bounds.xMin - cx) * cropScale) - 6);
   const tbY = Math.max(0, Math.round((bounds.yMin - cy) * cropScale) - 6);
   const tbW = Math.min(outW - tbX, Math.round((bounds.xMax - bounds.xMin) * cropScale) + 12);
   const tbH = Math.min(outH - tbY, Math.round((bounds.yMax - bounds.yMin) * cropScale) + 12);
+
+  // Strip dental bib color from FLUX input: desaturate everything below the tooth
+  // zone. Dental bibs (light blue/teal) sit below the teeth in the crop and cause
+  // FLUX to sample that color as a reference when generating the new smile.
+  const imgCtx2d = imgC.getContext('2d');
+  const bibData  = imgCtx2d.getImageData(0, 0, outW, outH);
+  const bd = bibData.data;
+  const bibStartY = Math.min(outH - 1, tbY + tbH + 4);
+  for (let y = bibStartY; y < outH; y++) {
+    for (let x = 0; x < outW; x++) {
+      const i = (y * outW + x) * 4;
+      const gray = Math.round(0.299 * bd[i] + 0.587 * bd[i+1] + 0.114 * bd[i+2]);
+      bd[i] = gray; bd[i+1] = gray; bd[i+2] = gray;
+    }
+  }
+  imgCtx2d.putImageData(bibData, 0, 0);
+  const cropImgUrl = imgC.toDataURL('image/jpeg', 0.95);
+
+  // FLUX mask: tight bounding box of detected tooth pixels, scaled into crop space.
+  // Covers all teeth + gaps between them without including the tongue/mouth interior.
+  // (Inner-lip polygon went too deep and caused FLUX to generate tongue tissue.)
   const fluxMaskC = document.createElement('canvas');
   fluxMaskC.width = outW; fluxMaskC.height = outH;
   const fmCtx = fluxMaskC.getContext('2d');
@@ -1491,23 +1509,7 @@ async function fluxCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bounds
 
   const fluxImg = await loadImage(fluxUrl);
 
-  // Color-correct: dental bibs are light blue/teal; FLUX picks up that color and
-  // bleeds it into the generated teeth. Boost red, reduce blue to shift back to
-  // natural warm ivory-white. Applied to the full FLUX crop — only the tooth
-  // bounding box gets composited onto the face, so skin/background not affected.
-  const corrC = document.createElement('canvas');
-  corrC.width = outW; corrC.height = outH;
-  const corrCtx = corrC.getContext('2d');
-  corrCtx.drawImage(fluxImg, 0, 0, outW, outH);
-  const pxData = corrCtx.getImageData(0, 0, outW, outH);
-  const px = pxData.data;
-  for (let i = 0; i < px.length; i += 4) {
-    px[i]   = Math.min(255, Math.round(px[i]   * 1.10)); // boost R for warmth
-    px[i+2] = Math.min(255, Math.round(px[i+2] * 0.80)); // reduce B (bib bleed)
-  }
-  corrCtx.putImageData(pxData, 0, 0);
-
-  // Composite mask: same bounding box with soft edges for a natural blend.
+  // Composite mask: tooth bounding box with soft edges for a natural blend.
   const blendMask = document.createElement('canvas');
   blendMask.width = outW; blendMask.height = outH;
   const bmCtx = blendMask.getContext('2d');
@@ -1516,11 +1518,11 @@ async function fluxCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bounds
   bmCtx.fillStyle = '#fff'; bmCtx.fillRect(tbX, tbY, tbW, tbH);
   bmCtx.filter = 'none';
 
-  // Clip FLUX result to the mouth polygon region
+  // Clip FLUX result to the tooth bounding box region
   const fluxC = document.createElement('canvas');
   fluxC.width = outW; fluxC.height = outH;
   const fCtx = fluxC.getContext('2d');
-  fCtx.drawImage(corrC, 0, 0, outW, outH);
+  fCtx.drawImage(fluxImg, 0, 0, outW, outH);
   fCtx.globalCompositeOperation = 'destination-in';
   fCtx.drawImage(blendMask, 0, 0);
 
