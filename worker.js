@@ -334,7 +334,7 @@ async function handleFluxInpaint(request, env, origin) {
 
   const prompt = 'Cosmetic dental makeover photo. Every upper tooth is individually distinct: visible dark inter-dental embrasures between each tooth, natural gingival scalloping at each tooth\'s emergence profile, slight shade variation — central incisors brightest, lateral incisors slightly warmer, canines slightly darker. Central incisors widest, lateral incisors narrower, canines tapering. Ovoid tooth shape. Smooth incisal edges with subtle blue-white translucency at tips. Realistic enamel surface: fine horizontal texture ridges, natural micro-variation, slight gloss highlights. Broad smile arc filling buccal corridors. Correct midline alignment. Healthy pink gingival margins. Photorealistic cosmetic dentistry case photo — individual tooth crowns clearly visible, not a single white block.';
 
-  const negative_prompt = 'denture plate, false teeth, uniform white slab, fused teeth, no gaps between teeth, missing embrasures, plastic texture, artificial glow, flat brightness, AI artifacts, altered lips, altered skin, altered face, face reshaping, Hollywood glow, over-whitening, cartoon teeth';
+  const negative_prompt = 'tongue, tongue visible, pink mouth interior, open throat, uvula, denture plate, false teeth, uniform white slab, fused teeth, missing embrasures, plastic texture, artificial glow, flat brightness, AI artifacts, altered lips, altered skin, altered face, face reshaping, Hollywood glow, over-whitening, cartoon teeth';
 
   try {
     const fal = await fetch('https://queue.fal.run/fal-ai/flux-pro/v1/fill', {

@@ -1435,7 +1435,7 @@ function dilateMask(src, width, height, radius) {
 // FLUX enough resolution to generate a full cosmetic makeover.
 // FLUX mask convention: white = edit region (same as MediaPipe output — no inversion).
 // Composites only the tooth pixels back onto the original face.
-async function fluxCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bounds, landmarks) {
+async function fluxCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bounds) {
   const origImg = await loadImage(resizedUrl);
 
   // Wider horizontal padding — captures full buccal corridors
@@ -1457,11 +1457,20 @@ async function fluxCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bounds
   imgC.getContext('2d').drawImage(origImg, cx, cy, cw, ch, 0, 0, outW, outH);
   const cropImgUrl = imgC.toDataURL('image/jpeg', 0.95);
 
-  // FLUX mask: filled inner-lip polygon covering the ENTIRE mouth opening —
-  // includes gaps between teeth, missing teeth, buccal corridors.
-  // Per-pixel tooth mask would leave gaps unmasked so FLUX can't fill them.
-  const cropBox = { x: cx, y: cy, w: cw, h: ch };
-  const fluxMaskUrl = buildLandmarkMaskForCrop(landmarks, cropBox, outW, outH, width, height);
+  // FLUX mask: tight bounding box of detected tooth pixels, scaled into crop space.
+  // Covers all teeth + gaps between them without including the tongue/mouth interior.
+  // (Inner-lip polygon went too deep and caused FLUX to generate tongue tissue.)
+  const cropScale = outW / cw;
+  const tbX = Math.max(0, Math.round((bounds.xMin - cx) * cropScale) - 6);
+  const tbY = Math.max(0, Math.round((bounds.yMin - cy) * cropScale) - 6);
+  const tbW = Math.min(outW - tbX, Math.round((bounds.xMax - bounds.xMin) * cropScale) + 12);
+  const tbH = Math.min(outH - tbY, Math.round((bounds.yMax - bounds.yMin) * cropScale) + 12);
+  const fluxMaskC = document.createElement('canvas');
+  fluxMaskC.width = outW; fluxMaskC.height = outH;
+  const fmCtx = fluxMaskC.getContext('2d');
+  fmCtx.fillStyle = '#000'; fmCtx.fillRect(0, 0, outW, outH);
+  fmCtx.fillStyle = '#fff'; fmCtx.fillRect(tbX, tbY, tbW, tbH);
+  const fluxMaskUrl = fluxMaskC.toDataURL('image/png');
 
   const startRes = await fetch(`${PROXY_URL}/api/flux/inpaint`, {
     method: 'POST',
@@ -1482,13 +1491,13 @@ async function fluxCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bounds
 
   const fluxImg = await loadImage(fluxUrl);
 
-  // Composite mask: inner-lip polygon with blurred edges for a natural blend.
-  // Using the same polygon (not per-pixel) so gap fills and new teeth are included.
+  // Composite mask: same bounding box with soft edges for a natural blend.
   const blendMask = document.createElement('canvas');
   blendMask.width = outW; blendMask.height = outH;
   const bmCtx = blendMask.getContext('2d');
-  bmCtx.filter = 'blur(3px)';
-  bmCtx.drawImage(await loadImage(fluxMaskUrl), 0, 0, outW, outH);
+  bmCtx.fillStyle = '#000'; bmCtx.fillRect(0, 0, outW, outH);
+  bmCtx.filter = 'blur(4px)';
+  bmCtx.fillStyle = '#fff'; bmCtx.fillRect(tbX, tbY, tbW, tbH);
   bmCtx.filter = 'none';
 
   // Clip FLUX result to the mouth polygon region
@@ -1844,7 +1853,7 @@ async function generateSmile(dataUrl) {
   if (mpResult) {
     try {
       updateProgress('Designing your smile…', 30);
-      const fluxResult = await fluxCropMakeover(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds, mpResult.landmarks);
+      const fluxResult = await fluxCropMakeover(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds);
       if (fluxResult) {
         console.log('✅ Result from: FLUX Pro Fill + MediaPipe crop-zoom');
         return fluxResult;
