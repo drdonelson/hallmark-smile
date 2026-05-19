@@ -332,9 +332,9 @@ async function handleFluxInpaint(request, env, origin) {
   const imageUrl = image;
   const maskUrl  = mask_url || mask;
 
-  const prompt = 'Complete cosmetic dental makeover result. Full smile transformation: replace the teeth with ideal porcelain veneer quality — perfect golden proportion tooth widths, central incisors dominant, lateral incisors slightly narrower, canines tapering naturally. Ovoid tooth shape. Broad full smile arc filling buccal corridors completely. Bright naturally white shade. Smooth incisal edges with subtle natural translucency. Realistic enamel surface texture with individual tooth variation — not uniform. Correct midline alignment. Healthy natural gingival margins. Photorealistic cosmetic dentistry case photo — the kind a top cosmetic dentist would use in their portfolio.';
+  const prompt = 'Cosmetic dental makeover photo. Every upper tooth is individually distinct: visible dark inter-dental embrasures between each tooth, natural gingival scalloping at each tooth\'s emergence profile, slight shade variation — central incisors brightest, lateral incisors slightly warmer, canines slightly darker. Central incisors widest, lateral incisors narrower, canines tapering. Ovoid tooth shape. Smooth incisal edges with subtle blue-white translucency at tips. Realistic enamel surface: fine horizontal texture ridges, natural micro-variation, slight gloss highlights. Broad smile arc filling buccal corridors. Correct midline alignment. Healthy pink gingival margins. Photorealistic cosmetic dentistry case photo — individual tooth crowns clearly visible, not a single white block.';
 
-  const negative_prompt = 'subtle change, minor whitening, existing tooth shape, crowding, gaps, missing teeth, broken teeth, yellow, stained, plastic slab, denture look, flat texture, uniform blob, artificial glow, AI artifacts, altered lips, altered skin, altered face, smile widening, face reshaping, uncanny smoothness';
+  const negative_prompt = 'denture plate, false teeth, uniform white slab, fused teeth, no gaps between teeth, missing embrasures, plastic texture, artificial glow, flat brightness, AI artifacts, altered lips, altered skin, altered face, face reshaping, Hollywood glow, over-whitening, cartoon teeth';
 
   try {
     const fal = await fetch('https://queue.fal.run/fal-ai/flux-pro/v1/fill', {
@@ -345,8 +345,8 @@ async function handleFluxInpaint(request, env, origin) {
         mask_url:            maskUrl,
         prompt,
         negative_prompt,
-        num_inference_steps: 30,
-        guidance_scale:      20,
+        num_inference_steps: 40,
+        guidance_scale:      25,
         output_format:       'jpeg',
         sync_mode:           false,
       }),
