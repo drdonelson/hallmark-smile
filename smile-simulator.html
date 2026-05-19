@@ -1510,12 +1510,14 @@ async function fluxCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bounds
   const fluxImg = await loadImage(fluxUrl);
 
   // Composite mask: tooth bounding box with soft edges for a natural blend.
+  // Blend mask: transparent background so destination-in clips by source alpha.
+  // Opaque white at tooth bbox = preserve; transparent elsewhere = erase.
   const blendMask = document.createElement('canvas');
   blendMask.width = outW; blendMask.height = outH;
   const bmCtx = blendMask.getContext('2d');
-  bmCtx.fillStyle = '#000'; bmCtx.fillRect(0, 0, outW, outH);
-  bmCtx.filter = 'blur(4px)';
-  bmCtx.fillStyle = '#fff'; bmCtx.fillRect(tbX, tbY, tbW, tbH);
+  bmCtx.filter = 'blur(6px)';
+  bmCtx.fillStyle = 'rgba(255,255,255,1)';
+  bmCtx.fillRect(tbX, tbY, tbW, tbH);
   bmCtx.filter = 'none';
 
   // Clip FLUX result to the tooth bounding box region
@@ -1614,13 +1616,15 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
 
   const ideoImg = await loadImage(ideoUrl);
 
-  // Blend mask: same tooth bbox with soft edges for natural compositing
+  // Blend mask: transparent background, opaque white at tooth bbox.
+  // destination-in clips by SOURCE ALPHA — the background must be alpha=0
+  // (transparent), not opaque black, or it clips nothing.
   const blendMask = document.createElement('canvas');
   blendMask.width = outW; blendMask.height = outH;
   const bmCtx = blendMask.getContext('2d');
-  bmCtx.fillStyle = '#000'; bmCtx.fillRect(0, 0, outW, outH);
-  bmCtx.filter = 'blur(4px)';
-  bmCtx.fillStyle = '#fff'; bmCtx.fillRect(tbX, tbY, tbW, tbH);
+  bmCtx.filter = 'blur(6px)';
+  bmCtx.fillStyle = 'rgba(255,255,255,1)';
+  bmCtx.fillRect(tbX, tbY, tbW, tbH);
   bmCtx.filter = 'none';
 
   const ideoC = document.createElement('canvas');
