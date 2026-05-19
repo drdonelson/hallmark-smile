@@ -1580,12 +1580,23 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   imgCtx2d.putImageData(bibData, 0, 0);
   const cropImgUrl = imgC.toDataURL('image/jpeg', 0.95);
 
-  // Ideogram mask: WHITE background, BLACK rectangle at tooth bbox (black=edit zone)
+  // Ideogram mask: pixel-accurate inner lip polygon from MediaPipe, inverted for Ideogram.
+  // BLACK = edit zone (inside mouth opening), WHITE = preserve (lips, face, everything else).
+  // The polygon follows the actual lip contours — Ideogram cannot widen the smile or
+  // change the mouth shape. For missing teeth the polygon still covers where teeth should be.
+  const mpMaskImg = await loadImage(mpMaskDataUrl);
   const ideoMaskC = document.createElement('canvas');
   ideoMaskC.width = outW; ideoMaskC.height = outH;
   const imCtx = ideoMaskC.getContext('2d');
-  imCtx.fillStyle = '#fff'; imCtx.fillRect(0, 0, outW, outH);
-  imCtx.fillStyle = '#000'; imCtx.fillRect(tbX, tbY, tbW, tbH);
+  imCtx.drawImage(mpMaskImg, cx, cy, cw, ch, 0, 0, outW, outH);
+  const maskPx = imCtx.getImageData(0, 0, outW, outH);
+  const mpd = maskPx.data;
+  for (let mi = 0; mi < mpd.length; mi += 4) {
+    mpd[mi]   = 255 - mpd[mi];
+    mpd[mi+1] = 255 - mpd[mi+1];
+    mpd[mi+2] = 255 - mpd[mi+2];
+  }
+  imCtx.putImageData(maskPx, 0, 0);
   const ideoMaskUrl = ideoMaskC.toDataURL('image/png');
 
   const startRes = await fetch(`${PROXY_URL}/api/ideogram/inpaint`, {

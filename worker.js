@@ -523,8 +523,8 @@ async function handleIdeogramInpaint(request, env, origin) {
       status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
   }
-  const prompt = 'Photorealistic cosmetic dental makeover. Replace upper teeth with an ideal result: individually defined teeth with visible dark inter-dental shadows and embrasures, golden proportion tooth widths — central incisors widest, lateral incisors slightly narrower, canines tapered. Bright natural white BL1 shade. Ovoid tooth shape. Smooth incisal edges with subtle translucency. Realistic enamel surface texture. Healthy pink gingival margins intact. Correct midline alignment. Clinical dental photography.';
-  const negative_prompt = 'yellow teeth, stained teeth, denture plate, false teeth, uniform white slab, fused teeth, no embrasures, plastic texture, artificial glow, cartoon, altered lips, altered skin, altered face, tongue, open throat';
+  const prompt = 'Photorealistic cosmetic dental result. Upper teeth: BL1 bright natural white, individually defined with visible dark inter-dental shadows and embrasures between each tooth. Golden proportion widths — central incisors widest, lateral incisors slightly narrower, canines tapered. Ovoid tooth shape. Smooth incisal edges with subtle translucency. Realistic enamel surface texture and slight gloss. Healthy pink gingival margins. Correct midline. Lips, face, and smile width exactly as in original photo. Clinical dental photography.';
+  const negative_prompt = 'yellow teeth, stained teeth, discolored teeth, denture plate, uniform white slab, fused teeth, no embrasures, plastic texture, artificial glow, cartoon, altered lips, altered skin, altered face, wider smile, different smile width, more teeth showing, different mouth opening, tongue, open throat';
   try {
     const rep = await fetch('https://api.replicate.com/v1/models/ideogram-ai/ideogram-v2/predictions', {
       method: 'POST',
