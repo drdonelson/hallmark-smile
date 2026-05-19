@@ -2042,11 +2042,11 @@ async function loraCompositeMakeover(resizedUrl, width, height, maskDataUrl, bou
 }
 
 /* ── Main generation flow ──────────────────────────────────────── */
-// Primary:   MediaPipe → LoRA composite (full-face, tooth-bbox extraction)
-// Fallback 1: MediaPipe → Ideogram v2 crop-zoom → composite
-// Fallback 2: MediaPipe → FLUX Pro Fill crop-zoom → composite
-// Fallback 3: MediaPipe → gpt-image-2 crop-zoom → composite
-// Fallback 4: Modal dental LoRA full-face (legacy full-result)
+// Primary:   MediaPipe → Ideogram v2 crop-zoom (true inpainting, fills missing teeth)
+// Fallback 1: MediaPipe → FLUX Pro Fill crop-zoom
+// Fallback 2: MediaPipe → gpt-image-2 crop-zoom
+// Fallback 3: MediaPipe → LoRA composite (good for whitening, not structural reconstruction)
+// Fallback 4: Modal dental LoRA full-face (legacy)
 // Fallback 5: FLUX Pro Fill full image
 // Fallback 6: RunPod ComfyUI
 // Fallback 7: client-side HSL whitening
@@ -2063,24 +2063,11 @@ async function generateSmile(dataUrl) {
     console.warn('MediaPipe failed:', e.message);
   }
 
-  // --- Primary: LoRA composite — full-face context, tooth-bbox extraction ---
+  // --- Primary: Ideogram v2 crop-zoom + MediaPipe bounds (full makeover) ---
+  // True inpainting — can generate structurally missing teeth. img2img (LoRA) cannot.
   if (mpResult) {
     try {
-      updateProgress('Designing your smile…', 25);
-      const loraResult = await loraCompositeMakeover(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds);
-      if (loraResult) {
-        console.log('✅ Result from: Dr. Apa LoRA composite (full-face → tooth-bbox extract)');
-        return loraResult;
-      }
-    } catch(e) {
-      console.warn('LoRA composite failed, trying Ideogram:', e.message);
-    }
-  }
-
-  // --- Fallback 1: Ideogram v2 crop-zoom + MediaPipe bounds (full makeover) ---
-  if (mpResult) {
-    try {
-      updateProgress('Designing your smile…', 35);
+      updateProgress('Designing your smile…', 30);
       const ideoResult = await ideogramCropMakeover(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds);
       if (ideoResult) {
         console.log('✅ Result from: Ideogram v2 + MediaPipe crop-zoom');
@@ -2108,18 +2095,32 @@ async function generateSmile(dataUrl) {
   // --- Fallback 3: gpt-image-2 with MediaPipe crop-zoom ---
   if (mpResult) {
     try {
-      updateProgress('Designing your smile…', 40);
+      updateProgress('Designing your smile…', 45);
       const gptResult = await gptMaskWhiten(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds);
       if (gptResult) {
         console.log('✅ Result from: gpt-image-2 + MediaPipe mask');
         return gptResult;
       }
     } catch(e) {
-      console.warn('gpt-image-2 failed, trying Modal LoRA legacy:', e.message);
+      console.warn('gpt-image-2 failed, trying LoRA composite:', e.message);
     }
   }
 
-  // --- Fallback 4: Modal dental LoRA full-face (legacy — full result, no bbox extract) ---
+  // --- Fallback 4: LoRA composite — good for subtle whitening, not structural reconstruction ---
+  if (mpResult) {
+    try {
+      updateProgress('Designing your smile…', 50);
+      const loraResult = await loraCompositeMakeover(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds);
+      if (loraResult) {
+        console.log('✅ Result from: Dr. Apa LoRA composite (full-face → tooth-bbox extract)');
+        return loraResult;
+      }
+    } catch(e) {
+      console.warn('LoRA composite failed, trying Modal LoRA legacy:', e.message);
+    }
+  }
+
+  // --- Fallback 5: Modal dental LoRA full-face (legacy — full result, no bbox extract) ---
   if (mpResult) {
     try {
       const { landmarks, bounds } = mpResult;
