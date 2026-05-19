@@ -1953,14 +1953,102 @@ async function compositeResult(origUrl, fluxCropUrl, maskUrl, box, origW, origH)
   return outC.toDataURL('image/jpeg', 0.92);
 }
 
+/* ── Path: Dr. Apa LoRA composite (full-face context, tooth-bbox extraction) ── */
+// Runs the LoRA on the full face at low strength (0.40) so the model sees the
+// complete face — preserving the patient's lighting, skin tone, and oral anatomy
+// context that the LoRA was trained on. Then clips the result to the tooth
+// bounding box and composites ONLY those pixels onto the original, discarding
+// every face change the LoRA made outside the tooth region.
+async function loraCompositeMakeover(resizedUrl, width, height, maskDataUrl, bounds) {
+  const MODAL_URL = 'https://drdonelson--dental-lora-dentalmodel-inpaint.modal.run';
+  const modalPayload = JSON.stringify({
+    image: resizedUrl,
+    mask: maskDataUrl,
+    strength: 0.40,
+    guidance_scale: 8.5,
+  });
+
+  let modalData = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (attempt > 0) {
+      updateProgress('LoRA warming up, retrying…', 45);
+      await new Promise(r => setTimeout(r, 5000));
+    }
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 90000);
+    try {
+      const res = await fetch(MODAL_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: modalPayload,
+        signal: ctrl.signal,
+      });
+      clearTimeout(timer);
+      if (!res.ok) throw new Error(`Modal HTTP ${res.status}`);
+      modalData = await res.json();
+      if (modalData.error) throw new Error('Modal: ' + modalData.error);
+      if (!modalData.image) throw new Error('No image in Modal response');
+      break;
+    } catch (fetchErr) {
+      clearTimeout(timer);
+      if (attempt < 1) {
+        console.warn('LoRA composite attempt 1 failed, retrying:', fetchErr.message);
+      } else {
+        throw fetchErr;
+      }
+    }
+  }
+
+  const [loraImg, origImg] = await Promise.all([
+    loadImage(modalData.image),
+    loadImage(resizedUrl),
+  ]);
+
+  // Tooth bbox in original image coordinates with generous padding
+  const padX = (bounds.xMax - bounds.xMin) * 0.2;
+  const padY = (bounds.yMax - bounds.yMin) * 0.15;
+  const tbX = Math.max(0, Math.round(bounds.xMin - padX));
+  const tbY = Math.max(0, Math.round(bounds.yMin - padY));
+  const tbW = Math.min(width  - tbX, Math.round(bounds.xMax - bounds.xMin + padX * 2));
+  const tbH = Math.min(height - tbY, Math.round(bounds.yMax - bounds.yMin + padY * 2));
+
+  // Blend mask: transparent background, blurred white at tooth bbox.
+  // destination-in clips by SOURCE ALPHA — background must be alpha=0 (transparent),
+  // not opaque black, or it clips nothing.
+  const blendMask = document.createElement('canvas');
+  blendMask.width = width; blendMask.height = height;
+  const bmCtx = blendMask.getContext('2d');
+  bmCtx.filter = 'blur(8px)';
+  bmCtx.fillStyle = 'rgba(255,255,255,1)';
+  bmCtx.fillRect(tbX, tbY, tbW, tbH);
+  bmCtx.filter = 'none';
+
+  // Clip LoRA result to tooth bbox only
+  const loraC = document.createElement('canvas');
+  loraC.width = width; loraC.height = height;
+  const lCtx = loraC.getContext('2d');
+  lCtx.drawImage(loraImg, 0, 0, width, height);
+  lCtx.globalCompositeOperation = 'destination-in';
+  lCtx.drawImage(blendMask, 0, 0);
+
+  // Composite onto original
+  const out = document.createElement('canvas');
+  out.width = width; out.height = height;
+  const oCtx = out.getContext('2d');
+  oCtx.drawImage(origImg, 0, 0, width, height);
+  oCtx.drawImage(loraC, 0, 0);
+  return out.toDataURL('image/jpeg', 0.93);
+}
+
 /* ── Main generation flow ──────────────────────────────────────── */
-// Primary:   MediaPipe → Ideogram v2 crop-zoom → composite (full makeover)
-// Fallback 1: MediaPipe → FLUX Pro Fill crop-zoom → composite
-// Fallback 2: MediaPipe → gpt-image-2 crop-zoom → composite
-// Fallback 3: Modal dental LoRA full-face
-// Fallback 4: FLUX Pro Fill full image
-// Fallback 5: RunPod ComfyUI
-// Fallback 6: client-side HSL whitening
+// Primary:   MediaPipe → LoRA composite (full-face, tooth-bbox extraction)
+// Fallback 1: MediaPipe → Ideogram v2 crop-zoom → composite
+// Fallback 2: MediaPipe → FLUX Pro Fill crop-zoom → composite
+// Fallback 3: MediaPipe → gpt-image-2 crop-zoom → composite
+// Fallback 4: Modal dental LoRA full-face (legacy full-result)
+// Fallback 5: FLUX Pro Fill full image
+// Fallback 6: RunPod ComfyUI
+// Fallback 7: client-side HSL whitening
 async function generateSmile(dataUrl) {
   updateProgress('Analyzing your smile…', 10);
   const { width, height, resized: resizedUrl } = await resizeForAPI(dataUrl);
@@ -1974,10 +2062,24 @@ async function generateSmile(dataUrl) {
     console.warn('MediaPipe failed:', e.message);
   }
 
-  // --- Primary: Ideogram v2 crop-zoom + MediaPipe bounds (full makeover) ---
+  // --- Primary: LoRA composite — full-face context, tooth-bbox extraction ---
   if (mpResult) {
     try {
-      updateProgress('Designing your smile…', 30);
+      updateProgress('Designing your smile…', 25);
+      const loraResult = await loraCompositeMakeover(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds);
+      if (loraResult) {
+        console.log('✅ Result from: Dr. Apa LoRA composite (full-face → tooth-bbox extract)');
+        return loraResult;
+      }
+    } catch(e) {
+      console.warn('LoRA composite failed, trying Ideogram:', e.message);
+    }
+  }
+
+  // --- Fallback 1: Ideogram v2 crop-zoom + MediaPipe bounds (full makeover) ---
+  if (mpResult) {
+    try {
+      updateProgress('Designing your smile…', 35);
       const ideoResult = await ideogramCropMakeover(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds);
       if (ideoResult) {
         console.log('✅ Result from: Ideogram v2 + MediaPipe crop-zoom');
@@ -1988,10 +2090,10 @@ async function generateSmile(dataUrl) {
     }
   }
 
-  // --- Fallback 1: FLUX Pro Fill crop-zoom ---
+  // --- Fallback 2: FLUX Pro Fill crop-zoom ---
   if (mpResult) {
     try {
-      updateProgress('Designing your smile…', 35);
+      updateProgress('Designing your smile…', 40);
       const fluxResult = await fluxCropMakeover(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds);
       if (fluxResult) {
         console.log('✅ Result from: FLUX Pro Fill + MediaPipe crop-zoom');
@@ -2002,7 +2104,7 @@ async function generateSmile(dataUrl) {
     }
   }
 
-  // --- Fallback 2: gpt-image-2 with MediaPipe crop-zoom ---
+  // --- Fallback 3: gpt-image-2 with MediaPipe crop-zoom ---
   if (mpResult) {
     try {
       updateProgress('Designing your smile…', 40);
@@ -2012,11 +2114,11 @@ async function generateSmile(dataUrl) {
         return gptResult;
       }
     } catch(e) {
-      console.warn('gpt-image-2 failed, trying LoRA:', e.message);
+      console.warn('gpt-image-2 failed, trying Modal LoRA legacy:', e.message);
     }
   }
 
-  // --- Fallback 2: Modal dental LoRA full-face ---
+  // --- Fallback 4: Modal dental LoRA full-face (legacy — full result, no bbox extract) ---
   if (mpResult) {
     try {
       const { landmarks, bounds } = mpResult;
@@ -2080,11 +2182,11 @@ async function generateSmile(dataUrl) {
       console.log('✅ Result from: MediaPipe + Modal dental LoRA full-face + whiteness boost');
       return whitened;
     } catch(e) {
-      console.warn('MediaPipe+Modal crop failed, trying FLUX:', e.message);
+      console.warn('Modal LoRA legacy failed, trying FLUX full image:', e.message);
     }
   }
 
-  // --- Fallback 1: FLUX Pro Fill on full image ---
+  // --- Fallback 5: FLUX Pro Fill on full image ---
   try {
     updateProgress('Building tooth mask…', 25);
     let maskDataUrl;
