@@ -1491,6 +1491,22 @@ async function fluxCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bounds
 
   const fluxImg = await loadImage(fluxUrl);
 
+  // Color-correct: dental bibs are light blue/teal; FLUX picks up that color and
+  // bleeds it into the generated teeth. Boost red, reduce blue to shift back to
+  // natural warm ivory-white. Applied to the full FLUX crop — only the tooth
+  // bounding box gets composited onto the face, so skin/background not affected.
+  const corrC = document.createElement('canvas');
+  corrC.width = outW; corrC.height = outH;
+  const corrCtx = corrC.getContext('2d');
+  corrCtx.drawImage(fluxImg, 0, 0, outW, outH);
+  const pxData = corrCtx.getImageData(0, 0, outW, outH);
+  const px = pxData.data;
+  for (let i = 0; i < px.length; i += 4) {
+    px[i]   = Math.min(255, Math.round(px[i]   * 1.10)); // boost R for warmth
+    px[i+2] = Math.min(255, Math.round(px[i+2] * 0.80)); // reduce B (bib bleed)
+  }
+  corrCtx.putImageData(pxData, 0, 0);
+
   // Composite mask: same bounding box with soft edges for a natural blend.
   const blendMask = document.createElement('canvas');
   blendMask.width = outW; blendMask.height = outH;
@@ -1504,7 +1520,7 @@ async function fluxCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bounds
   const fluxC = document.createElement('canvas');
   fluxC.width = outW; fluxC.height = outH;
   const fCtx = fluxC.getContext('2d');
-  fCtx.drawImage(fluxImg, 0, 0, outW, outH);
+  fCtx.drawImage(corrC, 0, 0, outW, outH);
   fCtx.globalCompositeOperation = 'destination-in';
   fCtx.drawImage(blendMask, 0, 0);
 
