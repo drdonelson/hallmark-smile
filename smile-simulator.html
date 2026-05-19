@@ -1975,7 +1975,7 @@ async function loraCompositeMakeover(resizedUrl, width, height, maskDataUrl, bou
   const modalPayload = JSON.stringify({
     image: resizedUrl,
     mask: maskDataUrl,
-    strength: 0.55,
+    strength: 0.65,
     guidance_scale: 8.5,
   });
 
@@ -2048,15 +2048,15 @@ async function loraCompositeMakeover(resizedUrl, width, height, maskDataUrl, bou
   const oCtx = out.getContext('2d');
   oCtx.drawImage(origImg, 0, 0, width, height);
   oCtx.drawImage(loraC, 0, 0);
-  console.log('✅ PATH: LoRA composite (strength=0.55, full-face → tooth-bbox extract)');
+  console.log('✅ PATH: LoRA composite (strength=0.65, full-face → tooth-bbox extract)');
   return out.toDataURL('image/jpeg', 0.93);
 }
 
 /* ── Main generation flow ──────────────────────────────────────── */
-// Primary:   MediaPipe → Ideogram v2 crop-zoom (true inpainting, fills missing teeth)
-// Fallback 1: MediaPipe → FLUX Pro Fill crop-zoom
-// Fallback 2: MediaPipe → gpt-image-2 crop-zoom
-// Fallback 3: MediaPipe → LoRA composite (good for whitening, not structural reconstruction)
+// Primary:   MediaPipe → LoRA composite 0.65 (img2img, preserves tooth structure for discolored)
+// Fallback 1: MediaPipe → Ideogram v2 crop-zoom (generative, fills structurally missing teeth)
+// Fallback 2: MediaPipe → FLUX Pro Fill crop-zoom
+// Fallback 3: MediaPipe → gpt-image-2 crop-zoom
 // Fallback 4: Modal dental LoRA full-face (legacy)
 // Fallback 5: FLUX Pro Fill full image
 // Fallback 6: RunPod ComfyUI
@@ -2074,11 +2074,27 @@ async function generateSmile(dataUrl) {
     console.warn('MediaPipe failed:', e.message);
   }
 
-  // --- Primary: Ideogram v2 crop-zoom + MediaPipe bounds (full makeover) ---
-  // True inpainting — can generate structurally missing teeth. img2img (LoRA) cannot.
+  // --- Primary: LoRA composite — full-face img2img, color transforms existing structure ---
+  // img2img modifies what exists rather than generating new content. For discolored/existing
+  // teeth, this preserves tooth positions while changing color. Ideogram (generative) creates
+  // a new smile arrangement regardless of mask constraints.
   if (mpResult) {
     try {
-      updateProgress('Designing your smile…', 30);
+      updateProgress('Designing your smile…', 25);
+      const loraResult = await loraCompositeMakeover(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds);
+      if (loraResult) {
+        console.log('✅ Result from: Dr. Apa LoRA composite (full-face → tooth-bbox extract)');
+        return loraResult;
+      }
+    } catch(e) {
+      console.warn('LoRA composite failed, trying Ideogram:', e.message);
+    }
+  }
+
+  // --- Fallback 1: Ideogram v2 crop-zoom — generative, best for structurally missing teeth ---
+  if (mpResult) {
+    try {
+      updateProgress('Designing your smile…', 35);
       const ideoResult = await ideogramCropMakeover(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds);
       if (ideoResult) {
         console.log('✅ Result from: Ideogram v2 + MediaPipe crop-zoom');
@@ -2113,25 +2129,11 @@ async function generateSmile(dataUrl) {
         return gptResult;
       }
     } catch(e) {
-      console.warn('gpt-image-2 failed, trying LoRA composite:', e.message);
+      console.warn('gpt-image-2 failed, trying Modal LoRA legacy:', e.message);
     }
   }
 
-  // --- Fallback 4: LoRA composite — good for subtle whitening, not structural reconstruction ---
-  if (mpResult) {
-    try {
-      updateProgress('Designing your smile…', 50);
-      const loraResult = await loraCompositeMakeover(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds);
-      if (loraResult) {
-        console.log('✅ Result from: Dr. Apa LoRA composite (full-face → tooth-bbox extract)');
-        return loraResult;
-      }
-    } catch(e) {
-      console.warn('LoRA composite failed, trying Modal LoRA legacy:', e.message);
-    }
-  }
-
-  // --- Fallback 5: Modal dental LoRA full-face (legacy — full result, no bbox extract) ---
+  // --- Fallback 4: Modal dental LoRA full-face (legacy — full result, no bbox extract) ---
   if (mpResult) {
     try {
       const { landmarks, bounds } = mpResult;
