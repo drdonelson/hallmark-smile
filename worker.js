@@ -495,6 +495,67 @@ async function handleModalInpaint(request, env, origin) {
   }
 }
 
+// --- Replicate: Ideogram v2 Inpainting ---
+// Mask convention: black=edit (teeth), white=preserve (face). Opposite of FLUX.
+async function handleIdeogramInpaint(request, env, origin) {
+  if (!env.REPLICATE_API_TOKEN) {
+    return new Response(JSON.stringify({ error: 'REPLICATE_API_TOKEN not configured' }), {
+      status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  let body;
+  try { body = await request.json(); } catch {
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  const { image, mask } = body;
+  if (!image || !mask) {
+    return new Response(JSON.stringify({ error: 'Missing image or mask' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  let imageUrl, maskUrl;
+  try {
+    [imageUrl, maskUrl] = await Promise.all([r2Upload(env, image), r2Upload(env, mask)]);
+  } catch (err) {
+    return new Response(JSON.stringify({ error: 'R2 upload failed: ' + err.message }), {
+      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  const prompt = 'Photorealistic cosmetic dental makeover. Replace upper teeth with an ideal result: individually defined teeth with visible dark inter-dental shadows and embrasures, golden proportion tooth widths — central incisors widest, lateral incisors slightly narrower, canines tapered. Bright natural white BL1 shade. Ovoid tooth shape. Smooth incisal edges with subtle translucency. Realistic enamel surface texture. Healthy pink gingival margins intact. Correct midline alignment. Clinical dental photography.';
+  const negative_prompt = 'yellow teeth, stained teeth, denture plate, false teeth, uniform white slab, fused teeth, no embrasures, plastic texture, artificial glow, cartoon, altered lips, altered skin, altered face, tongue, open throat';
+  try {
+    const rep = await fetch('https://api.replicate.com/v1/models/ideogram-ai/ideogram-v2/predictions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${env.REPLICATE_API_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        input: {
+          image:                imageUrl,
+          mask:                 maskUrl,
+          prompt,
+          negative_prompt,
+          style_type:           'Realistic',
+          magic_prompt_option:  'Off',
+        },
+      }),
+    });
+    const data = await rep.json();
+    if (!rep.ok) {
+      return new Response(JSON.stringify({ error: data.detail || 'Ideogram error', detail: data }), {
+        status: rep.status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+      });
+    }
+    return new Response(JSON.stringify({ id: data.id, status: data.status }), {
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+}
+
 // --- Replicate: SDXL Inpainting (lucataco/sdxl-inpainting) ---
 // Uploads image + mask to R2, submits to Replicate, returns prediction ID for polling.
 const REPLICATE_SDXL_VERSION = 'a5b13068cc81a89a4fbeefeccc774869fcb34df4dbc92c1555e0f2771d49dde7';
@@ -713,12 +774,17 @@ export default {
       return handleSAMStart(request, env, origin);
     }
 
-    // FLUX Pro Fill inpainting (Phase 1 AI path)
+    // FLUX Pro Fill inpainting
     if (url.pathname === '/api/flux/inpaint' && request.method === 'POST') {
       return handleFluxInpaint(request, env, origin);
     }
 
-    // Replicate SDXL Inpainting (primary AI path)
+    // Ideogram v2 inpainting (primary AI path)
+    if (url.pathname === '/api/ideogram/inpaint' && request.method === 'POST') {
+      return handleIdeogramInpaint(request, env, origin);
+    }
+
+    // Replicate SDXL Inpainting
     if (url.pathname === '/api/replicate/inpaint' && request.method === 'POST') {
       return handleReplicateInpaint(request, env, origin);
     }

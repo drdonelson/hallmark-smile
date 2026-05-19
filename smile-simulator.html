@@ -1536,6 +1536,108 @@ async function fluxCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bounds
   return out.toDataURL('image/jpeg', 0.93);
 }
 
+/* ── Path 1b: Ideogram v2 with zoomed mouth crop (primary) ─────── */
+// Same crop-zoom + bib desaturation as fluxCropMakeover, but uses Ideogram v2
+// inpainting via Replicate. Mask convention INVERTED vs FLUX: black=edit, white=keep.
+async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bounds) {
+  const origImg = await loadImage(resizedUrl);
+
+  const padX = (bounds.xMax - bounds.xMin) * 2.0;
+  const padY = (bounds.yMax - bounds.yMin) * 1.5;
+  const cx = Math.max(0, Math.round(bounds.xMin - padX));
+  const cy = Math.max(0, Math.round(bounds.yMin - padY));
+  const cw = Math.min(width  - cx, Math.round(bounds.xMax - bounds.xMin + padX * 2));
+  const ch = Math.min(height - cy, Math.round(bounds.yMax - bounds.yMin + padY * 2));
+
+  const scale = Math.min(1024 / cw, 1024 / ch);
+  const outW  = Math.round(cw * scale / 64) * 64;
+  const outH  = Math.round(ch * scale / 64) * 64;
+
+  const imgC = document.createElement('canvas');
+  imgC.width = outW; imgC.height = outH;
+  imgC.getContext('2d').drawImage(origImg, cx, cy, cw, ch, 0, 0, outW, outH);
+
+  const cropScale = outW / cw;
+  const tbX = Math.max(0, Math.round((bounds.xMin - cx) * cropScale) - 6);
+  const tbY = Math.max(0, Math.round((bounds.yMin - cy) * cropScale) - 6);
+  const tbW = Math.min(outW - tbX, Math.round((bounds.xMax - bounds.xMin) * cropScale) + 12);
+  const tbH = Math.min(outH - tbY, Math.round((bounds.yMax - bounds.yMin) * cropScale) + 12);
+
+  // Desaturate below-tooth zone to strip dental bib color from Ideogram's context
+  const imgCtx2d = imgC.getContext('2d');
+  const bibData  = imgCtx2d.getImageData(0, 0, outW, outH);
+  const bd = bibData.data;
+  const bibStartY = Math.min(outH - 1, tbY + tbH + 4);
+  for (let y = bibStartY; y < outH; y++) {
+    for (let x = 0; x < outW; x++) {
+      const i = (y * outW + x) * 4;
+      const gray = Math.round(0.299 * bd[i] + 0.587 * bd[i+1] + 0.114 * bd[i+2]);
+      bd[i] = gray; bd[i+1] = gray; bd[i+2] = gray;
+    }
+  }
+  imgCtx2d.putImageData(bibData, 0, 0);
+  const cropImgUrl = imgC.toDataURL('image/jpeg', 0.95);
+
+  // Ideogram mask: WHITE background, BLACK rectangle at tooth bbox (black=edit zone)
+  const ideoMaskC = document.createElement('canvas');
+  ideoMaskC.width = outW; ideoMaskC.height = outH;
+  const imCtx = ideoMaskC.getContext('2d');
+  imCtx.fillStyle = '#fff'; imCtx.fillRect(0, 0, outW, outH);
+  imCtx.fillStyle = '#000'; imCtx.fillRect(tbX, tbY, tbW, tbH);
+  const ideoMaskUrl = ideoMaskC.toDataURL('image/png');
+
+  const startRes = await fetch(`${PROXY_URL}/api/ideogram/inpaint`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image: cropImgUrl, mask: ideoMaskUrl }),
+  });
+  if (!startRes.ok) { const t = await startRes.text().catch(()=>''); throw new Error(`Ideogram ${startRes.status}: ${t.slice(0,200)}`); }
+  const startData = await startRes.json();
+  if (startData.error) throw new Error('Ideogram: ' + startData.error);
+  if (!startData.id) throw new Error('No prediction ID from Ideogram: ' + JSON.stringify(startData).slice(0,200));
+
+  // Ideogram output is a string URL (not array). Poll Replicate status endpoint.
+  const t0 = Date.now();
+  let ideoUrl = null;
+  while (Date.now() - t0 < 120000) {
+    await new Promise(r => setTimeout(r, 4000));
+    const sr = await fetch(`${PROXY_URL}/api/replicate/status?id=${encodeURIComponent(startData.id)}`);
+    const sd = await sr.json();
+    console.log('Ideogram poll:', sd.status, Math.round((Date.now()-t0)/1000)+'s');
+    if (sd.status === 'succeeded') {
+      ideoUrl = Array.isArray(sd.output) ? sd.output[0] : sd.output;
+      break;
+    }
+    if (sd.status === 'failed' || sd.status === 'canceled') throw new Error('Ideogram failed: ' + JSON.stringify(sd.error));
+  }
+  if (!ideoUrl) throw new Error('Ideogram timed out');
+
+  const ideoImg = await loadImage(ideoUrl);
+
+  // Blend mask: same tooth bbox with soft edges for natural compositing
+  const blendMask = document.createElement('canvas');
+  blendMask.width = outW; blendMask.height = outH;
+  const bmCtx = blendMask.getContext('2d');
+  bmCtx.fillStyle = '#000'; bmCtx.fillRect(0, 0, outW, outH);
+  bmCtx.filter = 'blur(4px)';
+  bmCtx.fillStyle = '#fff'; bmCtx.fillRect(tbX, tbY, tbW, tbH);
+  bmCtx.filter = 'none';
+
+  const ideoC = document.createElement('canvas');
+  ideoC.width = outW; ideoC.height = outH;
+  const iCtx = ideoC.getContext('2d');
+  iCtx.drawImage(ideoImg, 0, 0, outW, outH);
+  iCtx.globalCompositeOperation = 'destination-in';
+  iCtx.drawImage(blendMask, 0, 0);
+
+  const out = document.createElement('canvas');
+  out.width = width; out.height = height;
+  const oCtx = out.getContext('2d');
+  oCtx.drawImage(origImg, 0, 0, width, height);
+  oCtx.drawImage(ideoC, 0, 0, outW, outH, cx, cy, cw, ch);
+  return out.toDataURL('image/jpeg', 0.93);
+}
+
 /* ── Path 2: gpt-image-2 with zoomed mouth crop (fallback) ──────── */
 // Crops to the mouth region so teeth fill more of the frame, giving
 // gpt-image-2 enough resolution to render individual tooth anatomy.
@@ -1848,12 +1950,13 @@ async function compositeResult(origUrl, fluxCropUrl, maskUrl, box, origW, origH)
 }
 
 /* ── Main generation flow ──────────────────────────────────────── */
-// Primary:   MediaPipe → FLUX Pro Fill crop-zoom → composite (full makeover)
-// Fallback 1: MediaPipe → gpt-image-2 crop-zoom → composite
-// Fallback 2: Modal dental LoRA full-face
-// Fallback 3: FLUX Pro Fill full image
-// Fallback 4: RunPod ComfyUI
-// Fallback 5: client-side HSL whitening
+// Primary:   MediaPipe → Ideogram v2 crop-zoom → composite (full makeover)
+// Fallback 1: MediaPipe → FLUX Pro Fill crop-zoom → composite
+// Fallback 2: MediaPipe → gpt-image-2 crop-zoom → composite
+// Fallback 3: Modal dental LoRA full-face
+// Fallback 4: FLUX Pro Fill full image
+// Fallback 5: RunPod ComfyUI
+// Fallback 6: client-side HSL whitening
 async function generateSmile(dataUrl) {
   updateProgress('Analyzing your smile…', 10);
   const { width, height, resized: resizedUrl } = await resizeForAPI(dataUrl);
@@ -1867,10 +1970,24 @@ async function generateSmile(dataUrl) {
     console.warn('MediaPipe failed:', e.message);
   }
 
-  // --- Primary: FLUX Pro Fill crop-zoom + MediaPipe mask (full makeover) ---
+  // --- Primary: Ideogram v2 crop-zoom + MediaPipe bounds (full makeover) ---
   if (mpResult) {
     try {
       updateProgress('Designing your smile…', 30);
+      const ideoResult = await ideogramCropMakeover(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds);
+      if (ideoResult) {
+        console.log('✅ Result from: Ideogram v2 + MediaPipe crop-zoom');
+        return ideoResult;
+      }
+    } catch(e) {
+      console.warn('Ideogram failed, trying FLUX:', e.message);
+    }
+  }
+
+  // --- Fallback 1: FLUX Pro Fill crop-zoom ---
+  if (mpResult) {
+    try {
+      updateProgress('Designing your smile…', 35);
       const fluxResult = await fluxCropMakeover(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds);
       if (fluxResult) {
         console.log('✅ Result from: FLUX Pro Fill + MediaPipe crop-zoom');
@@ -1881,7 +1998,7 @@ async function generateSmile(dataUrl) {
     }
   }
 
-  // --- Fallback 1: gpt-image-2 with MediaPipe crop-zoom ---
+  // --- Fallback 2: gpt-image-2 with MediaPipe crop-zoom ---
   if (mpResult) {
     try {
       updateProgress('Designing your smile…', 40);
