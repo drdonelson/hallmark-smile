@@ -1975,8 +1975,8 @@ async function loraCompositeMakeover(resizedUrl, width, height, maskDataUrl, bou
   const modalPayload = JSON.stringify({
     image: resizedUrl,
     mask: maskDataUrl,
-    strength: 0.65,
-    guidance_scale: 8.5,
+    strength: 0.99,
+    guidance_scale: 7.5,
   });
 
   let modalData = null;
@@ -2048,12 +2048,12 @@ async function loraCompositeMakeover(resizedUrl, width, height, maskDataUrl, bou
   const oCtx = out.getContext('2d');
   oCtx.drawImage(origImg, 0, 0, width, height);
   oCtx.drawImage(loraC, 0, 0);
-  console.log('✅ PATH: LoRA composite (strength=0.65, full-face → tooth-bbox extract)');
+  console.log('✅ PATH: ControlNet+LoRA inpaint (strength=0.99, full-face → tooth-bbox extract)');
   return out.toDataURL('image/jpeg', 0.93);
 }
 
 /* ── Main generation flow ──────────────────────────────────────── */
-// Primary:   MediaPipe → LoRA composite 0.65 (img2img, preserves tooth structure for discolored)
+// Primary:   MediaPipe → ControlNet+LoRA inpaint 0.99 (canny edge conditioning preserves structure)
 // Fallback 1: MediaPipe → Ideogram v2 crop-zoom (generative, fills structurally missing teeth)
 // Fallback 2: MediaPipe → FLUX Pro Fill crop-zoom
 // Fallback 3: MediaPipe → gpt-image-2 crop-zoom
