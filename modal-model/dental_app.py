@@ -141,6 +141,7 @@ class DentalModel:
 
         prompt = body.get("prompt", (
             "photorealistic cosmetic dentistry result photo. "
+            "Open smile, mouth open, upper and lower teeth fully visible. "
             "Upper teeth whitened to BL1 bright natural white. "
             "Every tooth individually defined with visible dark inter-dental "
             "embrasures and shadows between each tooth. "
@@ -155,6 +156,7 @@ class DentalModel:
             "Clinical cosmetic dental photography, authentic before-and-after."
         ))
         neg_prompt = body.get("negative_prompt", (
+            "closed mouth, closed lips, no teeth showing, mouth closed, "
             "yellow teeth, stained teeth, discolored teeth, "
             "uniform white slab, fused teeth, no embrasures, plastic texture, "
             "artificial glow, flat brightness, cartoon, denture plate, "
@@ -182,13 +184,17 @@ class DentalModel:
         image_pil = image_pil.resize((new_w, new_h), Image.LANCZOS)
         mask_pil  = mask_pil.resize((new_w, new_h), Image.LANCZOS)
 
-        # Extract canny edges from the original image.
-        # These edges become the ControlNet conditioning signal — the model must
-        # follow the patient's existing tooth boundaries during generation.
-        # Thresholds tuned for dental work: captures individual tooth edges and
-        # inter-dental shadows without over-detecting skin/background noise.
-        img_gray = np.array(image_pil.convert("L"))
-        edges    = cv2.Canny(img_gray, 50, 150)
+        # Extract canny edges from the original image for ControlNet conditioning.
+        # CRITICAL: blank the canny signal inside the mask region.
+        # Patients with missing or severely damaged teeth have no usable edge
+        # structure inside the mask — ControlNet would condition on garbage edges
+        # (dark gaps, broken stumps) and the model generates a closed mouth.
+        # By zeroing edges inside the mask, ControlNet only guides face structure
+        # outside the mask; the LoRA + prompt have full control over tooth generation.
+        img_gray   = np.array(image_pil.convert("L"))
+        edges      = cv2.Canny(img_gray, 50, 150)
+        mask_array = np.array(mask_pil)   # L mode: 255=edit zone, 0=preserve
+        edges[mask_array > 128] = 0
         control_image = Image.fromarray(
             np.stack([edges, edges, edges], axis=-1)
         )
