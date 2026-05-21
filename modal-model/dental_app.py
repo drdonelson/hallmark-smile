@@ -24,6 +24,7 @@ image = (
         "fastapi[standard]==0.115.0",
         "peft==0.9.0",
         "opencv-python-headless",
+        "numpy<2",
     )
 )
 
