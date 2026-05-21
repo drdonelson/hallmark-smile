@@ -1578,13 +1578,28 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
     }
   }
   imgCtx2d.putImageData(bibData, 0, 0);
+
+  // Load MP mask early — needed for tooth-erase step and blend mask.
+  const mpMaskImg = await loadImage(mpMaskDataUrl);
+
+  // Erase existing tooth pixels to dark before sending to Ideogram.
+  // When existing teeth are light/white, Ideogram adjusts minimally → sloppy slab with no embrasures.
+  // A dark fill makes every case behave like the missing-teeth case (blank canvas → full generation).
+  const teC = document.createElement('canvas');
+  teC.width = outW; teC.height = outH;
+  const teCtx = teC.getContext('2d');
+  teCtx.drawImage(mpMaskImg, cx, cy, cw, ch, 0, 0, outW, outH);
+  const teMask = teCtx.getImageData(0, 0, outW, outH).data;
+  const teImg  = imgCtx2d.getImageData(0, 0, outW, outH);
+  const te     = teImg.data;
+  for (let i = 0; i < te.length; i += 4) {
+    if (teMask[i] > 128) { te[i] = 20; te[i+1] = 12; te[i+2] = 12; }
+  }
+  imgCtx2d.putImageData(teImg, 0, 0);
   const cropImgUrl = imgC.toDataURL('image/jpeg', 0.95);
 
   // Ideogram mask: pixel-accurate inner lip polygon from MediaPipe, inverted for Ideogram.
   // BLACK = edit zone (inside mouth opening), WHITE = preserve (lips, face, everything else).
-  // The polygon follows the actual lip contours — Ideogram cannot widen the smile or
-  // change the mouth shape. For missing teeth the polygon still covers where teeth should be.
-  const mpMaskImg = await loadImage(mpMaskDataUrl);
   const ideoMaskC = document.createElement('canvas');
   ideoMaskC.width = outW; ideoMaskC.height = outH;
   const imCtx = ideoMaskC.getContext('2d');
@@ -1641,6 +1656,17 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
     const brightness = Math.round(0.299 * am[i] + 0.587 * am[i+1] + 0.114 * am[i+2]);
     am[i] = 255; am[i+1] = 255; am[i+2] = 255;
     am[i+3] = brightness;
+  }
+  // Fade blend to 0 at commissure edges (left/right of tooth bounds).
+  // Prevents Ideogram color drift at mouth corners from showing through as a seam.
+  const commMargin = Math.round(tbW * 0.10);
+  for (let i = 0; i < am.length; i += 4) {
+    if (am[i + 3] === 0) continue;
+    const x    = (i / 4) % outW;
+    const minH = Math.min(x - tbX, (tbX + tbW) - 1 - x);
+    if (minH < commMargin) {
+      am[i + 3] = Math.round(am[i + 3] * Math.max(0, minH / commMargin));
+    }
   }
   amCtx.putImageData(amData, 0, 0);
 
