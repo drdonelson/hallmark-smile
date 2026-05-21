@@ -166,7 +166,7 @@ class DentalModel:
             "tongue, open throat, blurry, low quality"
         ))
 
-        steps            = int(body.get("steps", 30))
+        steps            = int(body.get("steps", 50))
         guidance         = float(body.get("guidance_scale", 7.5))
         # strength near 1.0: fully regenerate the masked tooth region.
         # ControlNet edge conditioning handles structure preservation so we
