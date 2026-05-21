@@ -1627,15 +1627,28 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
 
   const ideoImg = await loadImage(ideoUrl);
 
-  // Blend mask: transparent background, opaque white at tooth bbox.
-  // destination-in clips by SOURCE ALPHA — the background must be alpha=0
-  // (transparent), not opaque black, or it clips nothing.
+  // Pixel-precise blend mask from MediaPipe tooth shape (not a bbox rect).
+  // Convert MediaPipe brightness (white=teeth, black=face) → alpha channel,
+  // then blur for soft feathering. destination-in clips by SOURCE ALPHA so
+  // only tooth pixels from Ideogram composite onto the face — no rectangular seam.
+  const alphaMaskC = document.createElement('canvas');
+  alphaMaskC.width = outW; alphaMaskC.height = outH;
+  const amCtx = alphaMaskC.getContext('2d');
+  amCtx.drawImage(mpMaskImg, cx, cy, cw, ch, 0, 0, outW, outH);
+  const amData = amCtx.getImageData(0, 0, outW, outH);
+  const am = amData.data;
+  for (let i = 0; i < am.length; i += 4) {
+    const brightness = Math.round(0.299 * am[i] + 0.587 * am[i+1] + 0.114 * am[i+2]);
+    am[i] = 255; am[i+1] = 255; am[i+2] = 255;
+    am[i+3] = brightness;
+  }
+  amCtx.putImageData(amData, 0, 0);
+
   const blendMask = document.createElement('canvas');
   blendMask.width = outW; blendMask.height = outH;
   const bmCtx = blendMask.getContext('2d');
-  bmCtx.filter = 'blur(6px)';
-  bmCtx.fillStyle = 'rgba(255,255,255,1)';
-  bmCtx.fillRect(tbX, tbY, tbW, tbH);
+  bmCtx.filter = 'blur(10px)';
+  bmCtx.drawImage(alphaMaskC, 0, 0);
   bmCtx.filter = 'none';
 
   const ideoC = document.createElement('canvas');
@@ -2053,8 +2066,8 @@ async function loraCompositeMakeover(resizedUrl, width, height, maskDataUrl, bou
 }
 
 /* ── Main generation flow ──────────────────────────────────────── */
-// Primary:   MediaPipe → ControlNet+LoRA inpaint 0.99 (canny edge conditioning preserves structure)
-// Fallback 1: MediaPipe → Ideogram v2 crop-zoom (generative, fills structurally missing teeth)
+// Primary:   MediaPipe → Ideogram v2 crop-zoom (1024px tooth region, pixel-precise blend mask)
+// Fallback 1: MediaPipe → ControlNet+LoRA inpaint 0.99 (lower tooth resolution)
 // Fallback 2: MediaPipe → FLUX Pro Fill crop-zoom
 // Fallback 3: MediaPipe → gpt-image-2 crop-zoom
 // Fallback 4: Modal dental LoRA full-face (legacy)
@@ -2074,36 +2087,33 @@ async function generateSmile(dataUrl) {
     console.warn('MediaPipe failed:', e.message);
   }
 
-  // --- Primary: LoRA composite — full-face ControlNet+LoRA inpaint for existing (stained) teeth ---
-  // ControlNet preserves existing tooth structure while transforming color/quality.
-  // Skip this path for missing teeth cases (maskPx > 15000 = large open cavity with no teeth
-  // to anchor to). Ideogram handles those generatively.
-  const hasMissingTeeth = mpResult && mpResult.maskPx > 15000;
-  if (hasMissingTeeth) console.log('ℹ️ Large mask detected (missing/severely damaged teeth) — routing to Ideogram');
-  if (mpResult && !hasMissingTeeth) {
-    try {
-      updateProgress('Designing your smile…', 25);
-      const loraResult = await loraCompositeMakeover(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds);
-      if (loraResult) {
-        console.log('✅ Result from: Dr. Apa LoRA composite (full-face → tooth-bbox extract)');
-        return loraResult;
-      }
-    } catch(e) {
-      console.warn('LoRA composite failed, trying Ideogram:', e.message);
-    }
-  }
-
-  // --- Fallback 1: Ideogram v2 crop-zoom — generative, best for structurally missing teeth ---
+  // --- Primary: Ideogram v2 crop-zoom — 1024px tooth resolution, all cases ---
+  // Crop-zoom gives 5× more pixels than full-face. Blend mask follows the precise
+  // MediaPipe tooth shape (not a bbox rect) so no rectangular seam composite.
   if (mpResult) {
     try {
-      updateProgress('Designing your smile…', 35);
+      updateProgress('Designing your smile…', 25);
       const ideoResult = await ideogramCropMakeover(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds);
       if (ideoResult) {
         console.log('✅ Result from: Ideogram v2 + MediaPipe crop-zoom');
         return ideoResult;
       }
     } catch(e) {
-      console.warn('Ideogram failed, trying FLUX:', e.message);
+      console.warn('Ideogram failed, trying ControlNet+LoRA:', e.message);
+    }
+  }
+
+  // --- Fallback 1: ControlNet+LoRA — full-face inpaint (lower tooth resolution) ---
+  if (mpResult) {
+    try {
+      updateProgress('Designing your smile…', 35);
+      const loraResult = await loraCompositeMakeover(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds);
+      if (loraResult) {
+        console.log('✅ Result from: Dr. Apa LoRA composite (full-face → tooth-bbox extract)');
+        return loraResult;
+      }
+    } catch(e) {
+      console.warn('LoRA composite failed, trying FLUX:', e.message);
     }
   }
 
