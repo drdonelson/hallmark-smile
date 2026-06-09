@@ -1,10 +1,11 @@
 # Hallmark Smile Simulator — Agent Cold-Start Document
 
-**Version:** 2.0  
+**Version:** 3.0  
 **Classification:** Cold-Start Foundation Document  
 **Project:** Hallmark Dental Smile Simulator  
 **Authority:** Dr. David Donelson — Hallmark Dental, david@hallmarkdds.com  
 **Live URL:** https://drdonelson.github.io/hallmark-smile/smile-simulator.html  
+**Full Developer Handoff:** `DEVELOPER_HANDOFF.md` in repo root — read this for the complete project arc  
 
 ---
 
@@ -16,7 +17,7 @@ This simulator exists to show that patient — on the spot, in the chair, in und
 
 The quality standard is **bitebot.io**. Look it up before touching this codebase. That is the ceiling we are building toward. Anything that looks like a photoshop cut-and-paste, anything that produces a denture slab, anything with a color cast, anything that touches the face — is a failure state.
 
-This document exists because this project has 95 commits and hard-won knowledge inside every one of them. An agent cold-starting without reading this will repeat those failures. That is unacceptable.
+This document exists because this project has 100+ commits and hard-won knowledge inside every one of them. An agent cold-starting without reading this will repeat those failures. That is unacceptable.
 
 ---
 
@@ -42,13 +43,14 @@ Patient photo
     ↓
 MediaPipe 468-landmark face mesh → tooth bounds {xMin, xMax, yMin, yMax}
     ↓
-[Primary]   Ideogram v2 inpainting via Replicate  → ideogramCropMakeover()
-[Fallback 1] FLUX Pro Fill via fal.ai             → fluxCropMakeover()
-[Fallback 2] gpt-image-2 via OpenAI proxy         → gptMaskWhiten()
-[Fallback 3] Dr. Apa SDXL LoRA via Modal.com      → full-face img2img
-[Fallback 4] FLUX Pro Fill full image             → full image inpainting
-[Fallback 5] RunPod ComfyUI                       → legacy
-[Fallback 6] Client-side HSL whitening            → last resort
+[Primary]    Ideogram v2 crop-zoom via Replicate  → ideogramCropMakeover()
+[Fallback 1] ControlNet+LoRA inpaint via Modal    → loraCompositeMakeover()
+[Fallback 2] FLUX Pro Fill crop-zoom via fal.ai   → fluxCropMakeover()
+[Fallback 3] gpt-image-2 crop-zoom via OpenAI     → gptMaskWhiten()
+[Fallback 4] Dr. Apa SDXL LoRA full-face img2img  → Modal legacy
+[Fallback 5] FLUX Pro Fill full image             → full image inpainting
+[Fallback 6] RunPod ComfyUI                       → legacy
+[Fallback 7] Client-side HSL whitening            → last resort
 ```
 
 ### 2.3 The Crop-Zoom Pattern
@@ -58,11 +60,13 @@ All primary AI paths follow the same geometry:
 1. MediaPipe finds tooth bounds (`xMin`, `xMax`, `yMin`, `yMax`)
 2. Compute crop box: **2.0× horizontal padding**, **1.5× vertical padding** around bounds
 3. Scale crop to **1024px on longest side**, rounded to 64px increments (`outW`, `outH`)
-4. Before sending to AI: **desaturate everything below the tooth bounding box** (converts the dental bib's blue/teal color to grayscale so the AI doesn't sample it as a color reference for teeth generation)
-5. Create the AI inpainting mask for that model's convention (see Section 3.3)
-6. Receive AI result, composite tooth region back onto original face at `(cx, cy)` with size `(cw, ch)`
+4. **Bib desaturation:** desaturate everything below the tooth bounding box (strips dental bib blue/teal)
+5. **Tooth erase:** fill tooth pixels with dark color `rgb(20,12,12)` — forces Ideogram to fully generate rather than adjust existing teeth (see Section 3.6)
+6. Create the AI inpainting mask for that model's convention (see Section 3.3)
+7. Receive AI result, build pixel-precise blend mask from MediaPipe tooth shape (see Section 3.1)
+8. Composite tooth region back onto original face at `(cx, cy)` with size `(cw, ch)`
 
-**Critical compositing rule** — see Section 3.1.
+**Critical compositing rules** — see Sections 3.1 and 3.7.
 
 ---
 
@@ -76,21 +80,37 @@ These are the findings that took weeks to earn. Do not skip them.
 
 The correct blend mask: **leave the canvas default-transparent. Draw only the tooth region as opaque.** The blur then creates a soft edge into true transparency.
 
-```javascript
-// WRONG — clips nothing, full crop bleeds onto face:
-bmCtx.fillStyle = '#000';
-bmCtx.fillRect(0, 0, outW, outH);   // opaque black = alpha 255 everywhere
-bmCtx.fillStyle = '#fff';
-bmCtx.fillRect(tbX, tbY, tbW, tbH);
+**Current implementation uses pixel-precise tooth shape, not a bbox rectangle.** A blurred bbox rect shows a visible rectangular seam. Instead, convert MediaPipe mask brightness → alpha channel:
 
-// CORRECT — clips cleanly to tooth bbox with soft edge:
+```javascript
+// WRONG 1 — opaque black background: clips nothing, full crop bleeds onto face
+bmCtx.fillStyle = '#000';
+bmCtx.fillRect(0, 0, outW, outH);
+
+// WRONG 2 — bbox rectangle: shows visible rectangular seam at composite boundary
 bmCtx.filter = 'blur(6px)';
 bmCtx.fillStyle = 'rgba(255,255,255,1)';
 bmCtx.fillRect(tbX, tbY, tbW, tbH);
-bmCtx.filter = 'none';
+
+// CORRECT — pixel-precise tooth shape with commissure fade:
+// 1. Convert MediaPipe mask brightness → alpha (white=opaque, black=transparent)
+for (let i = 0; i < am.length; i += 4) {
+  const b = Math.round(0.299*am[i] + 0.587*am[i+1] + 0.114*am[i+2]);
+  am[i] = 255; am[i+1] = 255; am[i+2] = 255; am[i+3] = b;
+}
+// 2. Fade blend to 0 at outer 10% of tooth-bbox width (prevents commissure seam)
+const commMargin = Math.round(tbW * 0.10);
+for (let i = 0; i < am.length; i += 4) {
+  const x = (i/4) % outW;
+  const minH = Math.min(x - tbX, (tbX + tbW) - 1 - x);
+  if (minH < commMargin) am[i+3] = Math.round(am[i+3] * Math.max(0, minH/commMargin));
+}
+// 3. Blur for soft feathering
+bmCtx.filter = 'blur(10px)';
+bmCtx.drawImage(alphaMaskCanvas, 0, 0);
 ```
 
-This error went undetected for multiple sessions because FLUX happened to preserve surrounding face areas closely enough that the bleeding wasn't visible. Ideogram does not — the gray bib desaturation area composited directly onto the face as a rectangular band.
+This error went undetected for multiple sessions because FLUX happened to preserve surrounding face areas closely enough that the bleeding wasn't visible. Ideogram does not.
 
 ### 3.2 Dental Bib Color Contamination
 
@@ -125,13 +145,21 @@ There are two tooth detection functions in the codebase. `buildToothMask` (brigh
 
 **"Warm" or "ivory" in the tooth color prompt means yellow.** FLUX interprets "natural warm ivory-white" literally and generates warm/yellow teeth. The prompt must say "bright natural white, BL1 shade" and the negative prompt must include "yellow teeth, stained teeth, amber, warm yellow."
 
-### 3.6 The LoRA Plastic Slab Problem
+### 3.6 The Ideogram Slab Problem — Fix: Tooth Erase Before Sending
 
-The Dr. Apa LoRA (drdonelson/dental-lora) was trained on SDXL base (4-channel UNet). The SDXL inpainting model uses a 9-channel UNet — these weights are structurally incompatible. The LoRA is deployed on Modal using `StableDiffusionXLImg2ImgPipeline` (img2img, not inpainting).
+When a patient has existing light or white teeth, Ideogram sees them as "already tooth-colored" and adjusts minimally. The result: white slab, no embrasures, no individual crown definition.
 
-At strength ≥ 0.70, img2img obliterates the existing tooth structure and generates a uniform white slab. At strength < 0.70, changes are too subtle. This has not been solved. A promising untested approach: run the LoRA on the full face at strength 0.40, then use MediaPipe to extract only the tooth pixels from the LoRA result and composite them back — discarding the LoRA's face changes while keeping its dental quality.
+**Fix:** Before sending the crop to Ideogram, fill all tooth pixels (identified by MediaPipe mask) with `rgb(20,12,12)` — dark mouth interior. Ideogram now sees a dark cavity regardless of the patient's original tooth color, forcing full generation from scratch — the same behavior that makes missing-teeth cases generate well-defined individual teeth. Applied in `ideogramCropMakeover()` after bib desaturation, before `cropImgUrl = toDataURL(...)`.
 
-The LoRA represents 600 Dr. Apa cosmetic dental cases — the exact aesthetic target for this project. The problem is not the LoRA's knowledge; it's the deployment architecture.
+### 3.7 The LoRA Architecture Problem
+
+The Dr. Apa LoRA (drdonelson/dental-lora) was trained on SDXL base (4-channel UNet). SDXL inpainting uses a 9-channel UNet — structurally incompatible. Currently deployed as `StableDiffusionXLControlNetInpaintPipeline` (4-channel, compatible) with ControlNet canny conditioning.
+
+**ControlNet limitation:** operates at full-face resolution. Tooth region is only ~200px wide — insufficient for individually-defined tooth anatomy. Ideogram crop-zoom at 1024px on the tooth region produces 5× more pixel density. ControlNet+LoRA is Fallback 1.
+
+**img2img cliff:** at strength ≥ 0.70 obliterates tooth structure → white slab. At <0.70 too subtle. No workable range.
+
+The LoRA represents 600 Dr. Apa cosmetic dental cases. The problem is not its knowledge — it is the deployment architecture. Most promising untested path: run LoRA full-face at strength ~0.40, extract only tooth pixels via MediaPipe, composite onto original face (preserves face lighting because LoRA sees full photo).
 
 ### 3.7 Cloudflare Worker 30-Second Timeout
 
@@ -177,16 +205,20 @@ Produced over-constrained, plastic-looking teeth. Reduced to 12.
 
 | Anti-Pattern | Why It Fails |
 |---|---|
-| **Fix the output, not the source** | Post-processing color correction creates new artifacts. Strip the bib color from the input image before sending to AI. |
-| **Opaque black blend mask background** | destination-in reads alpha, not color. Black is opaque. The entire crop composites onto the face. |
-| **Wrong mask convention** | Ideogram expects black=edit. FLUX expects white=edit. gpt-image-2 expects transparent=edit. Getting it wrong tells the model to edit the face. |
-| **High guidance_scale** | Values above 15 force the prompt over the source image. Generates plastic artificiality, not photorealism. |
+| **Fix the output, not the source** | Post-processing color correction creates new artifacts. Strip the bib color from the input before sending to AI. |
+| **Sending light/white teeth to Ideogram** | Ideogram adjusts minimally → white slab. Erase tooth pixels to dark `rgb(20,12,12)` first. |
+| **Opaque black blend mask background** | destination-in reads alpha, not color. Black = alpha 255 = opaque. Entire crop bleeds onto face. |
+| **Bbox rectangle blend mask** | Shows visible rectangular seam at composite boundary. Use pixel-precise MediaPipe brightness→alpha mask. |
+| **Blend mask extending to commissures** | Ideogram color drift at commissure corners shows through. Fade blend to 0 at outer 10% of tooth-bbox width. |
+| **Wrong mask convention** | Ideogram: black=edit. FLUX: white=edit. gpt-image-2: transparent=edit. Wrong = model edits the face. |
+| **High guidance_scale** | Values above 15 force prompt over source → plastic teeth. Optimal: 10–15. |
 | **Warm/ivory language in tooth prompt** | FLUX and Ideogram generate yellow teeth. Say "BL1 bright natural white." |
-| **Crop-zooming without bib desaturation** | Blue bibs bleed into tooth color. Desaturate below the tooth bounding box before every AI call. |
-| **Using buildToothMask** | Dead code. Finds 628 pixels. Misses everything non-white. Use buildMediaPipeMask. |
-| **Running Modal through the Cloudflare Worker** | Hard 30-second subrequest limit. Call Modal directly from the browser. |
-| **Deploying SDXL on Replicate** | Health checker will disable the model within hours. Use Modal with persistent volume caching. |
-| **LoRA at strength ≥ 0.70** | Plastic slab. No exceptions. |
+| **Crop-zooming without bib desaturation** | Blue bibs bleed into tooth color. Always desaturate below tooth bbox before every AI call. |
+| **Using buildToothMask** | Dead code. Finds 628 pixels. Misses non-white teeth. Use buildMediaPipeMask. |
+| **Running Modal through the Cloudflare Worker** | 30-second subrequest hard limit. Call Modal directly from the browser. |
+| **Deploying SDXL on Replicate** | Health checker disables within hours. Use Modal with persistent volume caching. |
+| **LoRA img2img at strength ≥ 0.70** | Plastic slab. No exceptions. |
+| **numpy<2 only in first pip_install** | opencv-python-headless upgrades numpy to 2.4.6 in its layer. Must pin `numpy<2` in SAME call as opencv. |
 
 ---
 
@@ -225,13 +257,24 @@ Test with real patient photos from the office — they have dental bibs, office 
 
 ## 8. The Work That Remains
 
-**Immediate:** The crop-zoom compositing produces a cut-and-paste look because the AI generates teeth without the face's lighting context. Two approaches to solve this have not been tested:
+### Solved in Current Version
+- **Sloppy white slab** (existing teeth): tooth-erase step forces Ideogram to generate from scratch
+- **Rectangular seam artifact**: pixel-precise MediaPipe brightness→alpha blend mask
+- **Commissure artifact at mouth corners**: 10% commissure fade in blend mask
+- **ControlNet closed-mouth generation**: canny blanked inside mask
+- **Modal crash loop**: numpy<2 repeated in opencv pip_install layer
 
-1. **Full-face Ideogram** — No crop-zoom. Send the full resized face image to Ideogram with the tooth bounding box mask. The AI sees full lighting context. May sacrifice tooth detail but gains integration.
+### Still Unsolved
 
-2. **LoRA composite** — Run the Dr. Apa LoRA on the full face at strength 0.40. Get back a LoRA-quality smile integrated into the full face context. Use MediaPipe to extract only the tooth pixels from the LoRA result. Composite those pixels — and only those pixels — onto the original face. The face changes from the LoRA get discarded. The dental quality from 600 Dr. Apa training cases is preserved.
+**Lighting integration (hardest problem):** Crop-zoom removes the face's lighting context. Generated teeth have different lighting than the original photo — the result looks assembled rather than photographed. This is the core gap between current output and bitebot.io quality.
 
-Option 2 is the most promising long-term path. The LoRA encodes exactly the aesthetic target. The problem has never been the LoRA's knowledge — it has been getting that knowledge composited cleanly onto patient photos.
+bitebot.io almost certainly uses a full-face model trained specifically on dental transformation pairs, not a crop-and-composite architecture.
+
+**Two approaches to test:**
+
+1. **LoRA composite at full face** — Run the Dr. Apa LoRA on the full face at strength ~0.40. The LoRA was trained on full-face photos so it naturally integrates with face lighting. Use MediaPipe to extract only the tooth pixels from the LoRA result and composite those — and only those — onto the original face. Discards LoRA's face changes, keeps its dental quality. Blocking question: strength 0.40 may be too subtle; 0.55–0.65 starts drifting the face. Needs experimentation. **Most promising path given existing assets.**
+
+2. **Full-face Ideogram** — Send the full resized face to Ideogram with the tooth mask. No crop-zoom. AI sees full lighting context. Gains integration but loses tooth pixel density (~200px vs 1024px).
 
 ---
 
