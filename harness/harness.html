@@ -23,6 +23,7 @@ const P = {
   cap:  parseFloat(qs.get('cap')  ?? '8'),     // teeth P95 L allowed above skin-highlight L (CIELAB units); -1 disables
   grad: parseInt(qs.get('grad')   ?? '1'),     // 1 = apply horizontal light-gradient from skin above lip
   gum:  parseFloat(qs.get('gum')  ?? '0'),     // fraction of mask column height to PRESERVE at top during tooth-erase (gingival anchor)
+  expand: parseFloat(qs.get('expand') ?? '0'), // vertical mask expansion for collapsed (edentulous) openings: edit+blend zone grows up by expand×colH, down by 0.4×expand×colH; tooth-erase stays at original polygon
 };
 const logEl = document.getElementById('log');
 const log = m => { logEl.textContent += m + '\n'; console.log(m); };
@@ -171,12 +172,16 @@ function harmonizeTeeth(genCtx, cleanData, toothA, outW, outH, tb, params, log) 
 
   // illuminant chroma scaled down: teeth should lean toward the scene cast,
   // not fully adopt skin chroma (skin highlights still carry some skin tone).
-  const targetA = hiA * 0.5, targetB = hiB * 0.5;
+  // Absolute clamp keeps teeth within believable enamel chroma even when the
+  // photo has a strong color cast (bad white balance turns teeth dingy otherwise).
+  const targetA = Math.min(hiA * 0.5, 8), targetB = Math.min(hiB * 0.5, 11);
   const dA = params.w * (targetA - tA);
   const dB = params.w * (targetB - tB);
   // two-directional: dim icy-bright teeth down AND lift dull-gray teeth up
-  // toward (skin-highlight L + cap), clamped to avoid overcorrection
-  const lScale = params.cap >= 0 ? Math.max(0.78, Math.min(1.2, (hiL + params.cap) / p95L)) : 1;
+  // toward (skin-highlight L + cap), clamped to avoid overcorrection.
+  // Absolute floor of L=76 on the target: tan/dark perioral skin lowers the
+  // relative target below believable enamel brightness and teeth turn dull.
+  const lScale = params.cap >= 0 ? Math.max(0.78, Math.min(1.2, Math.max(hiL + params.cap, 76) / p95L)) : 1;
   log(`harmonize: illum L=${hiL.toFixed(1)} a=${hiA.toFixed(1)} b=${hiB.toFixed(1)} | teeth a=${tA.toFixed(1)} b=${tB.toFixed(1)} p95L=${p95L.toFixed(1)} | dA=${dA.toFixed(1)} dB=${dB.toFixed(1)} lScale=${lScale.toFixed(3)}`);
 
   // 3. Horizontal light gradient from skin band just above the upper lip
@@ -212,11 +217,13 @@ function harmonizeTeeth(genCtx, cleanData, toothA, outW, outH, tb, params, log) 
     for (let x = 0; x < outW; x++) gain[x] = Math.max(0.85, Math.min(1.15, sm[x] / mean));
   }
 
-  // 4. Apply to tooth pixels
+  // 4. Apply to tooth pixels. Chroma shift is weighted DOWN for dark pixels —
+  //    mouth-interior shadows must stay neutral; a warm shift turns them maroon.
   for (const p of tIdx) {
     const i = p * 4;
     let [L, a, b] = srgb2lab(gd[i], gd[i+1], gd[i+2]);
-    a += dA; b += dB;
+    const wp = Math.max(0, Math.min(1, (L - 25) / 20));
+    a += dA * wp; b += dB * wp;
     L *= lScale;
     if (gain) L *= gain[p % outW];
     const [r, g, bl] = lab2srgb(L, a, b);
@@ -298,6 +305,41 @@ async function run() {
 
   const mpMaskImg = await loadImage(mp.maskDataUrl);
 
+  // Optional vertically-expanded mask (edit zone + blend) for collapsed openings.
+  // The inner-lip polygon of an edentulous smile can be ~37px tall — no room to
+  // generate crowns. Expansion lets Ideogram draw fuller teeth meeting the lip
+  // line; the blend feather hides the slight inner-lip repaint.
+  let expMaskC = null;
+  if (P.expand > 0) {
+    expMaskC = document.createElement('canvas');
+    expMaskC.width = outW; expMaskC.height = outH;
+    const eCtx = expMaskC.getContext('2d');
+    eCtx.fillStyle = '#000'; eCtx.fillRect(0, 0, outW, outH);
+    eCtx.drawImage(mpMaskImg, cx, cy, cw, ch, 0, 0, outW, outH);
+    const ed = eCtx.getImageData(0, 0, outW, outH);
+    const epx = ed.data;
+    for (let x = 0; x < outW; x++) {
+      let top = -1, bot = -1;
+      for (let y = 0; y < outH; y++) {
+        if (epx[(y * outW + x) * 4] > 128) { if (top < 0) top = y; bot = y; }
+      }
+      if (top < 0) continue;
+      const h = bot - top;
+      const nt = Math.max(0, Math.round(top - P.expand * h));
+      const nb = Math.min(outH - 1, Math.round(bot + P.expand * 0.4 * h));
+      for (let y = nt; y <= nb; y++) {
+        const i = (y * outW + x) * 4;
+        epx[i] = 255; epx[i+1] = 255; epx[i+2] = 255; epx[i+3] = 255;
+      }
+    }
+    eCtx.putImageData(ed, 0, 0);
+  }
+  // drawMask(ctx): paints the working mask (expanded if active) at outW×outH
+  const drawMask = ctx => {
+    if (expMaskC) ctx.drawImage(expMaskC, 0, 0);
+    else ctx.drawImage(mpMaskImg, cx, cy, cw, ch, 0, 0, outW, outH);
+  };
+
   // ── tooth erase (identical to production) ──
   const teC = document.createElement('canvas');
   teC.width = outW; teC.height = outH;
@@ -355,7 +397,7 @@ async function run() {
   const ideoMaskC = document.createElement('canvas');
   ideoMaskC.width = outW; ideoMaskC.height = outH;
   const imCtx = ideoMaskC.getContext('2d');
-  imCtx.drawImage(mpMaskImg, cx, cy, cw, ch, 0, 0, outW, outH);
+  drawMask(imCtx);
   const maskPxData = imCtx.getImageData(0, 0, outW, outH);
   const mpd = maskPxData.data;
   for (let mi = 0; mi < mpd.length; mi += 4) {
@@ -387,7 +429,7 @@ async function run() {
   const alphaMaskC = document.createElement('canvas');
   alphaMaskC.width = outW; alphaMaskC.height = outH;
   const amCtx = alphaMaskC.getContext('2d');
-  amCtx.drawImage(mpMaskImg, cx, cy, cw, ch, 0, 0, outW, outH);
+  drawMask(amCtx);
   const amData = amCtx.getImageData(0, 0, outW, outH);
   const am = amData.data;
   const toothA = new Uint8Array(outW * outH);   // un-faded tooth mask for harmonization stats

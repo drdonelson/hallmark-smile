@@ -1572,7 +1572,8 @@ function lab2srgb(L, a, b) {
 // toothA: Uint8Array(outW*outH) of MediaPipe mask brightness (255 = tooth).
 const HARMONIZE_CHROMA = 0.7;   // chroma shift strength toward scene illuminant
 const HARMONIZE_CAP    = 12;    // teeth P95 L allowed above skin-highlight L
-function harmonizeTeeth(genCtx, cleanData, toothA, outW, outH, tb) {
+function harmonizeTeeth(genCtx, cleanData, toothA, outW, outH, tb, opts = {}) {
+  const cap = opts.cap ?? HARMONIZE_CAP;   // -1 disables L normalization (collapsed/edentulous: dark perioral skin makes the cap dim teeth to gray)
   const gen = genCtx.getImageData(0, 0, outW, outH);
   const gd = gen.data, cd = cleanData.data;
 
@@ -1621,11 +1622,14 @@ function harmonizeTeeth(genCtx, cleanData, toothA, outW, outH, tb) {
   const p95L = sortedL[Math.floor(sortedL.length * 0.95)];
 
   // Target chroma = half the illuminant chroma (skin highlights still carry
-  // some skin tone; full adoption makes teeth pink).
-  const dA = HARMONIZE_CHROMA * (hiA * 0.5 - tA);
-  const dB = HARMONIZE_CHROMA * (hiB * 0.5 - tB);
+  // some skin tone; full adoption makes teeth pink). Absolute clamp keeps teeth
+  // within believable enamel chroma when the photo has a strong color cast.
+  const dA = HARMONIZE_CHROMA * (Math.min(hiA * 0.5, 8) - tA);
+  const dB = HARMONIZE_CHROMA * (Math.min(hiB * 0.5, 11) - tB);
   // Two-directional: dim icy-bright teeth down AND lift dull-gray teeth up.
-  const lScale = Math.max(0.78, Math.min(1.2, (hiL + HARMONIZE_CAP) / p95L));
+  // Absolute floor of L=76 on the target — tan/dark perioral skin would
+  // otherwise pull the target below believable enamel brightness.
+  const lScale = cap < 0 ? 1 : Math.max(0.78, Math.min(1.2, Math.max(hiL + cap, 76) / p95L));
   console.log(`harmonize: illum L=${hiL.toFixed(1)} a=${hiA.toFixed(1)} b=${hiB.toFixed(1)} dA=${dA.toFixed(1)} dB=${dB.toFixed(1)} lScale=${lScale.toFixed(3)}`);
 
   // Horizontal light falloff from the skin band just above the upper lip
@@ -1658,10 +1662,13 @@ function harmonizeTeeth(genCtx, cleanData, toothA, outW, outH, tb) {
     gain[x] = Math.max(0.85, Math.min(1.15, sm / mean));
   }
 
+  // Chroma shift weighted DOWN for dark pixels — mouth-interior shadows must
+  // stay neutral; a warm shift turns them maroon.
   for (const p of tIdx) {
     const i = p * 4;
     let [L, a, b] = srgb2lab(gd[i], gd[i+1], gd[i+2]);
-    a += dA; b += dB;
+    const wp = Math.max(0, Math.min(1, (L - 25) / 20));
+    a += dA * wp; b += dB * wp;
     L *= lScale * gain[p % outW];
     const [r, g, bl] = lab2srgb(L, a, b);
     gd[i] = r; gd[i+1] = g; gd[i+2] = bl;
@@ -1672,23 +1679,39 @@ function harmonizeTeeth(genCtx, cleanData, toothA, outW, outH, tb) {
 /* ── Path 1b: Ideogram v2 with zoomed mouth crop (primary) ─────── */
 // Same crop-zoom + bib desaturation as fluxCropMakeover, but uses Ideogram v2
 // inpainting via Replicate. Mask convention INVERTED vs FLUX: black=edit, white=keep.
-async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bounds) {
+async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bounds, origFullUrl) {
   const origImg = await loadImage(resizedUrl);
 
-  const padX = (bounds.xMax - bounds.xMin) * 2.0;
-  const padY = (bounds.yMax - bounds.yMin) * 1.5;
+  // Collapsed (edentulous) opening: inner-lip bbox aspect < 0.18 — normal smiles
+  // measure 0.22–0.26. With standard padding such crops become an 8:1 letterbox;
+  // Ideogram returns ~3:1 and the stretch-back squashes teeth into a dim sliver.
+  // Collapsed cases instead get tight padding (≈3:1 crop), pixels from the
+  // full-res original, and a vertically expanded edit/blend mask so Ideogram has
+  // room to draw full crowns meeting the lip line.
+  const collapsed = (bounds.yMax - bounds.yMin) / (bounds.xMax - bounds.xMin) < 0.18;
+  const padX = (bounds.xMax - bounds.xMin) * (collapsed ? 0.5 : 2.0);
+  const padY = (bounds.yMax - bounds.yMin) * (collapsed ? 1.0 : 1.5);
   const cx = Math.max(0, Math.round(bounds.xMin - padX));
   const cy = Math.max(0, Math.round(bounds.yMin - padY));
   const cw = Math.min(width  - cx, Math.round(bounds.xMax - bounds.xMin + padX * 2));
   const ch = Math.min(height - cy, Math.round(bounds.yMax - bounds.yMin + padY * 2));
 
-  const scale = Math.min(1024 / cw, 1024 / ch);
+  let srcImg = origImg, f = 1;
+  if (collapsed && origFullUrl) {
+    try {
+      srcImg = await loadImage(origFullUrl);
+      f = srcImg.naturalWidth / width;
+    } catch (e) { srcImg = origImg; f = 1; }
+  }
+  const scale = collapsed
+    ? Math.min(1024 / (cw * f), 1024 / (ch * f), 1) * f
+    : Math.min(1024 / cw, 1024 / ch);
   const outW  = Math.round(cw * scale / 64) * 64;
   const outH  = Math.round(ch * scale / 64) * 64;
 
   const imgC = document.createElement('canvas');
   imgC.width = outW; imgC.height = outH;
-  imgC.getContext('2d').drawImage(origImg, cx, cy, cw, ch, 0, 0, outW, outH);
+  imgC.getContext('2d').drawImage(srcImg, cx * f, cy * f, cw * f, ch * f, 0, 0, outW, outH);
 
   const cropScale = outW / cw;
   const tbX = Math.max(0, Math.round((bounds.xMin - cx) * cropScale) - 6);
@@ -1717,6 +1740,40 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   // Load MP mask early — needed for tooth-erase step and blend mask.
   const mpMaskImg = await loadImage(mpMaskDataUrl);
 
+  // Collapsed openings: vertically expanded mask for the EDIT zone and BLEND
+  // (up 0.45×colH, down 0.18×colH). Tooth-erase stays at the original polygon —
+  // Ideogram sees real lip pixels in the expanded zone and may adjust the inner
+  // lip edge slightly; the blend feather hides that transition.
+  let expMaskC = null;
+  if (collapsed) {
+    expMaskC = document.createElement('canvas');
+    expMaskC.width = outW; expMaskC.height = outH;
+    const eCtx = expMaskC.getContext('2d');
+    eCtx.fillStyle = '#000'; eCtx.fillRect(0, 0, outW, outH);
+    eCtx.drawImage(mpMaskImg, cx, cy, cw, ch, 0, 0, outW, outH);
+    const ed = eCtx.getImageData(0, 0, outW, outH);
+    const epx = ed.data;
+    for (let x = 0; x < outW; x++) {
+      let top = -1, bot = -1;
+      for (let y = 0; y < outH; y++) {
+        if (epx[(y * outW + x) * 4] > 128) { if (top < 0) top = y; bot = y; }
+      }
+      if (top < 0) continue;
+      const h = bot - top;
+      const nt = Math.max(0, Math.round(top - 0.45 * h));
+      const nb = Math.min(outH - 1, Math.round(bot + 0.18 * h));
+      for (let y = nt; y <= nb; y++) {
+        const i = (y * outW + x) * 4;
+        epx[i] = 255; epx[i+1] = 255; epx[i+2] = 255; epx[i+3] = 255;
+      }
+    }
+    eCtx.putImageData(ed, 0, 0);
+  }
+  const drawMask = ctx => {
+    if (expMaskC) ctx.drawImage(expMaskC, 0, 0);
+    else ctx.drawImage(mpMaskImg, cx, cy, cw, ch, 0, 0, outW, outH);
+  };
+
   // Erase existing tooth pixels to dark before sending to Ideogram.
   // When existing teeth are light/white, Ideogram adjusts minimally → sloppy slab with no embrasures.
   // A dark fill makes every case behave like the missing-teeth case (blank canvas → full generation).
@@ -1738,7 +1795,7 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   const ideoMaskC = document.createElement('canvas');
   ideoMaskC.width = outW; ideoMaskC.height = outH;
   const imCtx = ideoMaskC.getContext('2d');
-  imCtx.drawImage(mpMaskImg, cx, cy, cw, ch, 0, 0, outW, outH);
+  drawMask(imCtx);
   const maskPx = imCtx.getImageData(0, 0, outW, outH);
   const mpd = maskPx.data;
   for (let mi = 0; mi < mpd.length; mi += 4) {
@@ -1784,7 +1841,7 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   const alphaMaskC = document.createElement('canvas');
   alphaMaskC.width = outW; alphaMaskC.height = outH;
   const amCtx = alphaMaskC.getContext('2d');
-  amCtx.drawImage(mpMaskImg, cx, cy, cw, ch, 0, 0, outW, outH);
+  drawMask(amCtx);
   const amData = amCtx.getImageData(0, 0, outW, outH);
   const am = amData.data;
   const toothA = new Uint8Array(outW * outH);  // un-faded tooth mask for harmonization
@@ -1818,7 +1875,7 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   ideoC.width = outW; ideoC.height = outH;
   const iCtx = ideoC.getContext('2d');
   iCtx.drawImage(ideoImg, 0, 0, outW, outH);
-  harmonizeTeeth(iCtx, cleanCropData, toothA, outW, outH, { tbX, tbY, tbW, tbH });
+  harmonizeTeeth(iCtx, cleanCropData, toothA, outW, outH, { tbX, tbY, tbW, tbH }, { cap: collapsed ? -1 : HARMONIZE_CAP });
   iCtx.globalCompositeOperation = 'destination-in';
   iCtx.drawImage(blendMask, 0, 0);
 
@@ -2257,7 +2314,7 @@ async function generateSmile(dataUrl) {
   if (mpResult) {
     try {
       updateProgress('Designing your smile…', 25);
-      const ideoResult = await ideogramCropMakeover(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds);
+      const ideoResult = await ideogramCropMakeover(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds, dataUrl);
       if (ideoResult) {
         console.log('✅ Result from: Ideogram v2 + MediaPipe crop-zoom');
         return ideoResult;
