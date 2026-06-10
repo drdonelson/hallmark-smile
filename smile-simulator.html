@@ -75,6 +75,7 @@
   <style>
     /* ── Variables & Reset ───────────────────────────────────────── */
     :root {
+      --gold-rgb:    201,168,76;   /* RGB triplet for rgba() tints — themable */
       --navy:        #1B3A5C;
       --navy-dark:   #0d2035;
       --navy-mid:    #152d4a;
@@ -82,7 +83,7 @@
       --gold:        #C9A84C;
       --gold-light:  #e2c97a;
       --gold-dark:   #a8882e;
-      --gold-glow:   rgba(201,168,76,0.25);
+      --gold-glow:   rgba(var(--gold-rgb),0.25);
       --white:       #ffffff;
       --off-white:   #f7f5f0;
       --light-grey:  #ede9e2;
@@ -137,8 +138,8 @@
     }
     .hero-badge {
       display: inline-flex; align-items: center; gap: 6px;
-      background: rgba(201,168,76,0.08);
-      border: 1px solid rgba(201,168,76,0.35);
+      background: rgba(var(--gold-rgb),0.08);
+      border: 1px solid rgba(var(--gold-rgb),0.35);
       color: var(--navy);
       font-size: 0.72rem;
       font-weight: 600;
@@ -227,29 +228,29 @@
 
     /* ── Upload ──────────────────────────────────────────────────── */
     .upload-area {
-      border: 1px solid rgba(201,168,76,0.45);
+      border: 1px solid rgba(var(--gold-rgb),0.45);
       border-radius: var(--radius);
       padding: 52px 20px;
       text-align: center;
       cursor: pointer;
       transition: all 0.3s ease;
-      background: linear-gradient(135deg, rgba(13,32,53,0.03) 0%, rgba(201,168,76,0.03) 100%);
+      background: linear-gradient(135deg, rgba(13,32,53,0.03) 0%, rgba(var(--gold-rgb),0.03) 100%);
       position: relative;
       overflow: hidden;
     }
     .upload-area::before {
       content: '';
       position: absolute; inset: 0;
-      background: radial-gradient(ellipse at 50% 50%, rgba(201,168,76,0.06), transparent 70%);
+      background: radial-gradient(ellipse at 50% 50%, rgba(var(--gold-rgb),0.06), transparent 70%);
       opacity: 0;
       transition: opacity 0.3s;
     }
     .upload-area:hover::before, .upload-area.dragover::before { opacity: 1; }
     .upload-area:hover, .upload-area.dragover {
       border-color: var(--gold);
-      background: linear-gradient(135deg, rgba(13,32,53,0.04) 0%, rgba(201,168,76,0.06) 100%);
+      background: linear-gradient(135deg, rgba(13,32,53,0.04) 0%, rgba(var(--gold-rgb),0.06) 100%);
       transform: translateY(-1px);
-      box-shadow: 0 8px 32px rgba(201,168,76,0.12);
+      box-shadow: 0 8px 32px rgba(var(--gold-rgb),0.12);
     }
     .upload-icon {
       font-size: 3.2rem;
@@ -257,6 +258,9 @@
       display: block;
       animation: float 3s ease-in-out infinite;
     }
+    /* themable strokes override the inline SVG presentation attributes */
+    .upload-icon svg { stroke: var(--navy); }
+    .upload-icon svg circle { stroke: var(--gold); }
     @keyframes float {
       0%, 100% { transform: translateY(0); }
       50%       { transform: translateY(-6px); }
@@ -322,7 +326,7 @@
     input[type="tel"]:focus, select:focus {
       outline: none;
       border-color: var(--gold);
-      box-shadow: 0 0 0 3px rgba(201,168,76,0.15);
+      box-shadow: 0 0 0 3px rgba(var(--gold-rgb),0.15);
       background: #fff;
     }
     input.err, select.err { border-color: var(--error); }
@@ -390,11 +394,11 @@
       display: block;
       text-align: center;
       letter-spacing: 0.05em;
-      box-shadow: 0 4px 20px rgba(201,168,76,0.3);
+      box-shadow: 0 4px 20px rgba(var(--gold-rgb),0.3);
     }
     .btn-gold:hover {
       transform: translateY(-2px);
-      box-shadow: 0 8px 32px rgba(201,168,76,0.5);
+      box-shadow: 0 8px 32px rgba(var(--gold-rgb),0.5);
       filter: brightness(1.06);
     }
 
@@ -426,13 +430,13 @@
     .progress-section { text-align: center; padding: 40px 20px; }
     .progress-spinner {
       width: 64px; height: 64px;
-      border: 3px solid rgba(201,168,76,0.15);
+      border: 3px solid rgba(var(--gold-rgb),0.15);
       border-top-color: var(--gold);
       border-right-color: var(--gold-light);
       border-radius: 50%;
       animation: spin 0.9s linear infinite;
       margin: 0 auto 22px;
-      box-shadow: 0 0 20px rgba(201,168,76,0.15);
+      box-shadow: 0 0 20px rgba(var(--gold-rgb),0.15);
     }
     @keyframes spin { to { transform: rotate(360deg); } }
     .progress-message {
@@ -520,7 +524,7 @@
       border-radius: 20px;
       letter-spacing: 0.05em;
       backdrop-filter: blur(8px);
-      border: 1px solid rgba(201,168,76,0.3);
+      border: 1px solid rgba(var(--gold-rgb),0.3);
     }
     /* keep hidden-img class for JS compatibility */
     .ba-img { display: block; }
@@ -540,12 +544,12 @@
     /* ── Video generator ─────────────────────────────────────────── */
     .btn-video {
       display: flex; align-items: center; justify-content: center; gap: 8px;
-      background: linear-gradient(135deg, #0d2035, #1B3A5C);
+      background: linear-gradient(135deg, var(--navy-dark), var(--navy));
       color: var(--gold-light);
       font-weight: 700; font-size: 0.96rem;
       padding: 14px 20px;
       border-radius: var(--radius);
-      border: 2px solid rgba(201,168,76,0.4);
+      border: 2px solid rgba(var(--gold-rgb),0.4);
       width: 100%;
       transition: all 0.3s ease;
       letter-spacing: 0.03em;
@@ -553,7 +557,7 @@
     }
     .btn-video:hover {
       border-color: var(--gold);
-      box-shadow: 0 4px 24px rgba(201,168,76,0.2);
+      box-shadow: 0 4px 24px rgba(var(--gold-rgb),0.2);
       transform: translateY(-1px);
     }
     .btn-video:disabled { opacity: 0.55; cursor: not-allowed; }
@@ -565,7 +569,7 @@
       padding: 18px;
       background: rgba(13,32,53,0.04);
       border-radius: var(--radius-sm);
-      border: 1px solid rgba(201,168,76,0.15);
+      border: 1px solid rgba(var(--gold-rgb),0.15);
     }
     .video-progress-wrap.active { display: flex; }
     .video-progress-label { font-size: 0.85rem; font-weight: 600; color: var(--navy); }
@@ -586,23 +590,23 @@
       display: none;
       flex-direction: column; gap: 10px; align-items: center;
       padding: 18px;
-      background: rgba(201,168,76,0.06);
-      border: 1px solid rgba(201,168,76,0.25);
+      background: rgba(var(--gold-rgb),0.06);
+      border: 1px solid rgba(var(--gold-rgb),0.25);
       border-radius: var(--radius-sm);
     }
     .video-ready-wrap.active { display: flex; }
     .video-ready-label { font-size: 0.9rem; font-weight: 700; color: var(--navy); }
     .btn-video-download {
       display: flex; align-items: center; gap: 7px;
-      background: linear-gradient(135deg, #0d2035, #1B3A5C);
+      background: linear-gradient(135deg, var(--navy-dark), var(--navy));
       color: var(--gold-light);
       font-weight: 700; font-size: 0.92rem;
       padding: 11px 24px; border-radius: var(--radius);
-      border: 1px solid rgba(201,168,76,0.4);
+      border: 1px solid rgba(var(--gold-rgb),0.4);
       transition: all var(--transition);
       box-shadow: 0 4px 12px rgba(13,32,53,0.25);
     }
-    .btn-video-download:hover { transform: translateY(-1px); border-color: var(--gold); box-shadow: 0 6px 18px rgba(201,168,76,0.25); }
+    .btn-video-download:hover { transform: translateY(-1px); border-color: var(--gold); box-shadow: 0 6px 18px rgba(var(--gold-rgb),0.25); }
     /* ── Error banner ────────────────────────────────────────────── */
     .error-banner {
       background: rgba(239,68,68,0.07);
@@ -797,6 +801,24 @@
       .hero-badge { font-size: 0.65rem; padding: 5px 12px; }
     }
   </style>
+  <script>
+  // Per-site theming for iframe embeds. Each host site embeds the SAME file
+  // with a query string: smile-simulator.html?theme=lucid
+  // No param (hallmarkdds.com) = default navy/gold. Add new sites by adding
+  // a THEMES entry — the whole palette flows from these variables.
+  (() => {
+    const THEMES = {
+      lucid: {   // lucidroi.com — ink navy, electric blue accent, cool whites
+        '--navy': '#0a1628', '--navy-dark': '#060d1a', '--navy-mid': '#0e1d33', '--navy-light': '#1b3a66',
+        '--gold': '#2D6FFF', '--gold-light': '#6f9aff', '--gold-dark': '#1f56d6',
+        '--gold-rgb': '45,111,255',
+        '--off-white': '#f4f7ff', '--light-grey': '#e6ecfa',
+      },
+    };
+    const t = THEMES[new URLSearchParams(location.search).get('theme')];
+    if (t) for (const [k, v] of Object.entries(t)) document.documentElement.style.setProperty(k, v);
+  })();
+  </script>
 </head>
 <body>
 
