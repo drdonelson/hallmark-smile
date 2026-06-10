@@ -297,7 +297,11 @@ async function run() {
   // ── bib desaturation (identical to production) ──
   const bibData = imgCtx2d.getImageData(0, 0, outW, outH);
   const bd = bibData.data;
-  const bibStartY = Math.min(outH - 1, tbY + tbH + 4);
+  // perioral: the edit ellipse includes the lips — desat must start BELOW it,
+  // or Ideogram sees a gray band mid-lip and paints a gray lower lip
+  const bibStartY = Math.min(outH - 1, perioral
+    ? Math.round(tbY + tbH / 2 + tbH * 2.2 + 10)
+    : tbY + tbH + 4);
   for (let y = bibStartY; y < outH; y++) {
     for (let x = 0; x < outW; x++) {
       const i = (y * outW + x) * 4;
