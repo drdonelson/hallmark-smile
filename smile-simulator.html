@@ -2646,6 +2646,10 @@ $('leadForm').addEventListener('submit', async e => {
     $('resultVideo').style.display = 'none';
     runwayVideoUrl = null;
 
+    // Pre-generate the shareable video while the patient looks at the photo —
+    // by the time they tap "Create Shareable Video" it's done or nearly done.
+    startVideoPregen(resultUrl);
+
     // Load both images
     $('beforeImg').src = imgDataUrl;
     $('afterImg').src  = resultUrl;
@@ -2753,6 +2757,75 @@ function prepareImageForRunway(src) {
   });
 }
 
+// Run a video generation start-to-finish; returns the video URL.
+// onProgress(pct, label) drives the visible progress bar when the user is
+// watching; the background pre-generation passes a no-op.
+async function runVideoGeneration(afterSrc, onProgress = () => {}) {
+  onProgress(3, 'Preparing image…');
+  // Crop & scale to fill 9:16 frame — eliminates dark bars
+  const croppedImage = await prepareImageForRunway(afterSrc);
+  onProgress(8, 'Sending to AI…');
+
+  const startRes = await fetch(`${PROXY_URL}/api/kling/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ image: croppedImage }),
+  });
+  const startData = await startRes.json();
+  if (!startRes.ok || !startData.request_id) {
+    throw new Error(startData.message || startData.error || 'Failed to start video generation');
+  }
+  const statusUrl   = startData.status_url;
+  const responseUrl = startData.response_url;
+  if (!statusUrl) throw new Error('No status URL returned by fal.ai');
+  onProgress(12, 'Queued — AI processing…');
+
+  let elapsed = 0;
+  while (true) {
+    await new Promise(r => setTimeout(r, 4000));
+    elapsed += 4;
+    const pollRes  = await fetch(`${PROXY_URL}/api/kling/status?falUrl=${encodeURIComponent(statusUrl)}`);
+    const pollData = await pollRes.json();
+    const status   = (pollData.status || '').toUpperCase();
+
+    let label, pct;
+    if (status === 'IN_QUEUE') {
+      pct   = Math.min(12 + Math.round((elapsed / 30) * 10), 22);
+      label = `Queued… ${elapsed}s`;
+    } else if (status === 'IN_PROGRESS') {
+      pct   = Math.min(23 + Math.round((elapsed / 120) * 70), 93);
+      label = `AI animating your smile… ${elapsed}s`;
+    } else {
+      pct   = 95;
+      label = `Finishing up…`;
+    }
+    onProgress(pct, label);
+
+    if (status === 'COMPLETED') {
+      const resultRes  = await fetch(`${PROXY_URL}/api/kling/status?falUrl=${encodeURIComponent(responseUrl || statusUrl)}`);
+      const resultData = await resultRes.json();
+      const videoUrl   = resultData.video && resultData.video.url;
+      if (!videoUrl) throw new Error('No video URL in response');
+      return videoUrl;
+    }
+    if (status === 'FAILED' || status === 'CANCELED') {
+      throw new Error('Video generation failed. Please try again.');
+    }
+    if (elapsed > 360) throw new Error('Video timed out. Please try again.');
+  }
+}
+
+// Background pre-generation: kicked off as soon as the after image is shown,
+// so the video is ready (or nearly) when the patient taps the button.
+let videoPregen = null, videoPregenSrc = null;
+function startVideoPregen(afterSrc) {
+  videoPregenSrc = afterSrc;
+  videoPregen = runVideoGeneration(afterSrc).catch(e => {
+    console.warn('video pregen failed, will retry on demand:', e.message);
+    return null;
+  });
+}
+
 async function generateVideo() {
   const afterSrc = $('afterImg').src;
   if (!afterSrc || afterSrc.length < 100) return;
@@ -2761,86 +2834,23 @@ async function generateVideo() {
   $('videoReadyWrap').classList.remove('active');
   $('resultVideo').style.display = 'none';
   $('videoProgressWrap').classList.add('active');
-  setVideoProgress(3, 'Preparing image…');
-
-  // Crop & scale to fill 9:16 frame — eliminates dark bars
-  const croppedImage = await prepareImageForRunway(afterSrc);
-
-  setVideoProgress(8, 'Sending to Runway AI…');
 
   try {
-    // 1. Start Kling generation
-    const startRes = await fetch(`${PROXY_URL}/api/kling/start`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: croppedImage }),
-    });
-    const startData = await startRes.json();
-
-    // fal.ai returns { request_id, status_url, response_url }
-    if (!startRes.ok || !startData.request_id) {
-      throw new Error(startData.message || startData.error || 'Failed to start video generation');
+    let videoUrl = null;
+    if (videoPregen && videoPregenSrc === afterSrc) {
+      setVideoProgress(70, 'Almost ready…');
+      videoUrl = await videoPregen;
     }
+    if (!videoUrl) videoUrl = await runVideoGeneration(afterSrc, setVideoProgress);
 
-    // Use fal.ai's own status/response URLs directly — avoids URL construction errors
-    const statusUrl   = startData.status_url;
-    const responseUrl = startData.response_url;
-    if (!statusUrl) throw new Error('No status URL returned by fal.ai');
-
-    setVideoProgress(12, 'Queued — Kling AI processing…');
-
-    // 2. Poll for completion (fal.ai statuses: IN_QUEUE → IN_PROGRESS → COMPLETED / FAILED)
-    let elapsed = 0;
-    while (true) {
-      await new Promise(r => setTimeout(r, 4000));
-      elapsed += 4;
-
-      const pollRes  = await fetch(`${PROXY_URL}/api/kling/status?falUrl=${encodeURIComponent(statusUrl)}`);
-      const pollData = await pollRes.json();
-      const status   = (pollData.status || '').toUpperCase();
-
-      // Update progress bar
-      let label, pct;
-      if (status === 'IN_QUEUE') {
-        pct   = Math.min(12 + Math.round((elapsed / 30) * 10), 22);
-        label = `Queued… ${elapsed}s`;
-      } else if (status === 'IN_PROGRESS') {
-        pct   = Math.min(23 + Math.round((elapsed / 90) * 70), 93);
-        label = `AI animating your smile… ${elapsed}s`;
-      } else {
-        pct   = 95;
-        label = `Finishing up…`;
-      }
-      setVideoProgress(pct, label);
-
-      if (status === 'COMPLETED') {
-        // Fetch the result using fal.ai's response_url
-        const resultRes  = await fetch(`${PROXY_URL}/api/kling/status?falUrl=${encodeURIComponent(responseUrl || statusUrl)}`);
-        const resultData = await resultRes.json();
-        const videoUrl   = resultData.video && resultData.video.url;
-        if (!videoUrl) throw new Error('No video URL in response');
-
-        runwayVideoUrl = videoUrl;
-        setVideoProgress(100, 'Done!');
-        $('videoProgressWrap').classList.remove('active');
-
-        const vid = $('resultVideo');
-        vid.src   = videoUrl;
-        vid.style.display = 'block';
-        vid.play().catch(() => {});
-
-        $('videoReadyWrap').classList.add('active');
-        break;
-      }
-
-      if (status === 'FAILED' || status === 'CANCELED') {
-        throw new Error(`Video generation failed. Please try again.`);
-      }
-
-      // Timeout after 3 minutes total
-      if (elapsed > 180) throw new Error('Video timed out after 3 minutes. Please try again.');
-    }
-
+    runwayVideoUrl = videoUrl;
+    setVideoProgress(100, 'Done!');
+    $('videoProgressWrap').classList.remove('active');
+    const vid = $('resultVideo');
+    vid.src   = videoUrl;
+    vid.style.display = 'block';
+    vid.play().catch(() => {});
+    $('videoReadyWrap').classList.add('active');
   } catch (err) {
     $('videoProgressWrap').classList.remove('active');
     $('createVideoBtn').disabled = false;

@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>FRAMES_RUNNING</title></head>
+<body style="margin:0">
+<canvas id="strip"></canvas>
+<script>
+// Renders frames of ?video=<path> at ?times=t1,t2,... into one horizontal strip.
+const qs = new URLSearchParams(location.search);
+const times = (qs.get('times') || '0,1.5,3,4.5,6,7.5').split(',').map(Number);
+const v = document.createElement('video');
+v.muted = true;
+v.src = qs.get('video');
+v.addEventListener('loadedmetadata', async () => {
+  const w = parseInt(qs.get('w') || '280'), h = Math.round(w * v.videoHeight / v.videoWidth);
+  const c = document.getElementById('strip');
+  c.width = w * times.length; c.height = h;
+  const ctx = c.getContext('2d');
+  for (let i = 0; i < times.length; i++) {
+    await new Promise(res => {
+      v.currentTime = Math.min(times[i], v.duration - 0.05);
+      v.addEventListener('seeked', res, { once: true });
+    });
+    ctx.drawImage(v, i * w, 0, w, h);
+    ctx.fillStyle = '#ff0'; ctx.font = '16px monospace';
+    ctx.fillText(times[i] + 's', i * w + 6, 18);
+  }
+  document.title = 'FRAMES_DONE';
+});
+v.addEventListener('error', () => { document.title = 'FRAMES_ERROR'; });
+</script>
+</body>
+</html>
