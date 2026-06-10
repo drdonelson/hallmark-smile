@@ -267,7 +267,6 @@
       font-size: 0.78rem; color: var(--mid-grey); margin-top: 8px;
       display: flex; align-items: center; justify-content: center; gap: 6px;
     }
-    .upload-hint::before { content: '📷'; font-size: 0.85rem; }
     #fileInput { display: none; }
 
     .preview-container {
@@ -801,7 +800,7 @@
 <body>
 
 <!-- Floating settings gear -->
-<button class="gear-btn gear-float" id="gearBtn" title="Settings" aria-label="Open settings">⚙</button>
+<button class="gear-btn gear-float" id="gearBtn" title="Settings" aria-label="Open settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
 
 <!-- Hero -->
 <section class="hero">
@@ -823,7 +822,7 @@
     <div class="upload-area" id="uploadArea">
       <input type="file" id="fileInput" accept="image/*">
       <div id="uploadPrompt">
-        <div class="upload-icon">📸</div>
+        <div class="upload-icon" aria-hidden="true"><svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="#1B3A5C" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5a2 2 0 0 1 2-2h1.6l1.2-1.8a1 1 0 0 1 .83-.45h6.74a1 1 0 0 1 .83.45l1.2 1.8H19a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="12.5" r="3.4" stroke="#C9A84C"/></svg></div>
         <div class="upload-text"><strong>Tap to upload</strong> or drag &amp; drop</div>
         <div class="upload-hint">JPG, PNG or HEIC · Best results: straight-on, well-lit smile photo</div>
       </div>
@@ -886,7 +885,7 @@
       </div>
       <div id="formError" class="error-banner hidden"></div>
       <button type="submit" class="btn-primary" id="generateBtn" disabled>
-        ✨ Generate My Smile Transformation
+        Generate My Smile Transformation
       </button>
     </form>
   </div>
@@ -914,7 +913,7 @@
       <div class="ba-panel">
         <img id="afterImg" class="ba-img" alt="After — AI Visualization">
         <div class="ba-gen-badge" id="genBadge" style="display:none"></div>
-        <div class="ba-panel-label">After ✨</div>
+        <div class="ba-panel-label">After ✦</div>
       </div>
     </div>
     <div class="disclaimer">
@@ -922,10 +921,10 @@
     </div>
     <div class="results-actions">
       <a href="#" id="bookBtn" class="btn-gold" target="_blank" rel="noopener">
-        📅 Book Your Free Consultation
+        Book Your Free Consultation
       </a>
       <!-- Video generator -->
-      <button class="btn-video" id="createVideoBtn" type="button">🎬 Create Shareable Video</button>
+      <button class="btn-video" id="createVideoBtn" type="button">Create Shareable Video</button>
       <div class="video-progress-wrap" id="videoProgressWrap">
         <div class="video-progress-label" id="videoProgressLabel">Rendering video… 0%</div>
         <div class="video-progress-bar"><div class="video-progress-fill" id="videoProgressFill"></div></div>
@@ -934,12 +933,12 @@
         <div class="video-ready-label">✅ Your AI smile video is ready!</div>
         <video id="resultVideo" controls playsinline loop
           style="width:100%;border-radius:12px;max-height:480px;background:#000;display:none;"></video>
-        <button class="btn-video-download" id="videoDownloadBtn" type="button">⬇ Download Video</button>
+        <button class="btn-video-download" id="videoDownloadBtn" type="button">Download Video</button>
         <div style="font-size:0.74rem;color:var(--mid-grey);text-align:center;">Share on Instagram Reels, Facebook &amp; TikTok</div>
       </div>
       <div class="secondary-actions">
-        <button class="btn-outline" id="downloadBtn" type="button">⬇ Download Photo</button>
-        <button class="btn-ghost" id="tryAnotherBtn" type="button">↩ Try Another Photo</button>
+        <button class="btn-outline" id="downloadBtn" type="button">Download Photo</button>
+        <button class="btn-ghost" id="tryAnotherBtn" type="button">Try Another Photo</button>
       </div>
     </div>
   </div>
@@ -950,7 +949,7 @@
 <div class="overlay" id="cfgOverlay"></div>
 <div class="config-panel" id="cfgPanel">
   <div class="cp-header">
-    <span class="cp-title">⚙ Settings</span>
+    <span class="cp-title">Settings</span>
     <button class="cp-close" id="cfgClose" type="button">✕</button>
   </div>
   <div class="cp-body">
@@ -973,7 +972,7 @@
   <div class="admin-body">
     <div class="admin-stats" id="adminStats"></div>
     <div class="admin-actions">
-      <button class="btn-admin" id="exportBtn" type="button">⬇ Export to CSV</button>
+      <button class="btn-admin" id="exportBtn" type="button">Export to CSV</button>
       <button class="btn-admin-danger" id="clearBtn" type="button">🗑 Clear All Leads</button>
     </div>
     <div class="table-wrap" id="leadsTable"></div>
