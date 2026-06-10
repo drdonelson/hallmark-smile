@@ -199,6 +199,31 @@ crop space before the blend mask:
 Validated on 5 real office photos (stained, broken, missing teeth) via the
 local harness. Zero added cost or latency — pure canvas math.
 
+### 3.10b Collapsed (Edentulous) Openings — Dedicated Branch (SHIPPED June 2026)
+
+An edentulous smile's inner-lip bbox aspect (height/width) is < 0.18; all
+tested normal smiles measure 0.22–0.26. With standard padding the crop becomes
+an 8:1 letterbox, Ideogram returns ~3:1, and the stretch-back squashes the
+teeth into a dim gray sliver. `ideogramCropMakeover` detects `collapsed` and
+switches to: tight padding (0.5×/1.0× → ~3:1 crop), pixels from the FULL-RES
+original (passed as 6th arg), a vertically expanded edit/blend mask (up
+0.45×colH, down 0.18×colH — tooth-erase stays at the original polygon), and
+harmonization with the brightness cap disabled (dark perioral skin made the
+cap dim teeth to gray). Result: full crowns with gingival margins meeting the
+lip line. The hires-crop severe-decay risk (3.12) doesn't apply here — the
+collapsed mouth interior is uniformly dark, like the missing-teeth case.
+
+Harmonizer guards added at the same time (all cases): chroma shift weighted
+to 0 below L≈25–45 (warm-shifting mouth shadows turns them maroon); absolute
+chroma clamp on the target (a ≤ 8, b ≤ 11 — strong color-cast photos made
+teeth dingy); absolute floor of 76 on the L target (tan skin pulled the
+relative target below believable enamel brightness).
+
+Known open issue: Ideogram occasionally draws small black specks on teeth
+(seen on 1 of 10 test photos). Generation variance — a retry usually clears
+it. Candidate fix: artifact detection (dark pixel clusters inside tooth mask
+in the output) + one automatic retry.
+
 ### 3.11 Local Test Harness — Iterate Without Paying Per Run
 
 `harness/server.mjs` (Node, port 8788) + `harness/harness.html` clone the
