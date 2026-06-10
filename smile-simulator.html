@@ -1538,6 +1538,137 @@ async function fluxCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bounds
   return out.toDataURL('image/jpeg', 0.93);
 }
 
+/* ── Lighting harmonization (LAB) ──────────────────────────────── */
+// Ideogram generates teeth under its own studio-flat lighting model; the face
+// is lit by warm office light. Composited raw, the teeth read icy/gray and
+// "pasted on". Fix: estimate the scene illuminant from perioral skin highlights
+// in the ORIGINAL crop (white surfaces reflect the illuminant), then shift the
+// generated teeth's chroma toward it, normalize their brightness relative to
+// the skin highlights, and re-apply the horizontal light falloff sampled from
+// the skin above the lip. Validated across stained/broken/missing-teeth photos.
+function srgb2lab(r, g, b) {
+  const f = v => { v /= 255; return v > 0.04045 ? Math.pow((v + 0.055) / 1.055, 2.4) : v / 12.92; };
+  const R = f(r), G = f(g), Bl = f(b);
+  let X = (R * 0.4124564 + G * 0.3575761 + Bl * 0.1804375) / 0.95047;
+  let Y =  R * 0.2126729 + G * 0.7151522 + Bl * 0.0721750;
+  let Z = (R * 0.0193339 + G * 0.1191920 + Bl * 0.9503041) / 1.08883;
+  const g3 = t => t > 0.008856 ? Math.cbrt(t) : (7.787 * t + 16 / 116);
+  X = g3(X); Y = g3(Y); Z = g3(Z);
+  return [116 * Y - 16, 500 * (X - Y), 200 * (Y - Z)];
+}
+function lab2srgb(L, a, b) {
+  const fy = (L + 16) / 116, fx = fy + a / 500, fz = fy - b / 200;
+  const g3 = t => { const t3 = t * t * t; return t3 > 0.008856 ? t3 : (t - 16 / 116) / 7.787; };
+  const X = g3(fx) * 0.95047, Y = g3(fy), Z = g3(fz) * 1.08883;
+  let R =  X *  3.2404542 + Y * -1.5371385 + Z * -0.4985314;
+  let G =  X * -0.9692660 + Y *  1.8760108 + Z *  0.0415560;
+  let Bl = X *  0.0556434 + Y * -0.2040259 + Z *  1.0572252;
+  const f = v => { v = v > 0.0031308 ? 1.055 * Math.pow(v, 1 / 2.4) - 0.055 : 12.92 * v; return Math.max(0, Math.min(255, Math.round(v * 255))); };
+  return [f(R), f(G), f(Bl)];
+}
+
+// genCtx: ctx holding the AI result at outW×outH (modified in place).
+// cleanData: ImageData of the original crop BEFORE bib desat / tooth erase.
+// toothA: Uint8Array(outW*outH) of MediaPipe mask brightness (255 = tooth).
+const HARMONIZE_CHROMA = 0.7;   // chroma shift strength toward scene illuminant
+const HARMONIZE_CAP    = 12;    // teeth P95 L allowed above skin-highlight L
+function harmonizeTeeth(genCtx, cleanData, toothA, outW, outH, tb) {
+  const gen = genCtx.getImageData(0, 0, outW, outH);
+  const gd = gen.data, cd = cleanData.data;
+
+  // Scene illuminant: brightest decile of perioral skin. Restricted to a box
+  // around the mouth AND warm-toned pixels (a > 4) — sampling the whole crop
+  // lets neutral backgrounds (white walls, bibs) hijack the estimate and the
+  // correction shifts teeth cyan instead of warm.
+  const sx0 = Math.max(0, Math.round(tb.tbX - tb.tbW * 0.5));
+  const sx1 = Math.min(outW, Math.round(tb.tbX + tb.tbW * 1.5));
+  const sy0 = Math.max(0, Math.round(tb.tbY - tb.tbH * 1.5));
+  const sy1 = Math.min(outH, Math.round(tb.tbY + tb.tbH * 2.5));
+  const skinL = [];
+  for (let y = sy0; y < sy1; y++) {
+    for (let x = sx0; x < sx1; x++) {
+      const p = y * outW + x;
+      if (toothA[p] > 10) continue;
+      const i = p * 4;
+      const [L, a] = srgb2lab(cd[i], cd[i+1], cd[i+2]);
+      if (L > 30 && a > 4) skinL.push([L, p]);
+    }
+  }
+  if (skinL.length < 200) { console.warn('harmonize: too few skin samples, skipping'); return; }
+  skinL.sort((x, y) => y[0] - x[0]);
+  const hi = skinL.slice(0, Math.max(50, Math.floor(skinL.length * 0.10)));
+  let hiL = 0, hiA = 0, hiB = 0;
+  for (const [, p] of hi) {
+    const i = p * 4;
+    const [L, a, b] = srgb2lab(cd[i], cd[i+1], cd[i+2]);
+    hiL += L; hiA += a; hiB += b;
+  }
+  hiL /= hi.length; hiA /= hi.length; hiB /= hi.length;
+
+  // Generated teeth stats
+  const tIdx = [];
+  let tA = 0, tB = 0;
+  const tLs = [];
+  for (let p = 0; p < outW * outH; p++) {
+    if (toothA[p] <= 10) continue;
+    const i = p * 4;
+    const [L, a, b] = srgb2lab(gd[i], gd[i+1], gd[i+2]);
+    tIdx.push(p); tA += a; tB += b; tLs.push(L);
+  }
+  if (!tIdx.length) return;
+  tA /= tIdx.length; tB /= tIdx.length;
+  const sortedL = [...tLs].sort((x, y) => x - y);
+  const p95L = sortedL[Math.floor(sortedL.length * 0.95)];
+
+  // Target chroma = half the illuminant chroma (skin highlights still carry
+  // some skin tone; full adoption makes teeth pink).
+  const dA = HARMONIZE_CHROMA * (hiA * 0.5 - tA);
+  const dB = HARMONIZE_CHROMA * (hiB * 0.5 - tB);
+  // Two-directional: dim icy-bright teeth down AND lift dull-gray teeth up.
+  const lScale = Math.max(0.78, Math.min(1.2, (hiL + HARMONIZE_CAP) / p95L));
+  console.log(`harmonize: illum L=${hiL.toFixed(1)} a=${hiA.toFixed(1)} b=${hiB.toFixed(1)} dA=${dA.toFixed(1)} dB=${dB.toFixed(1)} lScale=${lScale.toFixed(3)}`);
+
+  // Horizontal light falloff from the skin band just above the upper lip
+  const col = new Float64Array(outW), cnt = new Float64Array(outW);
+  const gy0 = Math.max(0, Math.round(tb.tbY - tb.tbH * 0.6)), gy1 = Math.max(0, tb.tbY - 2);
+  for (let y = gy0; y < gy1; y++) {
+    for (let x = 0; x < outW; x++) {
+      const p = y * outW + x;
+      if (toothA[p] > 10) continue;
+      const i = p * 4;
+      const [L] = srgb2lab(cd[i], cd[i+1], cd[i+2]);
+      if (L < 20) continue;
+      col[x] += L; cnt[x]++;
+    }
+  }
+  const raw = new Float64Array(outW);
+  let total = 0, totalN = 0;
+  for (let x = 0; x < outW; x++) {
+    raw[x] = cnt[x] > 3 ? col[x] / cnt[x] : NaN;
+    if (!isNaN(raw[x])) { total += raw[x]; totalN++; }
+  }
+  const mean = total / Math.max(1, totalN);
+  const gain = new Float64Array(outW);
+  for (let x = 0; x < outW; x++) {
+    let s = 0, n = 0;
+    for (let k = Math.max(0, x - 15); k <= Math.min(outW - 1, x + 15); k++) {
+      if (!isNaN(raw[k])) { s += raw[k]; n++; }
+    }
+    const sm = n ? s / n : mean;
+    gain[x] = Math.max(0.85, Math.min(1.15, sm / mean));
+  }
+
+  for (const p of tIdx) {
+    const i = p * 4;
+    let [L, a, b] = srgb2lab(gd[i], gd[i+1], gd[i+2]);
+    a += dA; b += dB;
+    L *= lScale * gain[p % outW];
+    const [r, g, bl] = lab2srgb(L, a, b);
+    gd[i] = r; gd[i+1] = g; gd[i+2] = bl;
+  }
+  genCtx.putImageData(gen, 0, 0);
+}
+
 /* ── Path 1b: Ideogram v2 with zoomed mouth crop (primary) ─────── */
 // Same crop-zoom + bib desaturation as fluxCropMakeover, but uses Ideogram v2
 // inpainting via Replicate. Mask convention INVERTED vs FLUX: black=edit, white=keep.
@@ -1565,8 +1696,12 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   const tbW = Math.min(outW - tbX, Math.round((bounds.xMax - bounds.xMin) * cropScale) + 12);
   const tbH = Math.min(outH - tbY, Math.round((bounds.yMax - bounds.yMin) * cropScale) + 12);
 
-  // Desaturate below-tooth zone to strip dental bib color from Ideogram's context
   const imgCtx2d = imgC.getContext('2d');
+  // Clean crop snapshot BEFORE bib desat / tooth erase — the lighting
+  // harmonization step samples the scene illuminant from these pixels.
+  const cleanCropData = imgCtx2d.getImageData(0, 0, outW, outH);
+
+  // Desaturate below-tooth zone to strip dental bib color from Ideogram's context
   const bibData  = imgCtx2d.getImageData(0, 0, outW, outH);
   const bd = bibData.data;
   const bibStartY = Math.min(outH - 1, tbY + tbH + 4);
@@ -1652,10 +1787,12 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   amCtx.drawImage(mpMaskImg, cx, cy, cw, ch, 0, 0, outW, outH);
   const amData = amCtx.getImageData(0, 0, outW, outH);
   const am = amData.data;
+  const toothA = new Uint8Array(outW * outH);  // un-faded tooth mask for harmonization
   for (let i = 0; i < am.length; i += 4) {
     const brightness = Math.round(0.299 * am[i] + 0.587 * am[i+1] + 0.114 * am[i+2]);
     am[i] = 255; am[i+1] = 255; am[i+2] = 255;
     am[i+3] = brightness;
+    toothA[i / 4] = brightness;
   }
   // Fade blend to 0 at commissure edges (left/right of tooth bounds).
   // Prevents Ideogram color drift at mouth corners from showing through as a seam.
@@ -1681,6 +1818,7 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   ideoC.width = outW; ideoC.height = outH;
   const iCtx = ideoC.getContext('2d');
   iCtx.drawImage(ideoImg, 0, 0, outW, outH);
+  harmonizeTeeth(iCtx, cleanCropData, toothA, outW, outH, { tbX, tbY, tbW, tbH });
   iCtx.globalCompositeOperation = 'destination-in';
   iCtx.drawImage(blendMask, 0, 0);
 

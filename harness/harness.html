@@ -1,0 +1,473 @@
+<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><title>HARNESS_RUNNING</title></head>
+<body>
+<pre id="log"></pre>
+<script type="module">
+// Test harness: faithful clone of ideogramCropMakeover() from smile-simulator.html,
+// instrumented to save every intermediate stage to test-outputs/<photo>/.
+// Modes:
+//   ?photo=IMG_0750.jpg&mode=baseline     full run incl. Ideogram call (costs ~$0.08)
+//   ?photo=IMG_0750.jpg&mode=recomposite  reuse cached ideo_raw.png, rebuild composite ($0)
+// Keep all geometry/logic IDENTICAL to production — changes go in clearly marked blocks.
+
+const qs    = new URLSearchParams(location.search);
+const photo = qs.get('photo');
+const mode  = qs.get('mode') || 'baseline';   // baseline | recomposite | harmonize | hires
+const cached = qs.get('cached') === '1';      // hires: reuse cached hires generation
+const dir   = photo.replace(/\.[^.]+$/, '');
+// harmonization params (mode=harmonize)
+const P = {
+  v:    qs.get('v')    || '1',                 // variant label for filenames
+  w:    parseFloat(qs.get('w')    ?? '0.7'),   // chroma shift strength toward scene illuminant (0..1)
+  cap:  parseFloat(qs.get('cap')  ?? '8'),     // teeth P95 L allowed above skin-highlight L (CIELAB units); -1 disables
+  grad: parseInt(qs.get('grad')   ?? '1'),     // 1 = apply horizontal light-gradient from skin above lip
+  gum:  parseFloat(qs.get('gum')  ?? '0'),     // fraction of mask column height to PRESERVE at top during tooth-erase (gingival anchor)
+};
+const logEl = document.getElementById('log');
+const log = m => { logEl.textContent += m + '\n'; console.log(m); };
+
+const INNER_LIP = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
+
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error('image load failed: ' + src));
+    img.src = src;
+  });
+}
+
+async function save(file, dataUrl) {
+  const r = await fetch('/save', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file: `${dir}/${file}`, dataUrl }) });
+  if (!r.ok) throw new Error('save failed: ' + file);
+}
+async function saveJson(file, json) {
+  const r = await fetch('/save', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file: `${dir}/${file}`, json }) });
+  if (!r.ok) throw new Error('save failed: ' + file);
+}
+
+async function resizeForAPI(srcUrl, maxDim = 1536) {
+  const img = await loadImage(srcUrl);
+  const { naturalWidth: w, naturalHeight: h } = img;
+  let nw = w, nh = h;
+  if (w > maxDim || h > maxDim) {
+    const ratio = Math.min(maxDim / w, maxDim / h);
+    nw = Math.round(w * ratio); nh = Math.round(h * ratio);
+  }
+  const c = document.createElement('canvas');
+  c.width = nw; c.height = nh;
+  c.getContext('2d').drawImage(img, 0, 0, nw, nh);
+  return { resized: c.toDataURL('image/png'), width: nw, height: nh };
+}
+
+// Landmarks computed natively via /api/landmarks (same face_landmarker.task model
+// as production) — headless Chromium can't create the WebGL context MediaPipe's
+// wasm build needs. The mask-building math below is identical to production.
+async function buildMediaPipeMask(imageUrl, width, height) {
+  const r = await fetch('/api/landmarks', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file: `${dir}/resized.png` }) });
+  const d = await r.json();
+  if (d.error) { log('landmarks: ' + d.error); return null; }
+  const lm = d.landmarks;
+  const pts = INNER_LIP.map(i => ({ x: lm[i].x * width, y: lm[i].y * height }));
+  const bounds = {
+    xMin: Math.min(...pts.map(p => p.x)), xMax: Math.max(...pts.map(p => p.x)),
+    yMin: Math.min(...pts.map(p => p.y)), yMax: Math.max(...pts.map(p => p.y)),
+  };
+  const maskC = document.createElement('canvas');
+  maskC.width = width; maskC.height = height;
+  const mCtx = maskC.getContext('2d');
+  mCtx.fillStyle = '#000'; mCtx.fillRect(0, 0, width, height);
+  mCtx.fillStyle = '#fff';
+  mCtx.beginPath(); mCtx.moveTo(pts[0].x, pts[0].y);
+  for (let i = 1; i < pts.length; i++) mCtx.lineTo(pts[i].x, pts[i].y);
+  mCtx.closePath(); mCtx.fill();
+  const maskId = mCtx.getImageData(0, 0, width, height);
+  let found = 0;
+  for (let i = 0; i < width * height; i++) if (maskId.data[i * 4] > 128) found++;
+  if (found < 100) return null;
+  return { maskDataUrl: maskC.toDataURL('image/png'), bounds, maskPx: found };
+}
+
+/* ── sRGB ↔ CIELAB (D65) ── */
+function srgb2lab(r, g, b) {
+  const f = v => { v /= 255; return v > 0.04045 ? Math.pow((v + 0.055) / 1.055, 2.4) : v / 12.92; };
+  const R = f(r), G = f(g), Bl = f(b);
+  let X = (R * 0.4124564 + G * 0.3575761 + Bl * 0.1804375) / 0.95047;
+  let Y =  R * 0.2126729 + G * 0.7151522 + Bl * 0.0721750;
+  let Z = (R * 0.0193339 + G * 0.1191920 + Bl * 0.9503041) / 1.08883;
+  const g3 = t => t > 0.008856 ? Math.cbrt(t) : (7.787 * t + 16 / 116);
+  X = g3(X); Y = g3(Y); Z = g3(Z);
+  return [116 * Y - 16, 500 * (X - Y), 200 * (Y - Z)];
+}
+function lab2srgb(L, a, b) {
+  const fy = (L + 16) / 116, fx = fy + a / 500, fz = fy - b / 200;
+  const g3 = t => { const t3 = t * t * t; return t3 > 0.008856 ? t3 : (t - 16 / 116) / 7.787; };
+  const X = g3(fx) * 0.95047, Y = g3(fy), Z = g3(fz) * 1.08883;
+  let R =  X *  3.2404542 + Y * -1.5371385 + Z * -0.4985314;
+  let G =  X * -0.9692660 + Y *  1.8760108 + Z *  0.0415560;
+  let Bl = X *  0.0556434 + Y * -0.2040259 + Z *  1.0572252;
+  const f = v => { v = v > 0.0031308 ? 1.055 * Math.pow(v, 1 / 2.4) - 0.055 : 12.92 * v; return Math.max(0, Math.min(255, Math.round(v * 255))); };
+  return [f(R), f(G), f(Bl)];
+}
+
+// Harmonize generated teeth to the scene's lighting, in crop space.
+// genCtx: canvas ctx holding the Ideogram result at outW×outH (modified in place)
+// cleanData: ImageData of the original crop (pre-desat, pre-erase) at outW×outH
+// toothA: Uint8 array (outW*outH), brightness of MediaPipe mask (255 = tooth)
+function harmonizeTeeth(genCtx, cleanData, toothA, outW, outH, tb, params, log) {
+  const gen = genCtx.getImageData(0, 0, outW, outH);
+  const gd = gen.data, cd = cleanData.data;
+  const N = outW * outH;
+
+  // 1. Scene illuminant estimate: brightest decile of perioral SKIN pixels in
+  //    the original crop. Sampling is restricted to a box around the mouth and
+  //    to warm-toned pixels (a > 4) so neutral backgrounds (white walls, bibs)
+  //    can't contaminate the estimate — v1 sampled the whole crop and shifted
+  //    teeth cyan on photos with bright white walls.
+  const sx0 = Math.max(0, Math.round(tb.tbX - tb.tbW * 0.5));
+  const sx1 = Math.min(outW, Math.round(tb.tbX + tb.tbW * 1.5));
+  const sy0 = Math.max(0, Math.round(tb.tbY - tb.tbH * 1.5));
+  const sy1 = Math.min(outH, Math.round(tb.tbY + tb.tbH * 2.5));
+  const skinL = [];
+  for (let y = sy0; y < sy1; y++) {
+    for (let x = sx0; x < sx1; x++) {
+      const p = y * outW + x;
+      if (toothA[p] > 10) continue;
+      const i = p * 4;
+      const [L, a] = srgb2lab(cd[i], cd[i+1], cd[i+2]);
+      if (L > 30 && a > 4) skinL.push([L, p]);
+    }
+  }
+  if (skinL.length < 200) { log('harmonize: too few skin samples, skipping'); return; }
+  skinL.sort((x, y) => y[0] - x[0]);
+  const hi = skinL.slice(0, Math.max(50, Math.floor(skinL.length * 0.10)));
+  let hiL = 0, hiA = 0, hiB = 0;
+  for (const [, p] of hi) {
+    const i = p * 4;
+    const [L, a, b] = srgb2lab(cd[i], cd[i+1], cd[i+2]);
+    hiL += L; hiA += a; hiB += b;
+  }
+  hiL /= hi.length; hiA /= hi.length; hiB /= hi.length;
+
+  // 2. Generated teeth stats
+  const tIdx = [];
+  let tA = 0, tB = 0;
+  const tLs = [];
+  for (let p = 0; p < N; p++) {
+    if (toothA[p] <= 10) continue;
+    const i = p * 4;
+    const [L, a, b] = srgb2lab(gd[i], gd[i+1], gd[i+2]);
+    tIdx.push(p); tA += a; tB += b; tLs.push(L);
+  }
+  if (!tIdx.length) return;
+  tA /= tIdx.length; tB /= tIdx.length;
+  const sortedL = [...tLs].sort((x, y) => x - y);
+  const p95L = sortedL[Math.floor(sortedL.length * 0.95)];
+
+  // illuminant chroma scaled down: teeth should lean toward the scene cast,
+  // not fully adopt skin chroma (skin highlights still carry some skin tone).
+  const targetA = hiA * 0.5, targetB = hiB * 0.5;
+  const dA = params.w * (targetA - tA);
+  const dB = params.w * (targetB - tB);
+  // two-directional: dim icy-bright teeth down AND lift dull-gray teeth up
+  // toward (skin-highlight L + cap), clamped to avoid overcorrection
+  const lScale = params.cap >= 0 ? Math.max(0.78, Math.min(1.2, (hiL + params.cap) / p95L)) : 1;
+  log(`harmonize: illum L=${hiL.toFixed(1)} a=${hiA.toFixed(1)} b=${hiB.toFixed(1)} | teeth a=${tA.toFixed(1)} b=${tB.toFixed(1)} p95L=${p95L.toFixed(1)} | dA=${dA.toFixed(1)} dB=${dB.toFixed(1)} lScale=${lScale.toFixed(3)}`);
+
+  // 3. Horizontal light gradient from skin band just above the upper lip
+  let gain = null;
+  if (params.grad) {
+    const col = new Float64Array(outW), cnt = new Float64Array(outW);
+    const y0 = Math.max(0, Math.round(tb.tbY - tb.tbH * 0.6)), y1 = Math.max(0, tb.tbY - 2);
+    for (let y = y0; y < y1; y++) {
+      for (let x = 0; x < outW; x++) {
+        const p = y * outW + x;
+        if (toothA[p] > 10) continue;
+        const i = p * 4;
+        const [L] = srgb2lab(cd[i], cd[i+1], cd[i+2]);
+        if (L < 20) continue;
+        col[x] += L; cnt[x]++;
+      }
+    }
+    const raw = new Float64Array(outW);
+    for (let x = 0; x < outW; x++) raw[x] = cnt[x] > 3 ? col[x] / cnt[x] : NaN;
+    // moving average smooth (31px), fill gaps with neighborhood mean
+    const sm = new Float64Array(outW);
+    let total = 0, totalN = 0;
+    for (let x = 0; x < outW; x++) if (!isNaN(raw[x])) { total += raw[x]; totalN++; }
+    const mean = total / Math.max(1, totalN);
+    for (let x = 0; x < outW; x++) {
+      let s = 0, n = 0;
+      for (let k = Math.max(0, x - 15); k <= Math.min(outW - 1, x + 15); k++) {
+        if (!isNaN(raw[k])) { s += raw[k]; n++; }
+      }
+      sm[x] = n ? s / n : mean;
+    }
+    gain = new Float64Array(outW);
+    for (let x = 0; x < outW; x++) gain[x] = Math.max(0.85, Math.min(1.15, sm[x] / mean));
+  }
+
+  // 4. Apply to tooth pixels
+  for (const p of tIdx) {
+    const i = p * 4;
+    let [L, a, b] = srgb2lab(gd[i], gd[i+1], gd[i+2]);
+    a += dA; b += dB;
+    L *= lScale;
+    if (gain) L *= gain[p % outW];
+    const [r, g, bl] = lab2srgb(L, a, b);
+    gd[i] = r; gd[i+1] = g; gd[i+2] = bl;
+  }
+  genCtx.putImageData(gen, 0, 0);
+}
+
+async function run() {
+  log(`photo=${photo} mode=${mode}`);
+  const { resized, width, height } = await resizeForAPI(`/test-photos/${photo}`);
+  log(`resized ${width}x${height}`);
+  await save('resized.png', resized);
+
+  const mp = await buildMediaPipeMask(resized, width, height);
+  if (!mp) throw new Error('MediaPipe: no face / mouth closed');
+  log(`mp mask px=${mp.maskPx} bounds=${JSON.stringify(mp.bounds)}`);
+  await save('mp_mask.png', mp.maskDataUrl);
+
+  const { bounds } = mp;
+  const origImg = await loadImage(resized);
+
+  // ── crop geometry ──
+  // baseline: production values (2.0×/1.5× padding, crop from 1536-resized image).
+  // hires: tighter padding (0.5×/1.0× → ~3:1 aspect, Ideogram's native output AR)
+  //        and crop pixels from the FULL-RES original. With production padding the
+  //        crop spans nearly the whole image → scale≈0.92 → teeth reach Ideogram at
+  //        ~205px wide (no actual zoom). Full-res + tight crop → real pixel density.
+  const hires = mode === 'hires';
+  const padXF = hires ? 0.5 : 2.0;
+  const padYF = hires ? 1.0 : 1.5;
+  const padX = (bounds.xMax - bounds.xMin) * padXF;
+  const padY = (bounds.yMax - bounds.yMin) * padYF;
+  const cx = Math.max(0, Math.round(bounds.xMin - padX));
+  const cy = Math.max(0, Math.round(bounds.yMin - padY));
+  const cw = Math.min(width  - cx, Math.round(bounds.xMax - bounds.xMin + padX * 2));
+  const ch = Math.min(height - cy, Math.round(bounds.yMax - bounds.yMin + padY * 2));
+
+  let srcImg = origImg, f = 1;
+  if (hires) {
+    srcImg = await loadImage(`/test-photos/${photo}`);
+    f = srcImg.naturalWidth / width;
+  }
+  const scale = Math.min(1024 / (cw * f), 1024 / (ch * f), 1) * f;  // in resized-coord units
+  const outW  = Math.round(cw * scale / 64) * 64;
+  const outH  = Math.round(ch * scale / 64) * 64;
+
+  const imgC = document.createElement('canvas');
+  imgC.width = outW; imgC.height = outH;
+  const imgCtx2d = imgC.getContext('2d');
+  imgCtx2d.drawImage(srcImg, cx * f, cy * f, cw * f, ch * f, 0, 0, outW, outH);
+
+  const cropScale = outW / cw;
+  const tbX = Math.max(0, Math.round((bounds.xMin - cx) * cropScale) - 6);
+  const tbY = Math.max(0, Math.round((bounds.yMin - cy) * cropScale) - 6);
+  const tbW = Math.min(outW - tbX, Math.round((bounds.xMax - bounds.xMin) * cropScale) + 12);
+  const tbH = Math.min(outH - tbY, Math.round((bounds.yMax - bounds.yMin) * cropScale) + 12);
+
+  const geometry = { width, height, bounds, cx, cy, cw, ch, outW, outH, tbX, tbY, tbW, tbH, maskPx: mp.maskPx };
+  await saveJson('geometry.json', geometry);
+  log('geometry: ' + JSON.stringify({ cx, cy, cw, ch, outW, outH }));
+
+  // clean crop BEFORE desat/erase — harmonization reference material
+  const cleanData = imgCtx2d.getImageData(0, 0, outW, outH);
+  await save(hires ? 'hires_crop_clean.jpg' : 'crop_clean.jpg', imgC.toDataURL('image/jpeg', 0.95));
+
+  // ── bib desaturation (identical to production) ──
+  const bibData = imgCtx2d.getImageData(0, 0, outW, outH);
+  const bd = bibData.data;
+  const bibStartY = Math.min(outH - 1, tbY + tbH + 4);
+  for (let y = bibStartY; y < outH; y++) {
+    for (let x = 0; x < outW; x++) {
+      const i = (y * outW + x) * 4;
+      const gray = Math.round(0.299 * bd[i] + 0.587 * bd[i+1] + 0.114 * bd[i+2]);
+      bd[i] = gray; bd[i+1] = gray; bd[i+2] = gray;
+    }
+  }
+  imgCtx2d.putImageData(bibData, 0, 0);
+
+  const mpMaskImg = await loadImage(mp.maskDataUrl);
+
+  // ── tooth erase (identical to production) ──
+  const teC = document.createElement('canvas');
+  teC.width = outW; teC.height = outH;
+  const teCtx = teC.getContext('2d');
+  teCtx.drawImage(mpMaskImg, cx, cy, cw, ch, 0, 0, outW, outH);
+  const teMask = teCtx.getImageData(0, 0, outW, outH).data;
+  const teImg  = imgCtx2d.getImageData(0, 0, outW, outH);
+  const te     = teImg.data;
+  // Optionally keep the top P.gum of each mask column un-erased: real gum tissue
+  // anchors the gingival line so Ideogram doesn't render a dark void above teeth.
+  // The keep/erase decision is GLOBAL per photo — preserve the band on every
+  // column, or none. Per-pixel preservation speckles (dark decay passes naive
+  // red-dominance and survives as blotches); per-column flickers into stripes
+  // that Ideogram hallucinates patterns from. Globally: a smile either shows a
+  // contiguous gingival band (≥40% of columns bright pink) or shows no gum at
+  // all (decayed-tooth tops, full erase like the original behavior).
+  const isGum = (r, g, b) => r > 100 && (r - g) > 1.3 * Math.max(0, g - b) && r > g + 10;
+  let gumTop = null;
+  if (P.gum > 0) {
+    const bandEnd = new Int32Array(outW).fill(-1);
+    let qualified = 0, withMask = 0;
+    for (let x = 0; x < outW; x++) {
+      let top = -1, bot = -1;
+      for (let y = 0; y < outH; y++) {
+        if (teMask[(y * outW + x) * 4] > 128) { if (top < 0) top = y; bot = y; }
+      }
+      if (top < 0) continue;
+      withMask++;
+      bandEnd[x] = top + Math.round(P.gum * (bot - top));
+      let gumN = 0, n = 0;
+      for (let y = top; y < bandEnd[x]; y++) {
+        const i = (y * outW + x) * 4;
+        n++;
+        if (isGum(te[i], te[i+1], te[i+2])) gumN++;
+      }
+      if (n > 0 && gumN / n >= 0.6) qualified++;
+    }
+    const frac = withMask ? qualified / withMask : 0;
+    log(`gum band: ${(frac * 100).toFixed(0)}% of columns qualify → ${frac >= 0.4 ? 'PRESERVE' : 'full erase'}`);
+    if (frac >= 0.4) gumTop = bandEnd;
+  }
+  for (let i = 0; i < te.length; i += 4) {
+    if (teMask[i] <= 128) continue;
+    if (gumTop) {
+      const p = i / 4, x = p % outW, y = (p / outW) | 0;
+      if (gumTop[x] >= 0 && y < gumTop[x]) continue;   // gum band — keep
+    }
+    te[i] = 20; te[i+1] = 12; te[i+2] = 12;
+  }
+  imgCtx2d.putImageData(teImg, 0, 0);
+  const cropImgUrl = imgC.toDataURL('image/jpeg', 0.95);
+  await save(hires ? 'hires_crop_sent.jpg' : 'crop_sent.jpg', cropImgUrl);
+
+  // ── Ideogram mask (identical to production) ──
+  const ideoMaskC = document.createElement('canvas');
+  ideoMaskC.width = outW; ideoMaskC.height = outH;
+  const imCtx = ideoMaskC.getContext('2d');
+  imCtx.drawImage(mpMaskImg, cx, cy, cw, ch, 0, 0, outW, outH);
+  const maskPxData = imCtx.getImageData(0, 0, outW, outH);
+  const mpd = maskPxData.data;
+  for (let mi = 0; mi < mpd.length; mi += 4) {
+    mpd[mi] = 255 - mpd[mi]; mpd[mi+1] = 255 - mpd[mi+1]; mpd[mi+2] = 255 - mpd[mi+2];
+  }
+  imCtx.putImageData(maskPxData, 0, 0);
+  const ideoMaskUrl = ideoMaskC.toDataURL('image/png');
+  await save('ideo_mask.png', ideoMaskUrl);
+
+  // ── generation: live call (baseline / hires) or cached ──
+  let ideoLocalUrl;
+  const genDir = hires ? `${dir}/hires` : dir;
+  if (mode === 'baseline' || (hires && !cached)) {
+    log('calling Ideogram via local proxy…');
+    const r = await fetch('/api/ideogram', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: cropImgUrl, mask: ideoMaskUrl, dir: genDir }) });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error('ideogram proxy: ' + (d.error || r.status));
+    ideoLocalUrl = d.url;
+    log('ideogram done → ' + ideoLocalUrl);
+  } else {
+    ideoLocalUrl = `/test-outputs/${genDir}/ideo_raw.png`;
+    log('using cached ' + ideoLocalUrl);
+  }
+  const ideoImg = await loadImage(ideoLocalUrl);
+  log(`ideo_raw ${ideoImg.naturalWidth}x${ideoImg.naturalHeight} for crop ${outW}x${outH}`);
+
+  // ── blend mask: brightness→alpha + commissure fade + blur (identical to production) ──
+  const alphaMaskC = document.createElement('canvas');
+  alphaMaskC.width = outW; alphaMaskC.height = outH;
+  const amCtx = alphaMaskC.getContext('2d');
+  amCtx.drawImage(mpMaskImg, cx, cy, cw, ch, 0, 0, outW, outH);
+  const amData = amCtx.getImageData(0, 0, outW, outH);
+  const am = amData.data;
+  const toothA = new Uint8Array(outW * outH);   // un-faded tooth mask for harmonization stats
+  for (let i = 0; i < am.length; i += 4) {
+    const brightness = Math.round(0.299 * am[i] + 0.587 * am[i+1] + 0.114 * am[i+2]);
+    am[i] = 255; am[i+1] = 255; am[i+2] = 255;
+    am[i+3] = brightness;
+    toothA[i / 4] = brightness;
+  }
+  const commMargin = Math.round(tbW * 0.10);
+  for (let i = 0; i < am.length; i += 4) {
+    if (am[i + 3] === 0) continue;
+    const x = (i / 4) % outW;
+    const minH = Math.min(x - tbX, (tbX + tbW) - 1 - x);
+    if (minH < commMargin) am[i + 3] = Math.round(am[i + 3] * Math.max(0, minH / commMargin));
+  }
+  amCtx.putImageData(amData, 0, 0);
+
+  const blendMask = document.createElement('canvas');
+  blendMask.width = outW; blendMask.height = outH;
+  const bmCtx = blendMask.getContext('2d');
+  bmCtx.filter = 'blur(10px)';
+  bmCtx.drawImage(alphaMaskC, 0, 0);
+  bmCtx.filter = 'none';
+
+  const ideoC = document.createElement('canvas');
+  ideoC.width = outW; ideoC.height = outH;
+  const iCtx = ideoC.getContext('2d');
+  iCtx.drawImage(ideoImg, 0, 0, outW, outH);
+
+  if (mode === 'harmonize' || hires) {
+    harmonizeTeeth(iCtx, cleanData, toothA, outW, outH, { tbX, tbY, tbW, tbH }, P, log);
+  }
+
+  iCtx.globalCompositeOperation = 'destination-in';
+  iCtx.drawImage(blendMask, 0, 0);
+
+  const out = document.createElement('canvas');
+  out.width = width; out.height = height;
+  const oCtx = out.getContext('2d');
+  oCtx.drawImage(origImg, 0, 0, width, height);
+  oCtx.drawImage(ideoC, 0, 0, outW, outH, cx, cy, cw, ch);
+  const tag = hires ? `hires${P.v}` : mode === 'harmonize' ? `h${P.v}` : 'baseline';
+  await save(`composite_${tag}.jpg`, out.toDataURL('image/jpeg', 0.93));
+
+  // mouth-region close-up of the composite for seam/lighting inspection
+  const zoomC = document.createElement('canvas');
+  zoomC.width = outW; zoomC.height = outH;
+  zoomC.getContext('2d').drawImage(out, cx, cy, cw, ch, 0, 0, outW, outH);
+  await save(`composite_${tag}_zoom.jpg`, zoomC.toDataURL('image/jpeg', 0.93));
+
+  // side-by-side strip: original mouth | baseline composite | this variant
+  if (mode === 'harmonize' || hires) {
+    const cleanC = document.createElement('canvas');
+    cleanC.width = outW; cleanC.height = outH;
+    cleanC.getContext('2d').putImageData(cleanData, 0, 0);
+    const rows = [cleanC];
+    if (hires) {
+      // baseline row re-rendered in THIS crop's geometry for a fair comparison
+      const blImg = await loadImage(`/test-outputs/${dir}/composite_baseline.jpg`);
+      const blC = document.createElement('canvas');
+      blC.width = outW; blC.height = outH;
+      blC.getContext('2d').drawImage(blImg, cx, cy, cw, ch, 0, 0, outW, outH);
+      rows.push(blC);
+    } else {
+      rows.push(await loadImage(`/test-outputs/${dir}/composite_baseline_zoom.jpg`));
+    }
+    rows.push(zoomC);
+    const sxs = document.createElement('canvas');
+    sxs.width = outW; sxs.height = outH * rows.length;
+    const sCtx = sxs.getContext('2d');
+    rows.forEach((r, k) => sCtx.drawImage(r, 0, k * outH, outW, outH));
+    await save(`sxs_${tag}.jpg`, sxs.toDataURL('image/jpeg', 0.93));
+  }
+
+  log('ALL DONE');
+  document.title = 'HARNESS_DONE';
+}
+
+run().catch(e => { log('ERROR: ' + e.message); document.title = 'HARNESS_ERROR'; });
+</script>
+</body>
+</html>

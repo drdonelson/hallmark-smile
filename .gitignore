@@ -1,0 +1,6 @@
+# Patient photos and experiment outputs — NEVER commit these.
+# This repo deploys publicly via GitHub Pages; anything committed here is published.
+test-photos/
+test-outputs/
+.gstack/
+harness/face_landmarker.task

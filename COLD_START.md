@@ -63,8 +63,9 @@ All primary AI paths follow the same geometry:
 4. **Bib desaturation:** desaturate everything below the tooth bounding box (strips dental bib blue/teal)
 5. **Tooth erase:** fill tooth pixels with dark color `rgb(20,12,12)` — forces Ideogram to fully generate rather than adjust existing teeth (see Section 3.6)
 6. Create the AI inpainting mask for that model's convention (see Section 3.3)
-7. Receive AI result, build pixel-precise blend mask from MediaPipe tooth shape (see Section 3.1)
-8. Composite tooth region back onto original face at `(cx, cy)` with size `(cw, ch)`
+7. Receive AI result, **harmonize teeth lighting to the scene** (LAB illuminant transfer — see Section 3.10)
+8. Build pixel-precise blend mask from MediaPipe tooth shape (see Section 3.1)
+9. Composite tooth region back onto original face at `(cx, cy)` with size `(cw, ch)`
 
 **Critical compositing rules** — see Sections 3.1 and 3.7.
 
@@ -174,6 +175,69 @@ Replicate's automated health checker disables model versions that consistently f
 Zooming to 1024px gives the AI enough pixels to render individual tooth anatomy. But it also removes the face lighting context. The AI generates teeth with its own lighting model, which does not match the original photo. When composited back, the result looks like a pasted-on smile — technically clean but visually wrong.
 
 This is an unsolved architectural tension. Full-face inference preserves lighting context but sacrifices tooth detail. Crop-zoom produces dental detail but breaks integration. The LoRA composite approach described in 3.6 may resolve this because the LoRA was trained on full-face photos and naturally understands full-face context.
+
+### 3.10 Lighting Harmonization — LAB Illuminant Transfer (SOLVED June 2026)
+
+Ideogram generates teeth under its own studio-flat lighting; the face is lit by
+warm office light. Raw composites read icy/gray and "pasted on". The fix is
+`harmonizeTeeth()` in `smile-simulator.html`, applied to the Ideogram output in
+crop space before the blend mask:
+
+1. **Scene illuminant estimate:** brightest decile of perioral skin pixels in
+   the ORIGINAL crop (pre-desat, pre-erase), in CIELAB. Sampling MUST be
+   restricted to a box around the mouth AND warm-toned pixels (`a > 4`).
+   Sampling the whole crop lets white walls/bibs hijack the estimate — the
+   correction then shifts teeth CYAN instead of warm (observed failure).
+2. **Chroma shift:** move generated-teeth mean a/b 70% of the way toward HALF
+   the illuminant chroma (skin highlights carry skin tone; full adoption makes
+   teeth pink).
+3. **Brightness normalization:** scale teeth L so P95 ≈ skin-highlight L + 12,
+   clamped to [0.78, 1.2]. Two-directional: dims fluorescent teeth, lifts dull ones.
+4. **Light falloff:** per-column gain from the skin band above the upper lip
+   (clamped [0.85, 1.15]) restores directional lighting across the smile.
+
+Validated on 5 real office photos (stained, broken, missing teeth) via the
+local harness. Zero added cost or latency — pure canvas math.
+
+### 3.11 Local Test Harness — Iterate Without Paying Per Run
+
+`harness/server.mjs` (Node, port 8788) + `harness/harness.html` clone the
+production pipeline stage by stage and cache every intermediate to
+`test-outputs/<photo>/`. Generation runs once per photo (~$0.08); all
+compositing/harmonization iteration afterward is free (`mode=recomposite`,
+`mode=harmonize`). MediaPipe landmarks are computed natively via
+`harness/landmarks.py` (same face_landmarker.task model as production) because
+headless Chromium cannot create the WebGL context MediaPipe's wasm needs.
+Patient photos live in `test-photos/` — **gitignored; this repo deploys
+publicly via GitHub Pages. Never commit patient photos.**
+
+Run: `node harness/server.mjs`, then drive
+`http://localhost:8788/harness/harness.html?photo=IMG_X.jpg&mode=...` with a
+browser. The harness proxies Ideogram through the Worker with an allowed
+Origin header.
+
+### 3.12 Hires Crop Experiments — Promising, NOT Production-Safe (June 2026)
+
+Production padding (2.0×/1.5×) makes the crop span nearly the full image, so
+scale ≈ 0.92 and teeth reach Ideogram at ~205px wide — the "1024px crop-zoom"
+performs NO actual zoom on typical photos. Harness `mode=hires` crops from the
+full-resolution original with 0.5×/1.0× padding → teeth at ~500px, near
+Ideogram's native 3:1 output aspect (its output is 1536×512-ish; the production
+8:1 crop gets stretch-resampled, costing sharpness).
+
+Results: dramatically sharper teeth on 4/5 photos, BUT consistently artifacts
+on severe full-arch decay (dark ticks/blotches — 3/3 attempts failed on that
+case while the wide production crop handled it cleanly). The tight crop loses
+the facial context that anchors "healthy smile" generation. Do not ship without
+solving that case.
+
+Gum-band finding (harness `gum=0.25`): erasing the entire inner-lip polygon
+leaves Ideogram no anchor for gingiva — gum-showing smiles get a dark void
+above the teeth. Preserving the top 25% of each mask column fixes it, but the
+keep/erase decision must be GLOBAL per photo (≥40% of columns bright pink →
+preserve everywhere, else erase everywhere). Per-pixel preservation lets dark
+reddish decay survive as blotches; per-column flickers into stripes Ideogram
+hallucinates patterns from. Both observed.
 
 ---
 
