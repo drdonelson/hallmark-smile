@@ -16,7 +16,10 @@ const OPENAI_BASE    = 'https://api.openai.com';
 const RUNWAY_BASE    = 'https://api.dev.runwayml.com/v1';
 const RUNWAY_VERSION = '2024-11-06';
 const FAL_BASE       = 'https://queue.fal.run';
-const KLING_MODEL    = 'fal-ai/kling-video/v1.6/standard/image-to-video';
+// Kling v3 Pro: supports 3–15s durations (8s matches the reference videos),
+// native English audio (the patient audibly says the line), prompt-driven
+// head motion. v1.6 standard ignored complex motion direction entirely.
+const KLING_MODEL    = 'fal-ai/kling-video/v3/pro/image-to-video';
 
 // CORS headers added to every response
 function corsHeaders(origin) {
@@ -103,11 +106,15 @@ async function handleKlingStart(request, env, origin) {
   }
 
   const prompt =
-    'person laughing with genuine delight and mouthing the words "I can\'t believe this", ' +
-    'mouth opens wide showing upper and lower teeth moving naturally, tongue briefly visible, ' +
-    'jaw drops and rises with natural speech movement, lips articulate the words fluidly, ' +
-    'surprised and overjoyed expression, cheeks lifted, eyes wide with happy disbelief, ' +
-    'natural head movement, photorealistic human face, soft studio lighting';
+    'The person slowly turns their head to the left showing their new smile in profile, ' +
+    'then turns back to face the camera directly, smiling broadly the whole time. ' +
+    'Looking at the camera, they say with genuine delight "this smile is absolutely amazing" ' +
+    'and then laugh warmly and naturally. Joyful confident energy, eyes sparkling, ' +
+    'natural blinking, natural lip and jaw articulation while speaking, ' +
+    'photorealistic human face, soft studio lighting, camera static.';
+  const negative_prompt =
+    'blur, distort, low quality, frozen face, static image, warped teeth, ' +
+    'deformed mouth, extra teeth, face morphing, identity change';
 
   let fal;
   try {
@@ -119,9 +126,10 @@ async function handleKlingStart(request, env, origin) {
       },
       body: JSON.stringify({
         prompt,
-        image_url:    image,
-        duration:     '5',
-        aspect_ratio: '9:16',
+        negative_prompt,
+        start_image_url: image,   // v3 param name (was image_url in ≤v2.x)
+        duration:        '8',
+        generate_audio:  true,    // native English speech + laugh
       }),
     });
   } catch (err) {
