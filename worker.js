@@ -761,6 +761,76 @@ async function handleTempImage(request, env, imgId) {
   }
 }
 
+// --- Lead email routing via Resend ---
+// Expects POST { to, practice, firstName, lastName, email, phone, interest }
+// `to` defaults to david@hallmarkdds.com when omitted (direct GitHub Pages access)
+async function handleLead(request, env, origin) {
+  if (!env.RESEND_API_KEY) {
+    return new Response(JSON.stringify({ error: 'RESEND_API_KEY not configured' }), {
+      status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  let body;
+  try { body = await request.json(); } catch {
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  const {
+    to       = 'david@hallmarkdds.com',
+    practice = 'Hallmark Dental',
+    firstName = '',
+    lastName  = '',
+    email     = '',
+    phone     = '',
+    interest  = '',
+  } = body;
+
+  const name    = [firstName, lastName].filter(Boolean).join(' ') || 'Unknown';
+  const subject = `New Smile Simulator Lead — ${name}`;
+  const html = `
+<h2 style="color:#0A1628;font-family:sans-serif">New Smile Simulator Lead</h2>
+<p style="font-family:sans-serif"><strong>Practice:</strong> ${practice}</p>
+<table style="border-collapse:collapse;width:100%;max-width:480px;font-family:sans-serif">
+  <tr style="background:#f5f7ff"><td style="padding:10px 14px;border:1px solid #dde3f0"><strong>Name</strong></td><td style="padding:10px 14px;border:1px solid #dde3f0">${name}</td></tr>
+  <tr><td style="padding:10px 14px;border:1px solid #dde3f0"><strong>Email</strong></td><td style="padding:10px 14px;border:1px solid #dde3f0">${email}</td></tr>
+  <tr style="background:#f5f7ff"><td style="padding:10px 14px;border:1px solid #dde3f0"><strong>Phone</strong></td><td style="padding:10px 14px;border:1px solid #dde3f0">${phone}</td></tr>
+  <tr><td style="padding:10px 14px;border:1px solid #dde3f0"><strong>Interest</strong></td><td style="padding:10px 14px;border:1px solid #dde3f0">${interest}</td></tr>
+</table>
+<p style="font-family:sans-serif;color:#666;font-size:13px;margin-top:20px">
+  Sent by Lucid ROI Smile Simulator
+</p>`;
+
+  try {
+    const res = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${env.RESEND_API_KEY}`,
+        'Content-Type':  'application/json',
+      },
+      body: JSON.stringify({
+        from:    'Smile Simulator <leads@lucidroi.com>',
+        to:      [to],
+        subject,
+        html,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      return new Response(JSON.stringify({ error: 'Resend error', detail: data }), {
+        status: res.status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+      });
+    }
+    return new Response(JSON.stringify({ ok: true, id: data.id }), {
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+}
+
 // --- Main handler ---
 export default {
   async fetch(request, env) {
@@ -785,6 +855,11 @@ export default {
         status: 204,
         headers: corsHeaders(origin),
       });
+    }
+
+    // Lead email routing
+    if (url.pathname === '/api/lead' && request.method === 'POST') {
+      return handleLead(request, env, origin);
     }
 
     // SAM teeth segmentation

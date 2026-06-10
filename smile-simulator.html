@@ -1039,6 +1039,11 @@ const MAX_BYTES  = 1024 * 1024;
 const LS_LEADS   = 'hd_leads';
 const LS_URL     = 'hd_booking_url';
 
+// Lead routing — read from iframe URL params, default to hallmarkdds.com
+const _lp = new URLSearchParams(location.search);
+const LEAD_EMAIL    = _lp.get('leadEmail')  || 'david@hallmarkdds.com';
+const LEAD_PRACTICE = _lp.get('practice')   || 'Hallmark Dental';
+
 // Prompt for GPT-image-1 edits API with explicit pixel mask.
 // The mask is transparent ONLY over the upper-tooth pixels; the entire face
 // (lips, skin, gums, lower teeth) is opaque and preserved by the API.
@@ -2658,6 +2663,21 @@ $('leadForm').addEventListener('submit', async e => {
     phone:     $('fPhone').value.trim(),
     interest:  $('fInterest').value,
   });
+
+  // Fire-and-forget lead email — does not block image generation
+  fetch(`${PROXY_URL}/api/lead`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      to:        LEAD_EMAIL,
+      practice:  LEAD_PRACTICE,
+      firstName: $('fFirstName').value.trim(),
+      lastName:  $('fLastName').value.trim(),
+      email:     $('fEmail').value.trim(),
+      phone:     $('fPhone').value.trim(),
+      interest:  $('fInterest').value,
+    }),
+  }).catch(() => {}); // silently ignore — lead is already saved to localStorage
 
   hide($('formCard'));
   show($('progressCard'));
