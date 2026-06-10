@@ -525,7 +525,13 @@ async function handleIdeogramInpaint(request, env, origin) {
   }
   let prompt = 'Photorealistic cosmetic dental result. Upper teeth: BL1 bright natural white, individually defined with visible dark inter-dental shadows and embrasures between each tooth. Golden proportion widths — central incisors widest, lateral incisors slightly narrower, canines tapered. Ovoid tooth shape. Smooth incisal edges with subtle translucency. Realistic enamel surface texture and slight gloss. Healthy pink gingival margins. Correct midline. Lips, face, and smile width exactly as in original photo. Clinical dental photography.';
   let negative_prompt = 'yellow teeth, stained teeth, discolored teeth, denture plate, uniform white slab, fused teeth, no embrasures, plastic texture, artificial glow, cartoon, altered lips, altered skin, altered face, wider smile, different smile width, more teeth showing, different mouth opening, tongue, open throat';
-  if (variant === 'fullArch') {
+  if (variant === 'perioralSmile') {
+    // Perioral hybrid (edentulous prototype): the edit mask includes the LIPS,
+    // letting the model repaint a parted, lip-supported broad smile — bitebot's
+    // effect without regenerating the whole face.
+    prompt = 'Photorealistic broad natural smile after complete full-arch dental restoration. Lips gently parted in a wide confident smile revealing a complete upper arch of teeth: BL1 bright natural white, individually defined with dark inter-dental embrasures, golden proportion, natural dark buccal corridor at each corner, subtle incisal translucency, healthy pink gingiva. The lips keep the same shape, color, fullness, and texture as the original person, now naturally supported by the new teeth. Skin, stubble, chin, and everything outside the lips exactly as in the original photo. Clinical dental photography.';
+    negative_prompt = 'closed mouth, narrow smile, tiny teeth, uniform white slab, fused teeth, no embrasures, metallic sheen, pearl glare, glossy plastic, different skin, different chin, added beard, added mustache, lipstick, altered nose, cartoon, tongue, open throat';
+  } else if (variant === 'fullArch') {
     // Edentulous/collapsed-opening cases: full-arch restoration with lip support.
     // The standard prompt forbids smile-width changes — exactly wrong here; a real
     // prosthetic restores vertical dimension and the smile fills out.

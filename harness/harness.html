@@ -253,9 +253,12 @@ async function run() {
   //        and crop pixels from the FULL-RES original. With production padding the
   //        crop spans nearly the whole image → scale≈0.92 → teeth reach Ideogram at
   //        ~205px wide (no actual zoom). Full-res + tight crop → real pixel density.
-  const hires = mode === 'hires';
-  const padXF = hires ? 0.5 : 2.0;
-  const padYF = hires ? 1.0 : 1.5;
+  // perioral: like hires but the edit/blend mask is an ELLIPSE covering the
+  // lips too, letting Ideogram repaint a parted lip-supported smile.
+  const perioral = mode === 'perioral';
+  const hires = mode === 'hires' || perioral;
+  const padXF = perioral ? 0.8 : hires ? 0.5 : 2.0;
+  const padYF = perioral ? 3.0 : hires ? 1.0 : 1.5;
   const padX = (bounds.xMax - bounds.xMin) * padXF;
   const padY = (bounds.yMax - bounds.yMin) * padYF;
   const cx = Math.max(0, Math.round(bounds.xMin - padX));
@@ -311,7 +314,16 @@ async function run() {
   // generate crowns. Expansion lets Ideogram draw fuller teeth meeting the lip
   // line; the blend feather hides the slight inner-lip repaint.
   let expMaskC = null;
-  if (P.expand > 0) {
+  if (perioral) {
+    expMaskC = document.createElement('canvas');
+    expMaskC.width = outW; expMaskC.height = outH;
+    const eCtx = expMaskC.getContext('2d');
+    eCtx.fillStyle = '#000'; eCtx.fillRect(0, 0, outW, outH);
+    eCtx.fillStyle = '#fff';
+    eCtx.beginPath();
+    eCtx.ellipse(tbX + tbW / 2, tbY + tbH / 2, tbW * 0.72, tbH * 2.2, 0, 0, Math.PI * 2);
+    eCtx.fill();
+  } else if (P.expand > 0) {
     expMaskC = document.createElement('canvas');
     expMaskC.width = outW; expMaskC.height = outH;
     const eCtx = expMaskC.getContext('2d');
@@ -410,7 +422,7 @@ async function run() {
 
   // ── generation: live call (baseline / hires) or cached ──
   let ideoLocalUrl;
-  const genDir = hires ? `${dir}/hires` : dir;
+  const genDir = perioral ? `${dir}/peri` : hires ? `${dir}/hires` : dir;
   if (mode === 'baseline' || (hires && !cached)) {
     log('calling Ideogram via local proxy…');
     const r = await fetch('/api/ideogram', { method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -440,19 +452,23 @@ async function run() {
     am[i+3] = brightness;
     toothA[i / 4] = brightness;
   }
-  const commMargin = Math.round(tbW * 0.10);
-  for (let i = 0; i < am.length; i += 4) {
-    if (am[i + 3] === 0) continue;
-    const x = (i / 4) % outW;
-    const minH = Math.min(x - tbX, (tbX + tbW) - 1 - x);
-    if (minH < commMargin) am[i + 3] = Math.round(am[i + 3] * Math.max(0, minH / commMargin));
+  // commissure fade is bbox-relative — skip for the perioral ellipse (it would
+  // clip the ellipse to the tooth bbox); the larger blur feathers it instead
+  if (!perioral) {
+    const commMargin = Math.round(tbW * 0.10);
+    for (let i = 0; i < am.length; i += 4) {
+      if (am[i + 3] === 0) continue;
+      const x = (i / 4) % outW;
+      const minH = Math.min(x - tbX, (tbX + tbW) - 1 - x);
+      if (minH < commMargin) am[i + 3] = Math.round(am[i + 3] * Math.max(0, minH / commMargin));
+    }
   }
   amCtx.putImageData(amData, 0, 0);
 
   const blendMask = document.createElement('canvas');
   blendMask.width = outW; blendMask.height = outH;
   const bmCtx = blendMask.getContext('2d');
-  bmCtx.filter = 'blur(10px)';
+  bmCtx.filter = perioral ? 'blur(16px)' : 'blur(10px)';
   bmCtx.drawImage(alphaMaskC, 0, 0);
   bmCtx.filter = 'none';
 
@@ -461,7 +477,7 @@ async function run() {
   const iCtx = ideoC.getContext('2d');
   iCtx.drawImage(ideoImg, 0, 0, outW, outH);
 
-  if (mode === 'harmonize' || hires) {
+  if (mode === 'harmonize' || (hires && !perioral)) {
     harmonizeTeeth(iCtx, cleanData, toothA, outW, outH, { tbX, tbY, tbW, tbH }, P, log);
   }
 
@@ -473,7 +489,7 @@ async function run() {
   const oCtx = out.getContext('2d');
   oCtx.drawImage(origImg, 0, 0, width, height);
   oCtx.drawImage(ideoC, 0, 0, outW, outH, cx, cy, cw, ch);
-  const tag = hires ? `hires${P.v}` : mode === 'harmonize' ? `h${P.v}` : 'baseline';
+  const tag = perioral ? `peri${P.v}` : hires ? `hires${P.v}` : mode === 'harmonize' ? `h${P.v}` : 'baseline';
   await save(`composite_${tag}.jpg`, out.toDataURL('image/jpeg', 0.93));
 
   // mouth-region close-up of the composite for seam/lighting inspection
