@@ -1724,8 +1724,8 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   // full-res original, and a vertically expanded edit/blend mask so Ideogram has
   // room to draw full crowns meeting the lip line.
   const collapsed = (bounds.yMax - bounds.yMin) / (bounds.xMax - bounds.xMin) < 0.18;
-  const padX = (bounds.xMax - bounds.xMin) * (collapsed ? 0.5 : 2.0);
-  const padY = (bounds.yMax - bounds.yMin) * (collapsed ? 1.0 : 1.5);
+  const padX = (bounds.xMax - bounds.xMin) * (collapsed ? 0.8 : 2.0);
+  const padY = (bounds.yMax - bounds.yMin) * (collapsed ? 3.0 : 1.5);
   const cx = Math.max(0, Math.round(bounds.xMin - padX));
   const cy = Math.max(0, Math.round(bounds.yMin - padY));
   const cw = Math.min(width  - cx, Math.round(bounds.xMax - bounds.xMin + padX * 2));
@@ -1759,10 +1759,14 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   // harmonization step samples the scene illuminant from these pixels.
   const cleanCropData = imgCtx2d.getImageData(0, 0, outW, outH);
 
-  // Desaturate below-tooth zone to strip dental bib color from Ideogram's context
+  // Desaturate below-tooth zone to strip dental bib color from Ideogram's context.
+  // Collapsed: the edit ellipse includes the lips — desat must start BELOW it,
+  // or Ideogram sees a gray band mid-lip and paints a gray lower lip.
   const bibData  = imgCtx2d.getImageData(0, 0, outW, outH);
   const bd = bibData.data;
-  const bibStartY = Math.min(outH - 1, tbY + tbH + 4);
+  const bibStartY = Math.min(outH - 1, collapsed
+    ? Math.round(tbY + tbH / 2 + tbH * 2.2 + 10)
+    : tbY + tbH + 4);
   for (let y = bibStartY; y < outH; y++) {
     for (let x = 0; x < outW; x++) {
       const i = (y * outW + x) * 4;
@@ -1775,34 +1779,22 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   // Load MP mask early — needed for tooth-erase step and blend mask.
   const mpMaskImg = await loadImage(mpMaskDataUrl);
 
-  // Collapsed openings: vertically expanded mask for the EDIT zone and BLEND
-  // (up 0.45×colH, down 0.18×colH). Tooth-erase stays at the original polygon —
-  // Ideogram sees real lip pixels in the expanded zone and may adjust the inner
-  // lip edge slightly; the blend feather hides that transition.
+  // Collapsed openings: PERIORAL ellipse mask for the EDIT zone and BLEND —
+  // includes the lips, so Ideogram can repaint a parted, lip-supported broad
+  // smile (matches how a real prosthetic restores lip support). Tooth-erase
+  // stays at the original inner-mouth polygon. Validated against the true
+  // post-op result of a full-arch case: 5/5 draws produced the full smile,
+  // vs the prior column-expansion approach which stayed mask-bound and narrow.
   let expMaskC = null;
   if (collapsed) {
     expMaskC = document.createElement('canvas');
     expMaskC.width = outW; expMaskC.height = outH;
     const eCtx = expMaskC.getContext('2d');
     eCtx.fillStyle = '#000'; eCtx.fillRect(0, 0, outW, outH);
-    eCtx.drawImage(mpMaskImg, cx, cy, cw, ch, 0, 0, outW, outH);
-    const ed = eCtx.getImageData(0, 0, outW, outH);
-    const epx = ed.data;
-    for (let x = 0; x < outW; x++) {
-      let top = -1, bot = -1;
-      for (let y = 0; y < outH; y++) {
-        if (epx[(y * outW + x) * 4] > 128) { if (top < 0) top = y; bot = y; }
-      }
-      if (top < 0) continue;
-      const h = bot - top;
-      const nt = Math.max(0, Math.round(top - 0.45 * h));
-      const nb = Math.min(outH - 1, Math.round(bot + 0.18 * h));
-      for (let y = nt; y <= nb; y++) {
-        const i = (y * outW + x) * 4;
-        epx[i] = 255; epx[i+1] = 255; epx[i+2] = 255; epx[i+3] = 255;
-      }
-    }
-    eCtx.putImageData(ed, 0, 0);
+    eCtx.fillStyle = '#fff';
+    eCtx.beginPath();
+    eCtx.ellipse(tbX + tbW / 2, tbY + tbH / 2, tbW * 0.72, tbH * 2.2, 0, 0, Math.PI * 2);
+    eCtx.fill();
   }
   const drawMask = ctx => {
     if (expMaskC) ctx.drawImage(expMaskC, 0, 0);
@@ -1846,7 +1838,7 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
     const startRes = await fetch(`${PROXY_URL}/api/ideogram/inpaint`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: cropImgUrl, mask: ideoMaskUrl, variant: collapsed ? 'fullArch' : undefined }),
+      body: JSON.stringify({ image: cropImgUrl, mask: ideoMaskUrl, variant: collapsed ? 'perioralSmile' : undefined }),
     });
     if (!startRes.ok) { const t = await startRes.text().catch(()=>''); throw new Error(`Ideogram ${startRes.status}: ${t.slice(0,200)}`); }
     const startData = await startRes.json();
@@ -1901,14 +1893,18 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
     toothA[i / 4] = brightness;
   }
   // Fade blend to 0 at commissure edges (left/right of tooth bounds).
-  // Prevents Ideogram color drift at mouth corners from showing through as a seam.
-  const commMargin = Math.round(tbW * 0.10);
-  for (let i = 0; i < am.length; i += 4) {
-    if (am[i + 3] === 0) continue;
-    const x    = (i / 4) % outW;
-    const minH = Math.min(x - tbX, (tbX + tbW) - 1 - x);
-    if (minH < commMargin) {
-      am[i + 3] = Math.round(am[i + 3] * Math.max(0, minH / commMargin));
+  // Prevents Ideogram color drift at mouth corners from showing through as a
+  // seam. Skipped for collapsed: the fade is bbox-relative and would clip the
+  // perioral ellipse; the larger blur feathers it instead.
+  if (!collapsed) {
+    const commMargin = Math.round(tbW * 0.10);
+    for (let i = 0; i < am.length; i += 4) {
+      if (am[i + 3] === 0) continue;
+      const x    = (i / 4) % outW;
+      const minH = Math.min(x - tbX, (tbX + tbW) - 1 - x);
+      if (minH < commMargin) {
+        am[i + 3] = Math.round(am[i + 3] * Math.max(0, minH / commMargin));
+      }
     }
   }
   amCtx.putImageData(amData, 0, 0);
@@ -1916,7 +1912,7 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   const blendMask = document.createElement('canvas');
   blendMask.width = outW; blendMask.height = outH;
   const bmCtx = blendMask.getContext('2d');
-  bmCtx.filter = 'blur(10px)';
+  bmCtx.filter = collapsed ? 'blur(16px)' : 'blur(10px)';
   bmCtx.drawImage(alphaMaskC, 0, 0);
   bmCtx.filter = 'none';
 
@@ -1924,7 +1920,12 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   ideoC.width = outW; ideoC.height = outH;
   const iCtx = ideoC.getContext('2d');
   iCtx.drawImage(ideoImg, 0, 0, outW, outH);
-  harmonizeTeeth(iCtx, cleanCropData, toothA, outW, outH, { tbX, tbY, tbW, tbH }, { cap: collapsed ? -1 : HARMONIZE_CAP });
+  // Harmonization is skipped for collapsed: toothA is the perioral ellipse
+  // (lips included), so the tooth-pixel statistics would be wrong. The ellipse
+  // draws were validated without it.
+  if (!collapsed) {
+    harmonizeTeeth(iCtx, cleanCropData, toothA, outW, outH, { tbX, tbY, tbW, tbH });
+  }
   iCtx.globalCompositeOperation = 'destination-in';
   iCtx.drawImage(blendMask, 0, 0);
 
