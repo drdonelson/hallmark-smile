@@ -105,6 +105,9 @@ async function handleKlingStart(request, env, origin) {
     });
   }
 
+  const blockedVid = await meter(env, request, tenantOf(body), 'videos', origin);
+  if (blockedVid) return blockedVid;
+
   const prompt =
     'The person slowly turns their head to the left showing their new smile in profile, ' +
     'then turns back to face the camera directly, smiling broadly the whole time. ' +
@@ -520,6 +523,8 @@ async function handleIdeogramInpaint(request, env, origin) {
       status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
   }
+  const blocked = await meter(env, request, tenantOf(body), 'sims', origin);
+  if (blocked) return blocked;
   let imageUrl, maskUrl;
   try {
     [imageUrl, maskUrl] = await Promise.all([r2Upload(env, image), r2Upload(env, mask)]);
@@ -581,6 +586,71 @@ const REPLICATE_SDXL_VERSION = 'a5b13068cc81a89a4fbeefeccc774869fcb34df4dbc92c15
 // Format: "username/model-name:version-hash"  e.g. "drdonelson/dental-inpaint:abc123..."
 // When unset, /api/dental/inpaint falls back to the generic SDXL inpainting model.
 const WORKER_HOST = 'quiet-forest-e1f8.david-d73.workers.dev';
+
+// ── Usage metering ──────────────────────────────────────────────
+// R2-backed counters (reuses the TEMP_IMAGES bucket — no new infra).
+// Counts are best-effort (concurrent increments may rarely lose one);
+// the goal is cost protection and per-tenant accounting, not billing-
+// grade precision. 'sims' are counted in API CALLS — best-of-2 means
+// 2 calls per patient simulation, so caps are 2× the intended run count.
+const TENANTS = {
+  hallmark: { sims: 2000, videos: 100 },   // ≈1000 simulations/mo
+  lucid:    { sims: 1000, videos: 50 },    // ≈500 simulations/mo
+  unknown:  { sims: 200,  videos: 10 },    // direct opens / unrecognized embeds
+};
+const IP_DAILY = { sims: 30, videos: 6 };  // per-visitor abuse stop (≈15 sims/day)
+
+function tenantOf(body) {
+  const t = ((body && body.tenant) || '').toLowerCase();
+  return TENANTS[t] ? t : 'unknown';
+}
+async function usageRead(env, key) {
+  try {
+    const o = await env.TEMP_IMAGES.get(key);
+    return o ? await o.json() : { sims: 0, videos: 0 };
+  } catch { return { sims: 0, videos: 0 }; }
+}
+// Returns null when allowed (and records the use), or a 429 Response.
+async function meter(env, request, tenant, kind, origin) {
+  try {
+    const now = new Date().toISOString();
+    const tKey  = `usage/${tenant}/${now.slice(0, 7)}.json`;
+    const ipKey = `usage/ip/${now.slice(0, 10)}/${request.headers.get('CF-Connecting-IP') || 'noip'}.json`;
+    const [tUse, ipUse] = await Promise.all([usageRead(env, tKey), usageRead(env, ipKey)]);
+    if (tUse[kind] >= TENANTS[tenant][kind]) {
+      return new Response(JSON.stringify({ error: 'This site has reached its monthly simulation limit. Please contact the practice.' }), {
+        status: 429, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+      });
+    }
+    if (ipUse[kind] >= IP_DAILY[kind]) {
+      return new Response(JSON.stringify({ error: 'Daily limit reached for this device. Please try again tomorrow.' }), {
+        status: 429, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+      });
+    }
+    tUse[kind]++; ipUse[kind]++;
+    await Promise.all([
+      env.TEMP_IMAGES.put(tKey, JSON.stringify(tUse)),
+      env.TEMP_IMAGES.put(ipKey, JSON.stringify(ipUse)),
+    ]);
+    return null;
+  } catch (e) {
+    return null;   // fail-open: metering must never take the product down
+  }
+}
+async function handleUsage(request, env, origin) {
+  const url = new URL(request.url);
+  const tenant = (url.searchParams.get('tenant') || '').toLowerCase();
+  if (!TENANTS[tenant]) {
+    return new Response(JSON.stringify({ error: 'Unknown tenant', tenants: Object.keys(TENANTS) }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  const month = new Date().toISOString().slice(0, 7);
+  const use = await usageRead(env, `usage/${tenant}/${month}.json`);
+  return new Response(JSON.stringify({ tenant, month, used: use, caps: TENANTS[tenant] }), {
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+}
 
 async function r2Upload(env, dataUrl) {
   const [header, b64] = dataUrl.split(',');
@@ -875,6 +945,9 @@ export default {
     // Ideogram v2 inpainting (primary AI path)
     if (url.pathname === '/api/ideogram/inpaint' && request.method === 'POST') {
       return handleIdeogramInpaint(request, env, origin);
+    }
+    if (url.pathname === '/api/usage' && request.method === 'GET') {
+      return handleUsage(request, env, origin);
     }
 
     // Replicate SDXL Inpainting

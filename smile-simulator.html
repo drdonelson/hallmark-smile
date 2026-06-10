@@ -1035,6 +1035,23 @@
 /* ── Constants ─────────────────────────────────────────────────── */
 // REPLACE THIS WITH YOUR CLOUDFLARE WORKER URL BEFORE GOING LIVE
 const PROXY_URL  = 'https://quiet-forest-e1f8.david-d73.workers.dev';
+
+// Tenant for usage metering — resolved like the theme: explicit ?tenant=
+// wins, then the embedding site's hostname, else 'unknown' (direct opens,
+// unrecognized embeds — these get the smallest quota).
+const TENANT = (() => {
+  const p = new URLSearchParams(location.search).get('tenant');
+  if (p) return p;
+  const BY_HOST = {
+    'hallmarkdds.com': 'hallmark', 'hallmarkdental.com': 'hallmark',
+    'lucidroi.com': 'lucid',
+  };
+  try {
+    const host = new URL(document.referrer).hostname.replace(/^www\./, '');
+    if (BY_HOST[host]) return BY_HOST[host];
+  } catch (e) { /* no referrer */ }
+  return 'unknown';
+})();
 const MAX_BYTES  = 1024 * 1024;
 const LS_LEADS   = 'hd_leads';
 const LS_URL     = 'hd_booking_url';
@@ -1880,7 +1897,7 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
     const startRes = await fetch(`${PROXY_URL}/api/ideogram/inpaint`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: cropImgUrl, mask: ideoMaskUrl, variant: collapsed ? 'perioralSmile' : undefined }),
+      body: JSON.stringify({ image: cropImgUrl, mask: ideoMaskUrl, variant: collapsed ? 'perioralSmile' : undefined, tenant: TENANT }),
     });
     if (!startRes.ok) { const t = await startRes.text().catch(()=>''); throw new Error(`Ideogram ${startRes.status}: ${t.slice(0,200)}`); }
     const startData = await startRes.json();
@@ -2409,6 +2426,9 @@ async function generateSmile(dataUrl) {
         return ideoResult;
       }
     } catch(e) {
+      // Quota rejections must NOT fall through to the unmetered fallbacks —
+      // that would burn fal/OpenAI spend past the cap. Abort with the message.
+      if (/limit reached/i.test(e.message)) throw e;
       console.warn('Ideogram failed, trying ControlNet+LoRA:', e.message);
     }
   }
@@ -2825,7 +2845,7 @@ async function runVideoGeneration(afterSrc, onProgress = () => {}) {
   const startRes = await fetch(`${PROXY_URL}/api/kling/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ image: croppedImage }),
+    body: JSON.stringify({ image: croppedImage, tenant: TENANT }),
   });
   const startData = await startRes.json();
   if (!startRes.ok || !startData.request_id) {
