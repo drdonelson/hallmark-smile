@@ -24,6 +24,7 @@ const P = {
   grad: parseInt(qs.get('grad')   ?? '1'),     // 1 = apply horizontal light-gradient from skin above lip
   gum:  parseFloat(qs.get('gum')  ?? '0'),     // fraction of mask column height to PRESERVE at top during tooth-erase (gingival anchor)
   expand: parseFloat(qs.get('expand') ?? '0'), // vertical mask expansion for collapsed (edentulous) openings: edit+blend zone grows up by expand×colH, down by 0.4×expand×colH; tooth-erase stays at original polygon
+  variant: qs.get('variant') || undefined,     // worker prompt variant (e.g. 'fullArch' for edentulous)
 };
 const logEl = document.getElementById('log');
 const log = m => { logEl.textContent += m + '\n'; console.log(m); };
@@ -413,7 +414,7 @@ async function run() {
   if (mode === 'baseline' || (hires && !cached)) {
     log('calling Ideogram via local proxy…');
     const r = await fetch('/api/ideogram', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: cropImgUrl, mask: ideoMaskUrl, dir: genDir }) });
+      body: JSON.stringify({ image: cropImgUrl, mask: ideoMaskUrl, dir: genDir, variant: P.variant }) });
     const d = await r.json();
     if (!r.ok || d.error) throw new Error('ideogram proxy: ' + (d.error || r.status));
     ideoLocalUrl = d.url;

@@ -63,11 +63,11 @@ async function handleLandmarks(body) {
 }
 
 async function handleIdeogram(body) {
-  const { image, mask, dir } = JSON.parse(body.toString());
+  const { image, mask, dir, variant } = JSON.parse(body.toString());
   const startRes = await fetch(`${WORKER}/api/ideogram/inpaint`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Origin': ORIGIN },
-    body: JSON.stringify({ image, mask }),
+    body: JSON.stringify({ image, mask, variant }),
   });
   const startText = await startRes.text();
   if (!startRes.ok) throw new Error(`worker ${startRes.status}: ${startText.slice(0, 300)}`);
