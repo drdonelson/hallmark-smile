@@ -16,10 +16,10 @@ const OPENAI_BASE    = 'https://api.openai.com';
 const RUNWAY_BASE    = 'https://api.dev.runwayml.com/v1';
 const RUNWAY_VERSION = '2024-11-06';
 const FAL_BASE       = 'https://queue.fal.run';
-// Kling v3 Pro: supports 3–15s durations (8s matches the reference videos),
-// native English audio (the patient audibly says the line), prompt-driven
-// head motion. v1.6 standard ignored complex motion direction entirely.
-const KLING_MODEL    = 'fal-ai/kling-video/v3/pro/image-to-video';
+// Seedance v1 lite: 8s duration, 720p, strong prompt-driven human motion,
+// and FAST (~60-90s delivery — Kling v3 Pro took 3+ min, v1.6 standard
+// ignored motion direction entirely). No audio — visual mouthing only.
+const KLING_MODEL    = 'fal-ai/bytedance/seedance/v1/lite/image-to-video';
 
 // CORS headers added to every response
 function corsHeaders(origin) {
@@ -108,13 +108,10 @@ async function handleKlingStart(request, env, origin) {
   const prompt =
     'The person slowly turns their head to the left showing their new smile in profile, ' +
     'then turns back to face the camera directly, smiling broadly the whole time. ' +
-    'Looking at the camera, they say with genuine delight "this smile is absolutely amazing" ' +
-    'and then laugh warmly and naturally. Joyful confident energy, eyes sparkling, ' +
-    'natural blinking, natural lip and jaw articulation while speaking, ' +
+    'Looking at the camera, they mouth the words "this smile is absolutely amazing" ' +
+    'with natural lip and jaw articulation, then laugh warmly and naturally. ' +
+    'Joyful confident energy, eyes sparkling, natural blinking, ' +
     'photorealistic human face, soft studio lighting, camera static.';
-  const negative_prompt =
-    'blur, distort, low quality, frozen face, static image, warped teeth, ' +
-    'deformed mouth, extra teeth, face morphing, identity change';
 
   let fal;
   try {
@@ -126,10 +123,10 @@ async function handleKlingStart(request, env, origin) {
       },
       body: JSON.stringify({
         prompt,
-        negative_prompt,
-        start_image_url: image,   // v3 param name (was image_url in ≤v2.x)
-        duration:        '8',
-        generate_audio:  true,    // native English speech + laugh
+        image_url:    image,
+        duration:     '8',
+        resolution:   '720p',
+        camera_fixed: true,
       }),
     });
   } catch (err) {
