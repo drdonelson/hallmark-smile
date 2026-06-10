@@ -815,7 +815,18 @@
         '--off-white': '#f4f7ff', '--light-grey': '#e6ecfa',
       },
     };
-    const t = THEMES[new URLSearchParams(location.search).get('theme')];
+    // Explicit ?theme= wins; otherwise infer the theme from the embedding
+    // site (document.referrer carries at least the parent origin for iframes),
+    // so host sites get their palette with no edit on their end.
+    const REFERRER_THEMES = { 'lucidroi.com': 'lucid' };
+    let name = new URLSearchParams(location.search).get('theme');
+    if (!name && document.referrer) {
+      try {
+        const host = new URL(document.referrer).hostname.replace(/^www\./, '');
+        name = REFERRER_THEMES[host];
+      } catch (e) { /* unparseable referrer — keep default theme */ }
+    }
+    const t = THEMES[name];
     if (t) for (const [k, v] of Object.entries(t)) document.documentElement.style.setProperty(k, v);
   })();
   </script>
