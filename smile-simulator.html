@@ -1741,7 +1741,11 @@ function scoreToothGeneration(img, outW, outH, tb) {
     const c0 = colSum[x] / colN[x];
     if (c0 < colSum[x-2] / colN[x-2] - 2.5 && c0 < colSum[x+2] / colN[x+2] - 2.5) emb++;
   }
-  return emb * 3 + Math.min(sd, 14) - 25 * (glare / n);
+  // Coverage: dark unfilled zones inside the tooth band read as missing teeth
+  // (observed live: black gaps at the smile corners). Reward draws that fill
+  // the band with tooth pixels.
+  const fill = n / Math.max(1, (y1 - y0) * (x1 - x0));
+  return emb * 3 + Math.min(sd, 14) + fill * 20 - 25 * (glare / n);
 }
 
 /* ── Path 1b: Ideogram v2 with zoomed mouth crop (primary) ─────── */
@@ -1889,23 +1893,20 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
     throw new Error('Ideogram timed out');
   }
 
-  // Collapsed cases have high generation variance (slabs, cold specular glare).
+  // Ideogram generation has real run-to-run variance for ALL case types:
+  // slabs, cold specular glare, dark unfilled gaps at the smile corners.
   // Run TWO predictions in parallel and keep the better one — scored below by
-  // embrasure definition, tonal variation, and glare. Same wall-clock time.
-  let ideoImg;
-  if (collapsed) {
-    const settled = await Promise.allSettled([runIdeogram(), runIdeogram()]);
-    const urls = settled.filter(s => s.status === 'fulfilled').map(s => s.value);
-    if (!urls.length) throw settled[0].reason;
-    const imgs = await Promise.all(urls.map(u => loadImage(u)));
-    ideoImg = imgs[0];
-    if (imgs.length === 2) {
-      const scores = imgs.map(img => scoreToothGeneration(img, outW, outH, { tbX, tbY, tbW, tbH }));
-      console.log('best-of-2 scores:', scores.map(s => s.toFixed(1)).join(' vs '));
-      if (scores[1] > scores[0]) ideoImg = imgs[1];
-    }
-  } else {
-    ideoImg = await loadImage(await runIdeogram());
+  // embrasure definition, tonal variation, mask coverage, and glare.
+  // Same wall-clock time; 2× generation cost (~$0.16/run).
+  const settled = await Promise.allSettled([runIdeogram(), runIdeogram()]);
+  const urls = settled.filter(s => s.status === 'fulfilled').map(s => s.value);
+  if (!urls.length) throw settled[0].reason;
+  const imgs = await Promise.all(urls.map(u => loadImage(u)));
+  let ideoImg = imgs[0];
+  if (imgs.length === 2) {
+    const scores = imgs.map(img => scoreToothGeneration(img, outW, outH, { tbX, tbY, tbW, tbH }));
+    console.log('best-of-2 scores:', scores.map(s => s.toFixed(1)).join(' vs '));
+    if (scores[1] > scores[0]) ideoImg = imgs[1];
   }
 
   // Pixel-precise blend mask from MediaPipe tooth shape (not a bbox rect).
