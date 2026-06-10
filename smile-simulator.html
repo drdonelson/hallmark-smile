@@ -1676,6 +1676,41 @@ function harmonizeTeeth(genCtx, cleanData, toothA, outW, outH, tb, opts = {}) {
   genCtx.putImageData(gen, 0, 0);
 }
 
+// Score a generated tooth crop for best-of-N selection. Higher is better.
+// Rewards inter-dental definition (local minima in the column brightness
+// profile) and tonal variation (slab teeth are flat); penalizes cold specular
+// glare (bright near-white pixels with no warmth — the "pearl" artifact).
+function scoreToothGeneration(img, outW, outH, tb) {
+  const c = document.createElement('canvas');
+  c.width = outW; c.height = outH;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(img, 0, 0, outW, outH);
+  const d = ctx.getImageData(0, 0, outW, outH).data;
+  const y0 = Math.max(0, Math.round(tb.tbY - tb.tbH * 0.5)), y1 = Math.min(outH, tb.tbY + tb.tbH);
+  const x0 = tb.tbX, x1 = tb.tbX + tb.tbW;
+  const colSum = new Float64Array(outW), colN = new Float64Array(outW);
+  let n = 0, sum = 0, sum2 = 0, glare = 0;
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      const i = (y * outW + x) * 4;
+      const [L, , b] = srgb2lab(d[i], d[i+1], d[i+2]);
+      if (L < 55) continue;                  // tooth-ish pixels only
+      n++; sum += L; sum2 += L * L;
+      colSum[x] += L; colN[x]++;
+      if (L > 88 && b < 2) glare++;
+    }
+  }
+  if (n < 200) return -1e9;                  // no teeth generated at all
+  const mean = sum / n, sd = Math.sqrt(Math.max(0, sum2 / n - mean * mean));
+  let emb = 0;
+  for (let x = x0 + 2; x < x1 - 2; x++) {
+    if (colN[x] < 3 || colN[x-2] < 3 || colN[x+2] < 3) continue;
+    const c0 = colSum[x] / colN[x];
+    if (c0 < colSum[x-2] / colN[x-2] - 2.5 && c0 < colSum[x+2] / colN[x+2] - 2.5) emb++;
+  }
+  return emb * 3 + Math.min(sd, 14) - 25 * (glare / n);
+}
+
 /* ── Path 1b: Ideogram v2 with zoomed mouth crop (primary) ─────── */
 // Same crop-zoom + bib desaturation as fluxCropMakeover, but uses Ideogram v2
 // inpainting via Replicate. Mask convention INVERTED vs FLUX: black=edit, white=keep.
@@ -1806,33 +1841,47 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   imCtx.putImageData(maskPx, 0, 0);
   const ideoMaskUrl = ideoMaskC.toDataURL('image/png');
 
-  const startRes = await fetch(`${PROXY_URL}/api/ideogram/inpaint`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ image: cropImgUrl, mask: ideoMaskUrl }),
-  });
-  if (!startRes.ok) { const t = await startRes.text().catch(()=>''); throw new Error(`Ideogram ${startRes.status}: ${t.slice(0,200)}`); }
-  const startData = await startRes.json();
-  if (startData.error) throw new Error('Ideogram: ' + startData.error);
-  if (!startData.id) throw new Error('No prediction ID from Ideogram: ' + JSON.stringify(startData).slice(0,200));
-
-  // Ideogram output is a string URL (not array). Poll Replicate status endpoint.
-  const t0 = Date.now();
-  let ideoUrl = null;
-  while (Date.now() - t0 < 120000) {
-    await new Promise(r => setTimeout(r, 4000));
-    const sr = await fetch(`${PROXY_URL}/api/replicate/status?id=${encodeURIComponent(startData.id)}`);
-    const sd = await sr.json();
-    console.log('Ideogram poll:', sd.status, Math.round((Date.now()-t0)/1000)+'s');
-    if (sd.status === 'succeeded') {
-      ideoUrl = Array.isArray(sd.output) ? sd.output[0] : sd.output;
-      break;
+  // Start one Ideogram prediction and poll it to completion; returns output URL.
+  async function runIdeogram() {
+    const startRes = await fetch(`${PROXY_URL}/api/ideogram/inpaint`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: cropImgUrl, mask: ideoMaskUrl, variant: collapsed ? 'fullArch' : undefined }),
+    });
+    if (!startRes.ok) { const t = await startRes.text().catch(()=>''); throw new Error(`Ideogram ${startRes.status}: ${t.slice(0,200)}`); }
+    const startData = await startRes.json();
+    if (startData.error) throw new Error('Ideogram: ' + startData.error);
+    if (!startData.id) throw new Error('No prediction ID from Ideogram: ' + JSON.stringify(startData).slice(0,200));
+    const t0 = Date.now();
+    while (Date.now() - t0 < 120000) {
+      await new Promise(r => setTimeout(r, 4000));
+      const sr = await fetch(`${PROXY_URL}/api/replicate/status?id=${encodeURIComponent(startData.id)}`);
+      const sd = await sr.json();
+      console.log('Ideogram poll:', sd.status, Math.round((Date.now()-t0)/1000)+'s');
+      if (sd.status === 'succeeded') return Array.isArray(sd.output) ? sd.output[0] : sd.output;
+      if (sd.status === 'failed' || sd.status === 'canceled') throw new Error('Ideogram failed: ' + JSON.stringify(sd.error));
     }
-    if (sd.status === 'failed' || sd.status === 'canceled') throw new Error('Ideogram failed: ' + JSON.stringify(sd.error));
+    throw new Error('Ideogram timed out');
   }
-  if (!ideoUrl) throw new Error('Ideogram timed out');
 
-  const ideoImg = await loadImage(ideoUrl);
+  // Collapsed cases have high generation variance (slabs, cold specular glare).
+  // Run TWO predictions in parallel and keep the better one — scored below by
+  // embrasure definition, tonal variation, and glare. Same wall-clock time.
+  let ideoImg;
+  if (collapsed) {
+    const settled = await Promise.allSettled([runIdeogram(), runIdeogram()]);
+    const urls = settled.filter(s => s.status === 'fulfilled').map(s => s.value);
+    if (!urls.length) throw settled[0].reason;
+    const imgs = await Promise.all(urls.map(u => loadImage(u)));
+    ideoImg = imgs[0];
+    if (imgs.length === 2) {
+      const scores = imgs.map(img => scoreToothGeneration(img, outW, outH, { tbX, tbY, tbW, tbH }));
+      console.log('best-of-2 scores:', scores.map(s => s.toFixed(1)).join(' vs '));
+      if (scores[1] > scores[0]) ideoImg = imgs[1];
+    }
+  } else {
+    ideoImg = await loadImage(await runIdeogram());
+  }
 
   // Pixel-precise blend mask from MediaPipe tooth shape (not a bbox rect).
   // Convert MediaPipe brightness (white=teeth, black=face) → alpha channel,
