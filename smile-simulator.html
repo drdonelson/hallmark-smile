@@ -2645,10 +2645,12 @@ $('leadForm').addEventListener('submit', async e => {
     $('resultVideo').src = '';
     $('resultVideo').style.display = 'none';
     runwayVideoUrl = null;
+    videoPregen = null; videoPregenSrc = null;
 
-    // Pre-generate the shareable video while the patient looks at the photo —
-    // by the time they tap "Create Shareable Video" it's done or nearly done.
-    startVideoPregen(resultUrl);
+    // Video pre-generation is intentionally NOT started here — each video
+    // costs ~$0.20 whether or not the button is tapped. Generation begins on
+    // demand when the user taps "Create Shareable Video". To restore instant
+    // perceived delivery, call startVideoPregen(resultUrl) here.
 
     // Load both images
     $('beforeImg').src = imgDataUrl;
