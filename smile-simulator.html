@@ -538,6 +538,18 @@
       border-top: 1px solid var(--light-grey);
       margin-top: 12px;
     }
+    .share-note {
+      font-size: 0.8rem; color: var(--navy); text-align: center;
+      background: rgba(var(--gold-rgb),0.1); border: 1px solid rgba(var(--gold-rgb),0.3);
+      border-radius: 8px; padding: 8px 12px; margin-top: 10px; font-weight: 600;
+    }
+    .site-footer {
+      text-align: center; padding: 22px 16px 8px; margin-top: 8px;
+      font-size: 0.74rem; color: var(--mid-grey);
+    }
+    .site-footer a { color: var(--mid-grey); text-decoration: none; }
+    .site-footer a:hover { color: var(--navy); text-decoration: underline; }
+    .site-footer .sep { margin: 0 8px; opacity: 0.5; }
     .results-actions { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
     .secondary-actions { display: flex; gap: 10px; }
 
@@ -911,10 +923,13 @@
           <div class="checkbox-wrap" id="disclaimerWrap">
             <input type="checkbox" id="fDisclaimer">
             <label class="checkbox-label" for="fDisclaimer">
-              I understand this AI visualization is for educational purposes only. Actual results depend on individual treatment planning by a licensed dentist.
+              I consent to my photo being processed by AI to create a cosmetic smile visualization, and to my before/after result being emailed to me and shared with the dental practice for review. I understand this is a simulation for cosmetic education only &mdash; not a medical diagnosis, treatment plan, or guarantee &mdash; and that actual results depend on a licensed dentist. I have read the
+              <a href="legal/privacy.html" target="_blank" rel="noopener">Privacy Policy</a>,
+              <a href="legal/terms.html" target="_blank" rel="noopener">Terms</a>, and
+              <a href="legal/disclaimer.html" target="_blank" rel="noopener">Disclaimer</a>.
             </label>
           </div>
-          <span class="ferr hidden" id="errDisclaimer">You must acknowledge this to continue</span>
+          <span class="ferr hidden" id="errDisclaimer">You must consent to continue</span>
         </div>
       </div>
       <div id="formError" class="error-banner hidden"></div>
@@ -953,6 +968,9 @@
     <div class="disclaimer">
       This AI visualization is for cosmetic education only. Individual results vary based on treatment planning by a licensed dentist.
     </div>
+    <div class="share-note" id="shareNote" style="display:none">
+      ✓ We've emailed this preview to you and to the practice for review.
+    </div>
     <div class="results-actions">
       <a href="#" id="bookBtn" class="btn-gold" target="_blank" rel="noopener">
         Book Your Free Consultation
@@ -977,6 +995,11 @@
     </div>
   </div>
 
+  <footer class="site-footer">
+    <a href="legal/privacy.html" target="_blank" rel="noopener">Privacy</a><span class="sep">·</span>
+    <a href="legal/terms.html" target="_blank" rel="noopener">Terms</a><span class="sep">·</span>
+    <a href="legal/disclaimer.html" target="_blank" rel="noopener">Disclaimer</a>
+  </footer>
 </main>
 
 <!-- Config Slide-out Panel -->
@@ -1060,6 +1083,7 @@ const LS_URL     = 'hd_booking_url';
 const _lp = new URLSearchParams(location.search);
 const LEAD_EMAIL    = _lp.get('leadEmail')  || 'david@hallmarkdds.com';
 const LEAD_PRACTICE = _lp.get('practice')   || 'Hallmark Dental';
+const CONSENT_VERSION = 'v1-2026-06-13';   // bump when consent wording changes
 
 // Prompt for GPT-image-1 edits API with explicit pixel mask.
 // The mask is transparent ONLY over the upper-tooth pixels; the entire face
@@ -2696,6 +2720,60 @@ function updateProgress(msg) {
 }
 
 /* ── Form submit ───────────────────────────────────────────────── */
+// Burn a subtle "AI SIMULATION" label into the result so the disclosure
+// travels with the image when downloaded or emailed (Terms §5). Returns a
+// JPEG data URL; falls back to the original on any cross-origin canvas taint.
+async function watermarkResult(url) {
+  try {
+    const img = await loadImage(url);
+    const w = img.naturalWidth || 1024, h = img.naturalHeight || 1024;
+    const c = document.createElement('canvas');
+    c.width = w; c.height = h;
+    const ctx = c.getContext('2d');
+    ctx.drawImage(img, 0, 0, w, h);
+    const pad = Math.round(Math.min(w, h) * 0.022);
+    const fs  = Math.max(12, Math.round(Math.min(w, h) * 0.030));
+    ctx.font = `700 ${fs}px Inter, sans-serif`;
+    const text = '✦ AI SIMULATION';
+    const tw = ctx.measureText(text).width;
+    const bx = w - tw - pad * 2.4, by = h - fs - pad * 1.9;
+    ctx.fillStyle = 'rgba(13,32,53,0.55)';
+    const r = fs * 0.5;
+    ctx.beginPath();
+    ctx.roundRect(bx - pad * 0.6, by - pad * 0.5, tw + pad * 1.2, fs + pad, r);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    ctx.textBaseline = 'top';
+    ctx.fillText(text, bx, by);
+    return c.toDataURL('image/jpeg', 0.92);
+  } catch (e) { console.warn('watermark skipped:', e.message); return url; }
+}
+
+let lastShareKey = null;   // dedupe guard so a result is shared once
+// Email the before/after to the patient and dentist for review (consent given).
+function shareResult(beforeUrl, afterUrl) {
+  const key = afterUrl.slice(-48);
+  if (key === lastShareKey) return;
+  lastShareKey = key;
+  fetch(`${PROXY_URL}/api/share`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      tenant:       TENANT,
+      consent:      true,
+      practice:     LEAD_PRACTICE,
+      dentistEmail: LEAD_EMAIL,
+      patientEmail: $('fEmail').value.trim(),
+      patientName:  [$('fFirstName').value.trim(), $('fLastName').value.trim()].filter(Boolean).join(' '),
+      beforeImage:  beforeUrl,
+      afterImage:   afterUrl,
+      videoUrl:     runwayVideoUrl || undefined,
+      version:      CONSENT_VERSION,
+    }),
+  }).then(r => r.ok && (() => { const n = $('shareNote'); if (n) n.style.display = 'block'; })())
+    .catch(() => {});
+}
+
 $('leadForm').addEventListener('submit', async e => {
   e.preventDefault();
   if (!validateForm()) return;
@@ -2709,6 +2787,20 @@ $('leadForm').addEventListener('submit', async e => {
     phone:     $('fPhone').value.trim(),
     interest:  $('fInterest').value,
   });
+
+  // Record consent (audit log) — fire-and-forget. The checkbox is required by
+  // validateForm(), so reaching here means the patient consented.
+  fetch(`${PROXY_URL}/api/consent`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      tenant:   TENANT,
+      practice: LEAD_PRACTICE,
+      version:  CONSENT_VERSION,
+      scope:    ['ai_processing', 'email_share'],
+      patientEmail: $('fEmail').value.trim(),
+    }),
+  }).catch(() => {});
 
   // Fire-and-forget lead email — does not block image generation
   fetch(`${PROXY_URL}/api/lead`, {
@@ -2752,9 +2844,12 @@ $('leadForm').addEventListener('submit', async e => {
     // demand when the user taps "Create Shareable Video". To restore instant
     // perceived delivery, call startVideoPregen(resultUrl) here.
 
+    // Watermark the result so the "AI SIMULATION" disclosure travels with it.
+    const afterWm = await watermarkResult(resultUrl);
+
     // Load both images
     $('beforeImg').src = imgDataUrl;
-    $('afterImg').src  = resultUrl;
+    $('afterImg').src  = afterWm;
 
     // Both images always visible in side-by-side layout
     $('beforeImg').classList.remove('hidden-img');
@@ -2769,6 +2864,9 @@ $('leadForm').addEventListener('submit', async e => {
     show($('resultsCard'));
     syncBookBtn();
     $('resultsCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+    // Consent was given on the form — email the result to patient + dentist.
+    shareResult(imgDataUrl, afterWm);
   } catch (err) {
     stopProgress();
     hide($('progressCard'));

@@ -596,7 +596,7 @@ const TENANTS = {
   lucid:    { sims: 1000, videos: 50 },    // ≈500 simulations/mo
   unknown:  { sims: 200,  videos: 10 },    // direct opens / unrecognized embeds
 };
-const IP_DAILY = { sims: 30, videos: 6 };  // per-visitor abuse stop (≈15 sims/day)
+const IP_DAILY = { sims: 30, videos: 6, shares: 12 };  // per-visitor abuse stop (≈15 sims/day)
 
 function tenantOf(body) {
   const t = ((body && body.tenant) || '').toLowerCase();
@@ -615,17 +615,18 @@ async function meter(env, request, tenant, kind, origin) {
     const tKey  = `usage/${tenant}/${now.slice(0, 7)}.json`;
     const ipKey = `usage/ip/${now.slice(0, 10)}/${request.headers.get('CF-Connecting-IP') || 'noip'}.json`;
     const [tUse, ipUse] = await Promise.all([usageRead(env, tKey), usageRead(env, ipKey)]);
-    if (tUse[kind] >= TENANTS[tenant][kind]) {
+    const tCap = TENANTS[tenant][kind];   // may be undefined (e.g. 'shares' is IP-only)
+    if (tCap != null && (tUse[kind] || 0) >= tCap) {
       return new Response(JSON.stringify({ error: 'This site has reached its monthly simulation limit. Please contact the practice.' }), {
         status: 429, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
       });
     }
-    if (ipUse[kind] >= IP_DAILY[kind]) {
+    if (IP_DAILY[kind] != null && (ipUse[kind] || 0) >= IP_DAILY[kind]) {
       return new Response(JSON.stringify({ error: 'Daily limit reached for this device. Please try again tomorrow.' }), {
         status: 429, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
       });
     }
-    tUse[kind]++; ipUse[kind]++;
+    tUse[kind] = (tUse[kind] || 0) + 1; ipUse[kind] = (ipUse[kind] || 0) + 1;
     await Promise.all([
       env.TEMP_IMAGES.put(tKey, JSON.stringify(tUse)),
       env.TEMP_IMAGES.put(ipKey, JSON.stringify(ipUse)),
@@ -829,6 +830,178 @@ async function handleTempImage(request, env, imgId) {
   }
 }
 
+// ── Media library (R2) ──────────────────────────────────────────
+// Persistent, access-controlled storage for results the patient asked us to
+// email/host. Distinct from the minutes-long processing relay (r2Upload):
+// these live under the `media/` prefix with a non-guessable token key and a
+// configurable retention (default 30 days). Storage is abstracted here so the
+// backend can later be swapped to a BAA-covered store (e.g. AWS S3) without
+// touching callers — see COMPLIANCE.md.
+const MEDIA_TTL_DAYS = 30;
+function randomToken() {
+  const b = new Uint8Array(24);
+  crypto.getRandomValues(b);
+  return [...b].map(x => x.toString(16).padStart(2, '0')).join('');
+}
+// Accepts a data URL, stores bytes, returns { id, url, contentType }.
+async function storeMedia(env, dataUrl, ttlDays = MEDIA_TTL_DAYS) {
+  const [header, b64] = dataUrl.split(',');
+  const contentType = header.match(/:(.*?);/)?.[1] || 'image/jpeg';
+  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  const id = randomToken();
+  await env.TEMP_IMAGES.put(`media/${id}`, bytes, {
+    httpMetadata: { contentType, cacheControl: 'private, max-age=86400' },
+    customMetadata: { expires: String(Date.now() + ttlDays * 86400_000) },
+  });
+  return { id, url: `https://${WORKER_HOST}/api/m/${id}`, contentType };
+}
+// Serve hosted media by opaque token; enforces retention (deletes if expired).
+async function handleStoredMedia(env, id) {
+  try {
+    const obj = await env.TEMP_IMAGES.get(`media/${id}`);
+    if (!obj) return new Response('Not Found', { status: 404 });
+    const exp = Number(obj.customMetadata?.expires || 0);
+    if (exp && Date.now() > exp) {
+      await env.TEMP_IMAGES.delete(`media/${id}`).catch(() => {});
+      return new Response('Expired', { status: 410 });
+    }
+    return new Response(obj.body, {
+      headers: {
+        'Content-Type': obj.httpMetadata?.contentType || 'image/jpeg',
+        'Cache-Control': 'private, max-age=86400',
+        'X-Robots-Tag': 'noindex',
+      },
+    });
+  } catch { return new Response('Error', { status: 500 }); }
+}
+
+// ── Consent audit log ───────────────────────────────────────────
+// Append-only-style record (one object per consent) for defensibility.
+async function logConsent(env, rec) {
+  try {
+    const id = randomToken();
+    const day = new Date().toISOString().slice(0, 10);
+    await env.TEMP_IMAGES.put(`consent/${day}/${id}.json`, JSON.stringify(rec), {
+      customMetadata: { expires: String(Date.now() + 365 * 86400_000) },  // keep 1yr
+    });
+    return id;
+  } catch { return null; }
+}
+async function handleConsent(request, env, origin) {
+  let body; try { body = await request.json(); } catch { body = {}; }
+  const id = await logConsent(env, {
+    ts: new Date().toISOString(),
+    ip: request.headers.get('CF-Connecting-IP') || null,
+    tenant: tenantOf(body),
+    version: body.version || 'v1',
+    scope: body.scope || null,         // e.g. ['ai_processing','email_share']
+    practice: body.practice || null,
+    patientEmail: body.patientEmail || null,
+  });
+  return new Response(JSON.stringify({ ok: true, id }), {
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+}
+
+// ── Share: email the before/after to patient and/or dentist ─────
+// POST { beforeImage, afterImage, videoUrl?, patientEmail?, patientName?,
+//        dentistEmail?, practice?, tenant?, consent: true }
+// Gated on explicit consent. Stores images in the media library (30d) and
+// emails hosted https links + inline preview with the SIMULATION label.
+async function handleShare(request, env, origin) {
+  if (!env.RESEND_API_KEY) {
+    return new Response(JSON.stringify({ error: 'Email not configured' }), {
+      status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  let body; try { body = await request.json(); } catch {
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  if (body.consent !== true) {
+    return new Response(JSON.stringify({ error: 'Consent required to share results.' }), {
+      status: 403, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  const limited = await meter(env, request, tenantOf(body), 'shares', origin);
+  if (limited) return limited;
+
+  const {
+    beforeImage, afterImage, videoUrl,
+    patientEmail = '', patientName = '',
+    dentistEmail = 'david@hallmarkdds.com', practice = 'Hallmark Dental',
+  } = body;
+  if (!afterImage) {
+    return new Response(JSON.stringify({ error: 'Missing afterImage' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+
+  // Persist to the media library (hosted https links survive the email).
+  let beforeUrl = null, afterUrl = null;
+  try {
+    if (beforeImage) beforeUrl = (await storeMedia(env, beforeImage)).url;
+    afterUrl = (await storeMedia(env, afterImage)).url;
+  } catch (e) {
+    return new Response(JSON.stringify({ error: 'Storage failed: ' + e.message }), {
+      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+
+  await logConsent(env, {
+    ts: new Date().toISOString(), ip: request.headers.get('CF-Connecting-IP') || null,
+    tenant: tenantOf(body), version: body.version || 'v1',
+    scope: ['ai_processing', 'email_share'], practice, patientEmail: patientEmail || null,
+    action: 'share', afterId: afterUrl,
+  });
+
+  const LEGAL = 'https://drdonelson.github.io/hallmark-smile/legal';
+  const label = `<div style="margin:14px 0 4px;font:600 12px sans-serif;letter-spacing:.04em;color:#8a6d12;background:#fff8e6;border:1px solid #e3c659;border-radius:6px;padding:8px 11px;display:inline-block">AI SIMULATION &mdash; NOT A CLINICAL OUTCOME</div>`;
+  const baBlock = `
+    <table style="border-collapse:collapse"><tr>
+      ${beforeUrl ? `<td style="padding:6px;text-align:center"><img src="${beforeUrl}" alt="Before" width="240" style="border-radius:10px;display:block"><div style="font:600 12px sans-serif;color:#6b7a90;margin-top:6px">BEFORE</div></td>` : ''}
+      <td style="padding:6px;text-align:center"><img src="${afterUrl}" alt="After — AI simulation" width="240" style="border-radius:10px;display:block"><div style="font:600 12px sans-serif;color:#1B3A5C;margin-top:6px">AFTER (simulation)</div></td>
+    </tr></table>
+    ${videoUrl ? `<p style="font:14px sans-serif"><a href="${videoUrl}">&#9658; View the shareable video</a></p>` : ''}
+    ${label}
+    <p style="font:12px sans-serif;color:#6b7a90;margin-top:14px">This AI visualization is for cosmetic education only and is not a medical diagnosis, treatment plan, or guarantee. Individual results vary by anatomy and clinician technique. See the <a href="${LEGAL}/disclaimer.html">Disclaimer</a> &amp; <a href="${LEGAL}/privacy.html">Privacy Policy</a>. Links expire in ${MEDIA_TTL_DAYS} days.</p>`;
+
+  const sends = [];
+  if (patientEmail) {
+    sends.push(fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        from: 'Smile Simulator <leads@lucidroi.com>',
+        to: [patientEmail],
+        subject: `Your smile preview from ${practice}`,
+        html: `<h2 style="font-family:Georgia,serif;color:#1B3A5C">${patientName ? patientName + ', here' : 'Here'}'s your smile preview</h2>
+          <p style="font:15px sans-serif;color:#36465c">Thanks for trying the smile simulator. Here is your before/after &mdash; share it with ${practice} at your consultation.</p>
+          ${baBlock}`,
+      }),
+    }).catch(() => null));
+  }
+  // Always notify the dentist for review/evaluation.
+  sends.push(fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: 'Smile Simulator <leads@lucidroi.com>',
+      to: [dentistEmail],
+      subject: `Smile simulation for review${patientName ? ' — ' + patientName : ''}`,
+      html: `<h2 style="font-family:Georgia,serif;color:#1B3A5C">Smile simulation for review</h2>
+        <p style="font:14px sans-serif;color:#36465c"><strong>Practice:</strong> ${practice}${patientName ? `<br><strong>Patient:</strong> ${patientName}` : ''}${patientEmail ? `<br><strong>Patient email:</strong> ${patientEmail}` : ''}</p>
+        ${baBlock}`,
+    }),
+  }).catch(() => null));
+
+  await Promise.all(sends);
+  return new Response(JSON.stringify({ ok: true, beforeUrl, afterUrl }), {
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+}
+
 // --- Lead email routing via Resend ---
 // Expects POST { to, practice, firstName, lastName, email, phone, interest }
 // `to` defaults to david@hallmarkdds.com when omitted (direct GitHub Pages access)
@@ -926,6 +1099,16 @@ export default {
     }
 
     // Lead email routing
+    const mMatch = url.pathname.match(/^\/api\/m\/([a-f0-9]{48})$/);
+    if (mMatch && request.method === 'GET') {
+      return handleStoredMedia(env, mMatch[1]);
+    }
+    if (url.pathname === '/api/consent' && request.method === 'POST') {
+      return handleConsent(request, env, origin);
+    }
+    if (url.pathname === '/api/share' && request.method === 'POST') {
+      return handleShare(request, env, origin);
+    }
     if (url.pathname === '/api/lead' && request.method === 'POST') {
       return handleLead(request, env, origin);
     }
