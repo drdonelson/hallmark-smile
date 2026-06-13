@@ -1953,7 +1953,7 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   // seam. Skipped for collapsed: the fade is bbox-relative and would clip the
   // perioral ellipse; the larger blur feathers it instead.
   if (!collapsed) {
-    const commMargin = Math.round(tbW * 0.10);
+    const commMargin = Math.round(tbW * 0.05);
     for (let i = 0; i < am.length; i += 4) {
       if (am[i + 3] === 0) continue;
       const x    = (i / 4) % outW;
@@ -1989,6 +1989,18 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   out.width = width; out.height = height;
   const oCtx = out.getContext('2d');
   oCtx.drawImage(origImg, 0, 0, width, height);
+  // Pre-paint: stamp Ideogram content at hard tooth shape before soft blend.
+  // Without this, the feathered edge blends white Ideogram pixels against dark
+  // original teeth → visible dark band at the lip boundary. Pre-painting makes
+  // the blend zone white→skin (invisible) instead of dark→white (visible seam).
+  const preC = document.createElement('canvas');
+  preC.width = outW; preC.height = outH;
+  const preCtx = preC.getContext('2d');
+  preCtx.drawImage(ideoImg, 0, 0, outW, outH);
+  preCtx.globalCompositeOperation = 'destination-in';
+  preCtx.drawImage(alphaMaskC, 0, 0);
+  oCtx.drawImage(preC, 0, 0, outW, outH, cx, cy, cw, ch);
+  // Soft-blended final draw on top
   oCtx.drawImage(ideoC, 0, 0, outW, outH, cx, cy, cw, ch);
   return out.toDataURL('image/jpeg', 0.93);
 }
