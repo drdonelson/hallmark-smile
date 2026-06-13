@@ -1083,6 +1083,13 @@ export default {
       return handleTempImage(request, env, imgMatch[1]);
     }
 
+    // Public hosted-media endpoint — email clients / <img> tags fetch with no
+    // Origin; opaque 48-hex token + retention check is the access control.
+    const mMatch = url.pathname.match(/^\/api\/m\/([a-f0-9]{48})$/);
+    if (mMatch && request.method === 'GET') {
+      return handleStoredMedia(env, mMatch[1]);
+    }
+
     const origin = getAllowedOrigin(request);
 
     // Reject requests from disallowed origins
@@ -1098,11 +1105,6 @@ export default {
       });
     }
 
-    // Lead email routing
-    const mMatch = url.pathname.match(/^\/api\/m\/([a-f0-9]{48})$/);
-    if (mMatch && request.method === 'GET') {
-      return handleStoredMedia(env, mMatch[1]);
-    }
     if (url.pathname === '/api/consent' && request.method === 'POST') {
       return handleConsent(request, env, origin);
     }
