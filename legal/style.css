@@ -1,0 +1,63 @@
+/* Shared styles for Smile Simulator legal pages — brand-matched to the simulator. */
+:root {
+  --navy: #1B3A5C; --navy-dark: #0d2035; --gold: #C9A84C; --gold-dark: #a8882e;
+  --ink: #1a2332; --body: #36465c; --muted: #6b7a90;
+  --line: #e7e2d8; --bg: #faf8f4; --card: #ffffff;
+  --maxw: 760px;
+}
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--bg); color: var(--body);
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  line-height: 1.65; font-size: 16px;
+}
+.wrap { max-width: var(--maxw); margin: 0 auto; padding: 48px 22px 96px; }
+header.doc { border-bottom: 1px solid var(--line); padding-bottom: 22px; margin-bottom: 8px; }
+.eyebrow {
+  display: inline-block; font-size: 0.72rem; letter-spacing: 0.13em; text-transform: uppercase;
+  color: var(--gold-dark); font-weight: 700; margin-bottom: 12px;
+}
+h1 {
+  font-family: 'Playfair Display', Georgia, serif; font-weight: 700;
+  color: var(--navy); font-size: clamp(1.7rem, 5vw, 2.4rem); line-height: 1.15; margin: 0 0 10px;
+}
+.meta { color: var(--muted); font-size: 0.86rem; margin: 0; }
+h2 {
+  font-family: 'Playfair Display', Georgia, serif; color: var(--navy);
+  font-size: 1.3rem; margin: 38px 0 12px; padding-top: 6px;
+}
+h3 { color: var(--navy); font-size: 1.02rem; margin: 24px 0 8px; font-weight: 700; }
+p, li { font-size: 0.97rem; }
+a { color: var(--navy); text-decoration: underline; text-underline-offset: 2px; }
+a:hover { color: var(--gold-dark); }
+ul, ol { padding-left: 22px; }
+li { margin: 5px 0; }
+strong { color: var(--ink); }
+.lede { font-size: 1.05rem; color: var(--ink); }
+.callout {
+  background: rgba(201,168,76,0.08); border: 1px solid rgba(201,168,76,0.3);
+  border-radius: 12px; padding: 16px 18px; margin: 22px 0;
+}
+.callout.warn { background: rgba(27,58,92,0.05); border-color: rgba(27,58,92,0.2); }
+.callout p:first-child { margin-top: 0; }
+.callout p:last-child { margin-bottom: 0; }
+table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 0.88rem; }
+th, td { border: 1px solid var(--line); padding: 9px 12px; text-align: left; vertical-align: top; }
+th { background: rgba(27,58,92,0.05); color: var(--navy); font-weight: 700; }
+.toc { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 16px 20px; margin: 24px 0; }
+.toc ol { margin: 6px 0 0; columns: 2; column-gap: 28px; }
+.toc a { text-decoration: none; }
+.toc a:hover { text-decoration: underline; }
+footer.doc {
+  margin-top: 56px; padding-top: 22px; border-top: 1px solid var(--line);
+  color: var(--muted); font-size: 0.82rem; display: flex; flex-wrap: wrap; gap: 8px 18px; justify-content: space-between;
+}
+footer.doc a { color: var(--muted); }
+.backlink { display: inline-block; margin-bottom: 26px; font-size: 0.88rem; text-decoration: none; color: var(--muted); }
+.backlink:hover { color: var(--navy); }
+.review {
+  background: #fff8e6; border: 1px dashed #d8b94a; border-radius: 8px;
+  padding: 2px 7px; font-size: 0.8rem; color: #8a6d12; font-weight: 600;
+}
+@media (max-width: 540px) { .toc ol { columns: 1; } }

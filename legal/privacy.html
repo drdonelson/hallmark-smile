@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<!--
+  PRIVACY POLICY — Smile Simulator (operated by Lucid ROI)
+  STATUS: DRAFT pending review by a healthcare/privacy attorney. See COMPLIANCE.md.
+  Fill-in placeholders are wrapped in [brackets]. Review notes are HTML comments.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — Smile Simulator</title>
+<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+  <a class="backlink" href="javascript:history.length>1?history.back():window.close()">&larr; Back</a>
+  <header class="doc">
+    <span class="eyebrow">Smile Simulator</span>
+    <h1>Privacy Policy</h1>
+    <p class="meta">Effective date: June 13, 2026 &middot; Last updated: June 13, 2026</p>
+  </header>
+
+  <p class="lede">This Privacy Policy explains how Lucid&nbsp;ROI ("Lucid," "we," "our," or "us") collects, uses, and protects information in connection with the Smile Simulator (the "Service") &mdash; an AI tool that produces a cosmetic visualization of a person's smile from a photo they provide. It applies to the Service wherever it is embedded, including on dental-practice websites and on lucidroi.com.</p>
+
+  <!-- REVIEW: Confirm exact legal entity name + form (e.g., "Lucid ROI LLC") and registered address. -->
+
+  <div class="callout">
+    <p><strong>The short version.</strong> Your photo is used to generate a smile visualization and is then deleted from our processing systems within minutes. Face-shape detection happens on your own device &mdash; not on our servers. We never sell your information, and we never use your photo to train AI models without your separate written permission. If you ask us to email your result to you and to the dental practice, we do that only with your explicit consent.</p>
+  </div>
+
+  <div class="toc">
+    <strong>Contents</strong>
+    <ol>
+      <li><a href="#collect">Information we collect</a></li>
+      <li><a href="#use">How we use it</a></li>
+      <li><a href="#ai">AI processing &amp; your photo</a></li>
+      <li><a href="#biometric">Facial geometry &amp; biometric notice</a></li>
+      <li><a href="#sharing">Sharing &amp; email delivery</a></li>
+      <li><a href="#subprocessors">Service providers</a></li>
+      <li><a href="#retention">Retention &amp; deletion</a></li>
+      <li><a href="#security">Security</a></li>
+      <li><a href="#hipaa">Dental practices &amp; HIPAA</a></li>
+      <li><a href="#rights">Your rights &amp; choices</a></li>
+      <li><a href="#minors">Children &amp; minors</a></li>
+      <li><a href="#changes">Changes</a></li>
+      <li><a href="#contact">Contact</a></li>
+    </ol>
+  </div>
+
+  <h2 id="collect">1. Information we collect</h2>
+  <p>We collect only what is needed to provide the Service:</p>
+  <ul>
+    <li><strong>The photo you upload.</strong> A facial photograph you choose to submit for visualization.</li>
+    <li><strong>Image-derived data.</strong> Technical data computed from your photo to create the visualization (e.g., the mouth region, alignment and blending masks, color/lighting values). Facial-landmark detection runs <strong>in your browser on your device</strong>; the underlying landmark geometry is not transmitted to or stored by us.</li>
+    <li><strong>Contact details you enter</strong> (optional, only if you fill in the form): first name, last name, email address, phone number, and your stated area of interest.</li>
+    <li><strong>Consent records.</strong> The fact, time, and version of the consent you provide, kept as a compliance record.</li>
+    <li><strong>Basic usage and device data</strong> needed to operate and protect the Service (e.g., request counts, error logs, and an IP-derived rate-limit signal to prevent abuse).</li>
+  </ul>
+
+  <h2 id="use">2. How we use it</h2>
+  <ul>
+    <li>To generate your cosmetic smile visualization and, if you request it, a short shareable video.</li>
+    <li>To email your before/after result to you and/or to the dental practice for review and evaluation &mdash; only when you have given explicit consent.</li>
+    <li>To pass your contact details to the dental practice you engaged with, so they can follow up about a consultation.</li>
+    <li>To operate, secure, and improve the reliability of the Service (including detecting abuse and preventing misuse).</li>
+  </ul>
+  <div class="callout warn">
+    <p><strong>No model training without your consent.</strong> We do <strong>not</strong> use your photo, your result, or your contact information to train, fine-tune, or improve generalized AI models, and we do not use them for our own marketing, unless you opt in through a separate written agreement.</p>
+  </div>
+
+  <h2 id="ai">3. AI processing &amp; your photo</h2>
+  <p>To create the visualization, your photo (and only the image &mdash; <strong>not</strong> your name, email, or phone number) is sent to third-party AI image services that generate the new smile. Your photo is transmitted over an encrypted connection, held only transiently by us as part of processing, and removed from our processing storage automatically within minutes. We instruct and configure these providers to process the image only to return a result, not to retain it for their own purposes or to train their models on it.</p>
+
+  <h2 id="biometric">4. Facial geometry &amp; biometric notice</h2>
+  <p>The Service locates the mouth and teeth in your photo so it knows where to draw the new smile. This face-shape detection is performed <strong>locally in your web browser</strong>; the resulting landmark geometry stays on your device and is not sent to us. We do <strong>not</strong>:</p>
+  <ul>
+    <li>create or store a biometric template that could be used to identify you;</li>
+    <li>perform facial recognition or attempt to identify who you are; or</li>
+    <li>sell or share biometric identifiers.</li>
+  </ul>
+  <!-- REVIEW: State biometric laws (Illinois BIPA 740 ILCS 14, Texas CUBI, Washington HB 1493). Because landmark
+       extraction is client-side and no biometric identifier is stored/transmitted server-side, BIPA exposure is
+       substantially reduced — but counsel should confirm whether any in-app written-consent/notice is required for
+       the jurisdictions you operate in, and whether the uploaded photo itself triggers any state biometric statute. -->
+  <p>Where any applicable law treats a facial photograph or facial geometry as biometric information, we rely on the consent you provide before processing and retain any such data only for as long as needed to produce your visualization, then delete it as described below.</p>
+
+  <h2 id="sharing">5. Sharing &amp; email delivery</h2>
+  <p>We do not sell your personal information. We share information only as follows:</p>
+  <ul>
+    <li><strong>With the dental practice</strong> you engaged with: your contact details and, if you consent, your before/after visualization, so they can review it and follow up with you.</li>
+    <li><strong>With you</strong>: a copy of your before/after result by email, if you ask us to send it.</li>
+    <li><strong>With service providers</strong> who help us run the Service (see below), under contracts limiting their use of the data.</li>
+    <li><strong>For legal reasons</strong>: to comply with law or valid legal process, or to protect rights, safety, and the integrity of the Service.</li>
+    <li><strong>In a business transfer</strong>: as part of a merger, acquisition, or sale of assets, subject to this Policy.</li>
+  </ul>
+
+  <h2 id="subprocessors">6. Service providers (subprocessors)</h2>
+  <table>
+    <tr><th>Provider</th><th>Purpose</th><th>Data shared</th></tr>
+    <tr><td>Cloudflare</td><td>Application/API layer, temporary image relay, and encrypted media storage</td><td>Image data; technical request data</td></tr>
+    <tr><td>Replicate</td><td>AI image generation</td><td>Image only (no name/contact)</td></tr>
+    <tr><td>fal.ai</td><td>AI image &amp; video generation</td><td>Image only (no name/contact)</td></tr>
+    <tr><td>OpenAI</td><td>AI image generation (fallback)</td><td>Image only (no name/contact)</td></tr>
+    <tr><td>Resend</td><td>Email delivery of results and lead notifications</td><td>Recipient email, name, result image/link</td></tr>
+    <tr><td>GitHub Pages</td><td>Hosting of the web application</td><td>Standard server/request logs (no photo)</td></tr>
+  </table>
+  <!-- REVIEW: Keep this table in sync with the actual stack. BAA status: Cloudflare R2 BAA = Enterprise only;
+       Replicate/fal.ai = no BAA (image-only, transient, no-retention posture); Resend = no standard BAA;
+       OpenAI = BAA available on eligible API tiers. See COMPLIANCE.md for the HIPAA upgrade path. -->
+
+  <h2 id="retention">7. Retention &amp; deletion</h2>
+  <ul>
+    <li><strong>Processing images:</strong> deleted automatically within minutes of generating your result.</li>
+    <li><strong>Saved results you asked us to email/host:</strong> retained for up to [30] days to allow you and the practice to view them, then automatically deleted. <!-- REVIEW: confirm retention window with practice/counsel --></li>
+    <li><strong>Contact details &amp; consent records:</strong> retained by the dental practice per their own policies, and by us only as needed to operate the Service and meet legal obligations.</li>
+  </ul>
+  <p>You may request earlier deletion at any time (see <a href="#contact">Contact</a>).</p>
+
+  <h2 id="security">8. Security</h2>
+  <p>We use technical and organizational safeguards including encryption in transit (TLS) and at rest, access controls, non-public/non-guessable media URLs, and short data-retention windows. No method of transmission or storage is 100% secure, but we work to protect your information and to delete it promptly when it is no longer needed.</p>
+
+  <h2 id="hipaa">9. Dental practices &amp; HIPAA</h2>
+  <p>When you use the Service as a member of the public &mdash; for example, uploading your own photo through a website &mdash; that activity is generally <strong>not</strong> regulated by HIPAA. HIPAA applies to protected health information held by a covered health-care provider in connection with treatment.</p>
+  <p>When a dental practice uses the Service with its own patients in a way that involves protected health information, the practice is the "covered entity" responsible for HIPAA compliance, and Lucid acts as a "business associate." <strong>Lucid will enter into a Business Associate Agreement (BAA) with practices that require one.</strong> In that arrangement we process patient information only to provide the Service and apply safeguards appropriate to the data. Practices may request a BAA using the contact below.</p>
+  <!-- REVIEW: Do NOT represent the Service as "HIPAA compliant" generally. A BAA must be executed (and the storage
+       backend must be on BAA-covered infrastructure) before handling PHI for a practice. See COMPLIANCE.md. -->
+
+  <h2 id="rights">10. Your rights &amp; choices</h2>
+  <p>Depending on where you live (for example, under the CCPA/CPRA or similar state laws), you may have the right to access, correct, delete, or obtain a copy of your personal information, and to opt out of certain uses. We do not sell personal information or use it for cross-context behavioral advertising. To exercise any right, contact us or the dental practice that created your visualization.</p>
+
+  <h2 id="minors">11. Children &amp; minors</h2>
+  <p>The Service is not directed to children under 13, and we do not knowingly collect their information. A parent or legal guardian must provide consent before any photo of a minor is uploaded, or such photos should not be uploaded.</p>
+
+  <h2 id="changes">12. Changes to this Policy</h2>
+  <p>We may update this Policy from time to time. Material changes will be reflected by the "Last updated" date above and, where appropriate, communicated through the Service.</p>
+
+  <h2 id="contact">13. Contact</h2>
+  <p>Questions or requests: <a href="mailto:privacy@lucidroi.com">privacy@lucidroi.com</a>. If a dental practice created your visualization, you may also contact that practice directly.</p>
+  <!-- REVIEW: confirm privacy contact mailbox + add registered mailing address. -->
+
+  <footer class="doc">
+    <span>&copy; 2026 Lucid ROI. All rights reserved.</span>
+    <span><a href="terms.html">Terms</a> &middot; <a href="disclaimer.html">Disclaimer</a></span>
+  </footer>
+</div>
+</body>
+</html>
