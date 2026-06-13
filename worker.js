@@ -598,6 +598,11 @@ const TENANTS = {
 };
 const IP_DAILY = { sims: 30, videos: 6, shares: 12 };  // per-visitor abuse stop (≈15 sims/day)
 
+// Agency (Lucid) gets BCC'd on every lead + result for delivery management,
+// regardless of which practice/CRM the lead belongs to. Move to the practice
+// registry later if per-agency routing is ever needed.
+const AGENCY_EMAIL = 'ritesh@affordabledentistmarketing.com';
+
 function tenantOf(body) {
   const t = ((body && body.tenant) || '').toLowerCase();
   return TENANTS[t] ? t : 'unknown';
@@ -989,6 +994,7 @@ async function handleShare(request, env, origin) {
     body: JSON.stringify({
       from: 'Smile Simulator <leads@lucidroi.com>',
       to: [dentistEmail],
+      bcc: [AGENCY_EMAIL],
       subject: `Smile simulation for review${patientName ? ' — ' + patientName : ''}`,
       html: `<h2 style="font-family:Georgia,serif;color:#1B3A5C">Smile simulation for review</h2>
         <p style="font:14px sans-serif;color:#36465c"><strong>Practice:</strong> ${practice}${patientName ? `<br><strong>Patient:</strong> ${patientName}` : ''}${patientEmail ? `<br><strong>Patient email:</strong> ${patientEmail}` : ''}</p>
@@ -1052,6 +1058,7 @@ async function handleLead(request, env, origin) {
       body: JSON.stringify({
         from:    'Smile Simulator <leads@lucidroi.com>',
         to:      [to],
+        bcc:     [AGENCY_EMAIL],
         subject,
         html,
       }),
