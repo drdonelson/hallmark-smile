@@ -1684,7 +1684,7 @@ function harmonizeTeeth(genCtx, cleanData, toothA, outW, outH, tb, opts = {}) {
   // Two-directional: dim icy-bright teeth down AND lift dull-gray teeth up.
   // Absolute floor of L=76 on the target — tan/dark perioral skin would
   // otherwise pull the target below believable enamel brightness.
-  const lScale = cap < 0 ? 1 : Math.max(0.78, Math.min(1.2, Math.max(hiL + cap, 76) / p95L));
+  const lScale = cap < 0 ? 1 : Math.max(0.93, Math.min(1.1, Math.max(hiL + cap, 82) / p95L));
   console.log(`harmonize: illum L=${hiL.toFixed(1)} a=${hiA.toFixed(1)} b=${hiB.toFixed(1)} dA=${dA.toFixed(1)} dB=${dB.toFixed(1)} lScale=${lScale.toFixed(3)}`);
 
   // Horizontal light falloff from the skin band just above the upper lip
@@ -1855,9 +1855,19 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
     eCtx.ellipse(tbX + tbW / 2, tbY + tbH / 2, tbW * 0.72, tbH * 2.2, 0, 0, Math.PI * 2);
     eCtx.fill();
   }
+  // Extend the edit zone upward to include gum tissue above the tooth boundary.
+  // Without this, Ideogram preserves the original dark gum pixels in that zone
+  // and they show as a dark band against the white generated teeth.
+  const gumExpand = collapsed ? 0 : Math.round(tbH * 0.20);
   const drawMask = ctx => {
     if (expMaskC) ctx.drawImage(expMaskC, 0, 0);
-    else ctx.drawImage(mpMaskImg, cx, cy, cw, ch, 0, 0, outW, outH);
+    else {
+      ctx.drawImage(mpMaskImg, cx, cy, cw, ch, 0, 0, outW, outH);
+      if (gumExpand > 0) {
+        ctx.fillStyle = '#fff';
+        ctx.fillRect(tbX, Math.max(0, tbY - gumExpand), tbW, gumExpand);
+      }
+    }
   };
 
   // Erase existing tooth pixels to dark before sending to Ideogram.
@@ -1941,12 +1951,16 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   drawMask(amCtx);
   const amData = amCtx.getImageData(0, 0, outW, outH);
   const am = amData.data;
-  const toothA = new Uint8Array(outW * outH);  // un-faded tooth mask for harmonization
+  // toothA from original MP tooth pixels only — NOT the expanded gum zone.
+  // harmonizeTeeth must process only generated enamel, not regenerated gum tissue.
+  const toothA = new Uint8Array(outW * outH);
+  for (let ti = 0; ti < teMask.length; ti += 4) {
+    toothA[ti / 4] = teMask[ti];
+  }
   for (let i = 0; i < am.length; i += 4) {
     const brightness = Math.round(0.299 * am[i] + 0.587 * am[i+1] + 0.114 * am[i+2]);
     am[i] = 255; am[i+1] = 255; am[i+2] = 255;
     am[i+3] = brightness;
-    toothA[i / 4] = brightness;
   }
   // Fade blend to 0 at commissure edges (left/right of tooth bounds).
   // Prevents Ideogram color drift at mouth corners from showing through as a
