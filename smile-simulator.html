@@ -1882,7 +1882,7 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   // Extend the edit zone upward to include gum tissue above the tooth boundary.
   // Without this, Ideogram preserves the original dark gum pixels in that zone
   // and they show as a dark band against the white generated teeth.
-  const gumExpand = collapsed ? 0 : Math.round(tbH * 0.20);
+  const gumExpand = collapsed ? 0 : Math.round(tbH * 0.30);
   const drawMask = ctx => {
     if (expMaskC) ctx.drawImage(expMaskC, 0, 0);
     else {
