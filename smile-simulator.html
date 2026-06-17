@@ -792,6 +792,26 @@
     /* ── Utilities ───────────────────────────────────────────────── */
     .hidden { display: none !important; }
 
+    /* ── Shade selection ─────────────────────────────────────────── */
+    .shade-subtitle { color: var(--mid-grey,#6b7280); text-align: center; margin: 0 0 20px; font-size: 0.95rem; }
+    .shade-options  { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    .shade-opt {
+      background: var(--light-grey,#f7f8fa);
+      border: 2px solid var(--light-grey,#f7f8fa);
+      border-radius: var(--radius,12px);
+      padding: 28px 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: border-color .2s, background .2s, transform .15s;
+      font-family: inherit;
+      width: 100%;
+    }
+    .shade-opt:hover  { border-color: rgba(var(--gold-rgb),.7); background: rgba(var(--gold-rgb),.07); transform: translateY(-2px); }
+    .shade-opt:active { transform: translateY(0); }
+    .shade-name { font-size: 1.1rem; font-weight: 700; color: var(--navy,#1B3A5C); margin-bottom: 8px; }
+    .shade-desc { font-size: 0.85rem; color: var(--mid-grey,#6b7280); line-height: 1.45; }
+    @media (max-width: 520px) { .shade-options { grid-template-columns: 1fr; } }
+
     /* ── Responsive ──────────────────────────────────────────────── */
     @media (max-width: 580px) {
       .hero { padding: 32px 16px 6px; }
@@ -945,7 +965,23 @@
     </form>
   </div>
 
-  <!-- Step 3: Progress -->
+  <!-- Step 3: Shade Selection -->
+  <div class="card hidden" id="shadeCard">
+    <h2 class="card-title"><span class="step-badge">3</span> Choose Your Shade</h2>
+    <p class="shade-subtitle">How bright would you like your new smile?</p>
+    <div class="shade-options">
+      <button class="shade-opt" id="shadeNatural" type="button">
+        <div class="shade-name">Natural White</div>
+        <div class="shade-desc">Subtle, realistic enhancement that looks naturally beautiful</div>
+      </button>
+      <button class="shade-opt" id="shadeHollywood" type="button">
+        <div class="shade-name">Hollywood Bright</div>
+        <div class="shade-desc">Brilliant, ultra-white smile for maximum impact</div>
+      </button>
+    </div>
+  </div>
+
+  <!-- Step 4: Progress -->
   <div class="card hidden" id="progressCard">
     <div class="progress-section">
       <div class="progress-spinner"></div>
@@ -1134,6 +1170,7 @@ const MSGS = [
 
 /* ── State ─────────────────────────────────────────────────────── */
 let imgDataUrl     = null;
+let selectedShade  = 'natural';   // 'natural' | 'hollywood'
 let currentLeadId  = null;
 let serverLeadId   = null;   // shared id tying the lead record to its media (dashboard)
 let msgInterval    = null;
@@ -1927,7 +1964,7 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
     const startRes = await fetch(`${PROXY_URL}/api/ideogram/inpaint`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: cropImgUrl, mask: ideoMaskUrl, variant: collapsed ? 'perioralSmile' : 'normalSmile', tenant: TENANT }),
+      body: JSON.stringify({ image: cropImgUrl, mask: ideoMaskUrl, variant: collapsed ? 'perioralSmile' : 'normalSmile', shade: selectedShade, tenant: TENANT }),
     });
     if (!startRes.ok) { const t = await startRes.text().catch(()=>''); throw new Error(`Ideogram ${startRes.status}: ${t.slice(0,200)}`); }
     const startData = await startRes.json();
@@ -2800,6 +2837,13 @@ $('leadForm').addEventListener('submit', async e => {
   }).catch(() => {}); // silently ignore — lead is already saved to localStorage
 
   hide($('formCard'));
+  show($('shadeCard'));
+  $('shadeCard').scrollIntoView({ behavior: 'smooth', block: 'center' });
+});
+
+/* ── Shade selection → triggers generation ──────────────────────── */
+async function startGeneration() {
+  hide($('shadeCard'));
   show($('progressCard'));
   $('progressCard').scrollIntoView({ behavior: 'smooth', block: 'center' });
   startProgress();
@@ -2809,10 +2853,8 @@ $('leadForm').addEventListener('submit', async e => {
     const resultUrl = await generateSmile(imgDataUrl);
     stopProgress();
 
-    // Calculate generation time for the badge
     const secs = Math.round((Date.now() - genStartTime) / 1000);
 
-    // Reset video state — clear any previous video before showing new result
     $('createVideoBtn').disabled = false;
     $('videoProgressWrap').classList.remove('active');
     $('videoReadyWrap').classList.remove('active');
@@ -2821,23 +2863,12 @@ $('leadForm').addEventListener('submit', async e => {
     runwayVideoUrl = null;
     videoPregen = null; videoPregenSrc = null;
 
-    // Video pre-generation is intentionally NOT started here — each video
-    // costs ~$0.20 whether or not the button is tapped. Generation begins on
-    // demand when the user taps "Create Shareable Video". To restore instant
-    // perceived delivery, call startVideoPregen(resultUrl) here.
-
-    // Watermark the result so the "AI SIMULATION" disclosure travels with it.
     const afterWm = await watermarkResult(resultUrl);
-
-    // Load both images
     $('beforeImg').src = imgDataUrl;
     $('afterImg').src  = afterWm;
-
-    // Both images always visible in side-by-side layout
     $('beforeImg').classList.remove('hidden-img');
     $('afterImg').classList.remove('hidden-img');
 
-    // Show generation badge
     const badge = $('genBadge');
     badge.textContent = `Generated in ${secs}s`;
     badge.style.display = '';
@@ -2846,17 +2877,24 @@ $('leadForm').addEventListener('submit', async e => {
     show($('resultsCard'));
     syncBookBtn();
     $('resultsCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
-
-    // Consent was given on the form — email the result to patient + dentist.
     shareResult(imgDataUrl, afterWm);
   } catch (err) {
     stopProgress();
     hide($('progressCard'));
-    show($('formCard'));
+    show($('shadeCard'));
     $('formError').textContent = `Error: ${err.message}`;
     show($('formError'));
     console.error(err);
   }
+}
+
+$('shadeNatural').addEventListener('click', () => {
+  selectedShade = 'natural';
+  startGeneration();
+});
+$('shadeHollywood').addEventListener('click', () => {
+  selectedShade = 'hollywood';
+  startGeneration();
 });
 
 /* ── Before/After (side-by-side — no toggle needed) ────────────── */

@@ -518,7 +518,7 @@ async function handleIdeogramInpaint(request, env, origin) {
       status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
   }
-  const { image, mask, variant } = body;
+  const { image, mask, variant, shade } = body;
   if (!image || !mask) {
     return new Response(JSON.stringify({ error: 'Missing image or mask' }), {
       status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
@@ -553,6 +553,13 @@ async function handleIdeogramInpaint(request, env, origin) {
     // prosthetic restores vertical dimension and the smile fills out.
     prompt = 'Photorealistic complete full-arch dental restoration in a broad relaxed smile. Complete upper arch of teeth: BL1 bright natural white, each tooth individually defined with visible dark inter-dental shadows and embrasures. Golden proportion — central incisors widest, lateral incisors narrower, canines tapered, premolars visible toward the corners with natural dark buccal corridor shadow at each mouth corner. Ovoid tooth shapes, subtle incisal translucency, realistic enamel texture with soft sheen. Natural pink gingiva above the teeth. Lips naturally supported by the new teeth, gently parted. Face and skin exactly as in original photo. Clinical dental photography.';
     negative_prompt = 'yellow teeth, stained teeth, discolored teeth, uniform white slab, fused teeth, no embrasures, single sliver of teeth, tiny narrow teeth, metallic sheen, pearl glare, glossy plastic, artificial glow, cartoon, altered skin, altered face, tongue, open throat, dark empty mouth';
+  }
+  // Hollywood Bright shade: replace natural white language with ultra-bright
+  if (shade === 'hollywood') {
+    prompt = prompt
+      .replace('BL1 bright natural white', 'ultra-bright Hollywood white, brilliant dazzling enamel, maximum whiteness BL1+')
+      .replace('bright natural white, BL1 shade', 'ultra-bright Hollywood white, brilliant dazzling enamel, maximum whiteness BL1+');
+    negative_prompt += ', dull teeth, off-white, ivory, natural shade, warm white, subtle white';
   }
   try {
     const rep = await fetch('https://api.replicate.com/v1/models/ideogram-ai/ideogram-v2/predictions', {
