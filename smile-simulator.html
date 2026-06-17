@@ -1860,9 +1860,8 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   // or Ideogram sees a gray band mid-lip and paints a gray lower lip.
   const bibData  = imgCtx2d.getImageData(0, 0, outW, outH);
   const bd = bibData.data;
-  const bibStartY = Math.min(outH - 1, collapsed
-    ? Math.round(tbY + tbH / 2 + tbH * 2.2 + 10)
-    : tbY + tbH + 4);
+  const eRy = collapsed ? tbH * 2.2 : tbH * 1.6;
+  const bibStartY = Math.min(outH - 1, Math.round(tbY + tbH / 2 + eRy + 10));
   for (let y = bibStartY; y < outH; y++) {
     for (let x = 0; x < outW; x++) {
       const i = (y * outW + x) * 4;
@@ -1875,37 +1874,21 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   // Load MP mask early — needed for tooth-erase step and blend mask.
   const mpMaskImg = await loadImage(mpMaskDataUrl);
 
-  // Collapsed openings: PERIORAL ellipse mask for the EDIT zone and BLEND —
-  // includes the lips, so Ideogram can repaint a parted, lip-supported broad
-  // smile (matches how a real prosthetic restores lip support). Tooth-erase
-  // stays at the original inner-mouth polygon. Validated against the true
-  // post-op result of a full-arch case: 5/5 draws produced the full smile,
-  // vs the prior column-expansion approach which stayed mask-bound and narrow.
-  let expMaskC = null;
-  if (collapsed) {
-    expMaskC = document.createElement('canvas');
-    expMaskC.width = outW; expMaskC.height = outH;
-    const eCtx = expMaskC.getContext('2d');
-    eCtx.fillStyle = '#000'; eCtx.fillRect(0, 0, outW, outH);
-    eCtx.fillStyle = '#fff';
-    eCtx.beginPath();
-    eCtx.ellipse(tbX + tbW / 2, tbY + tbH / 2, tbW * 0.72, tbH * 2.2, 0, 0, Math.PI * 2);
-    eCtx.fill();
-  }
-  // Extend the edit zone upward to include gum tissue above the tooth boundary.
-  // Without this, Ideogram preserves the original dark gum pixels in that zone
-  // and they show as a dark band against the white generated teeth.
-  const gumExpand = collapsed ? 0 : Math.round(tbH * 0.30);
-  const drawMask = ctx => {
-    if (expMaskC) ctx.drawImage(expMaskC, 0, 0);
-    else {
-      ctx.drawImage(mpMaskImg, cx, cy, cw, ch, 0, 0, outW, outH);
-      if (gumExpand > 0) {
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(tbX, Math.max(0, tbY - gumExpand), tbW, gumExpand);
-      }
-    }
-  };
+  // Perioral ellipse edit zone for ALL cases — teeth + gum + lips regenerated
+  // as one coherent unit. This is the architectural difference vs. tooth-only
+  // inpainting: gum seam disappears because gum is regenerated, not preserved.
+  // Normal: rx=0.85·tbW, ry=1.6·tbH covers smile arc + gum + lower lip.
+  // Collapsed/edentulous: rx=0.72·tbW, ry=2.2·tbH opens full vertical space.
+  const eRx = collapsed ? tbW * 0.72 : tbW * 0.85;
+  const expMaskC = document.createElement('canvas');
+  expMaskC.width = outW; expMaskC.height = outH;
+  const eCtx = expMaskC.getContext('2d');
+  eCtx.fillStyle = '#000'; eCtx.fillRect(0, 0, outW, outH);
+  eCtx.fillStyle = '#fff';
+  eCtx.beginPath();
+  eCtx.ellipse(tbX + tbW / 2, tbY + tbH / 2, eRx, eRy, 0, 0, Math.PI * 2);
+  eCtx.fill();
+  const drawMask = ctx => ctx.drawImage(expMaskC, 0, 0);
 
   // Erase existing tooth pixels to dark before sending to Ideogram.
   // When existing teeth are light/white, Ideogram adjusts minimally → sloppy slab with no embrasures.
@@ -1921,29 +1904,6 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
     if (teMask[i] > 128) { te[i] = 20; te[i+1] = 12; te[i+2] = 12; }
   }
   imgCtx2d.putImageData(teImg, 0, 0);
-
-  // Prime the gum expansion zone with a neutral healthy-gum pink.
-  // The zone is in Ideogram's EDIT area, so it will be regenerated — but
-  // the starting pixels serve as context. Dark/stained original gum pixels
-  // cause Ideogram to generate dark gum even when prompted otherwise.
-  // Replacing them with a neutral pink primes generation toward healthy tissue.
-  if (gumExpand > 0) {
-    const gumData = imgCtx2d.getImageData(0, 0, outW, outH);
-    const gd = gumData.data;
-    const gy0 = Math.max(0, tbY - gumExpand);
-    for (let y = gy0; y < tbY; y++) {
-      for (let x = tbX; x < tbX + tbW; x++) {
-        const idx = (y * outW + x) * 4;
-        // Blend 65% toward neutral pinkish gum — enough to override staining,
-        // preserving enough local texture for Ideogram to anchor generation.
-        gd[idx]   = Math.round(gd[idx]   * 0.35 + 195 * 0.65);
-        gd[idx+1] = Math.round(gd[idx+1] * 0.35 + 130 * 0.65);
-        gd[idx+2] = Math.round(gd[idx+2] * 0.35 + 125 * 0.65);
-      }
-    }
-    imgCtx2d.putImageData(gumData, 0, 0);
-  }
-
   const cropImgUrl = imgC.toDataURL('image/jpeg', 0.95);
 
   // Ideogram mask: pixel-accurate inner lip polygon from MediaPipe, inverted for Ideogram.
@@ -1967,7 +1927,7 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
     const startRes = await fetch(`${PROXY_URL}/api/ideogram/inpaint`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: cropImgUrl, mask: ideoMaskUrl, variant: collapsed ? 'perioralSmile' : undefined, tenant: TENANT }),
+      body: JSON.stringify({ image: cropImgUrl, mask: ideoMaskUrl, variant: collapsed ? 'perioralSmile' : 'normalSmile', tenant: TENANT }),
     });
     if (!startRes.ok) { const t = await startRes.text().catch(()=>''); throw new Error(`Ideogram ${startRes.status}: ${t.slice(0,200)}`); }
     const startData = await startRes.json();
@@ -2022,27 +1982,13 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
     am[i] = 255; am[i+1] = 255; am[i+2] = 255;
     am[i+3] = brightness;
   }
-  // Fade blend to 0 at commissure edges (left/right of tooth bounds).
-  // Prevents Ideogram color drift at mouth corners from showing through as a
-  // seam. Skipped for collapsed: the fade is bbox-relative and would clip the
-  // perioral ellipse; the larger blur feathers it instead.
-  if (!collapsed) {
-    const commMargin = Math.round(tbW * 0.05);
-    for (let i = 0; i < am.length; i += 4) {
-      if (am[i + 3] === 0) continue;
-      const x    = (i / 4) % outW;
-      const minH = Math.min(x - tbX, (tbX + tbW) - 1 - x);
-      if (minH < commMargin) {
-        am[i + 3] = Math.round(am[i + 3] * Math.max(0, minH / commMargin));
-      }
-    }
-  }
+  // Ellipse blend mask — no commissure fade needed; ellipse edges feather naturally.
   amCtx.putImageData(amData, 0, 0);
 
   const blendMask = document.createElement('canvas');
   blendMask.width = outW; blendMask.height = outH;
   const bmCtx = blendMask.getContext('2d');
-  bmCtx.filter = collapsed ? 'blur(16px)' : 'blur(10px)';
+  bmCtx.filter = 'blur(16px)';
   bmCtx.drawImage(alphaMaskC, 0, 0);
   bmCtx.filter = 'none';
 
@@ -2050,12 +1996,7 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   ideoC.width = outW; ideoC.height = outH;
   const iCtx = ideoC.getContext('2d');
   iCtx.drawImage(ideoImg, 0, 0, outW, outH);
-  // Harmonization is skipped for collapsed: toothA is the perioral ellipse
-  // (lips included), so the tooth-pixel statistics would be wrong. The ellipse
-  // draws were validated without it.
-  if (!collapsed) {
-    harmonizeTeeth(iCtx, cleanCropData, toothA, outW, outH, { tbX, tbY, tbW, tbH });
-  }
+  harmonizeTeeth(iCtx, cleanCropData, toothA, outW, outH, { tbX, tbY, tbW, tbH });
   iCtx.globalCompositeOperation = 'destination-in';
   iCtx.drawImage(blendMask, 0, 0);
 

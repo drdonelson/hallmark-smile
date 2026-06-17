@@ -542,6 +542,11 @@ async function handleIdeogramInpaint(request, env, origin) {
     // effect without regenerating the whole face.
     prompt = 'Photorealistic broad natural smile after complete full-arch dental restoration. Lips gently parted in a wide confident smile revealing a complete upper arch of teeth: BL1 bright natural white, individually defined with dark inter-dental embrasures, golden proportion, natural dark buccal corridor at each corner, subtle incisal translucency, healthy pink gingiva. The lips keep the same shape, color, fullness, and texture as the original person, now naturally supported by the new teeth. Skin, stubble, chin, and everything outside the lips exactly as in the original photo. Clinical dental photography.';
     negative_prompt = 'closed mouth, narrow smile, tiny teeth, uniform white slab, fused teeth, no embrasures, metallic sheen, pearl glare, glossy plastic, different skin, different chin, added beard, added mustache, lipstick, altered nose, cartoon, tongue, open throat';
+  } else if (variant === 'normalSmile') {
+    // Standard veneer/makeover case using perioral ellipse — teeth + gum + lips
+    // regenerated as one unit so there is no gum-tooth seam.
+    prompt = 'Photorealistic cosmetic veneer result. The same person now smiling confidently: upper teeth BL1 bright natural white, each tooth individually defined with dark inter-dental embrasures, golden proportion (central incisors widest, lateral incisors narrower, canines tapered). Smooth bright pink healthy gingiva above the teeth — no dark gum border. Lips natural and relaxed, supported by the new smile. Same face, same eyes, same skin, same hair. Clinical dental photography.';
+    negative_prompt = 'yellow teeth, stained teeth, discolored teeth, denture plate, uniform white slab, fused teeth, no embrasures, plastic texture, artificial glow, cartoon, altered face, altered nose, altered eyes, different person, tongue, open throat, dark gum line, dark shadow above teeth, dark gum border, dark band above teeth, dark gingival marks, black line above teeth';
   } else if (variant === 'fullArch') {
     // Edentulous/collapsed-opening cases: full-arch restoration with lip support.
     // The standard prompt forbids smile-width changes — exactly wrong here; a real
