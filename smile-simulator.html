@@ -1131,6 +1131,7 @@ const LS_URL     = 'hd_booking_url';
 const _lp = new URLSearchParams(location.search);
 const LEAD_EMAIL    = _lp.get('leadEmail')  || 'david@hallmarkdds.com';
 const LEAD_PRACTICE = _lp.get('practice')   || 'Hallmark Dental';
+const BOOKING_URL   = _lp.get('bookingUrl') || '';   // per-practice scheduling link (embed param)
 const CONSENT_VERSION = 'v1-2026-06-13';   // bump when consent wording changes
 
 // Prompt for GPT-image-1 edits API with explicit pixel mask.
@@ -1184,7 +1185,8 @@ const hide = el => el.classList.add('hidden');
 
 /* ── Config ────────────────────────────────────────────────────── */
 const getCfg = () => ({
-  bookingUrl: localStorage.getItem(LS_URL) || '#',
+  // Embed param wins, then gear-settings (localStorage), else unset ('#').
+  bookingUrl: BOOKING_URL || localStorage.getItem(LS_URL) || '#',
 });
 
 function openConfig() {
@@ -1211,7 +1213,16 @@ $('cfgSave').addEventListener('click', () => {
 
 function syncBookBtn() {
   const u = getCfg().bookingUrl;
-  $('bookBtn').href = (u && u !== '#') ? u : '#';
+  const btn = $('bookBtn');
+  if (u && u !== '#') {
+    btn.href = u;
+    btn.style.display = '';
+  } else {
+    // No scheduling link configured — hide rather than open a broken link
+    // (an href="#" with target=_blank reopens this same page in a new tab).
+    btn.removeAttribute('href');
+    btn.style.display = 'none';
+  }
 }
 
 /* ── Leads (localStorage) ──────────────────────────────────────── */
