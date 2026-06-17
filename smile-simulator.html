@@ -826,11 +826,17 @@
         '--gold-rgb': '45,111,255',
         '--off-white': '#f4f7ff', '--light-grey': '#e6ecfa',
       },
+      sevenbridges: {   // sevenbridgesdentalstudio.com — charcoal + warm gold
+        '--navy': '#1c1616', '--navy-dark': '#090808', '--navy-mid': '#15100f', '--navy-light': '#3a2f2a',
+        '--gold': '#BD8636', '--gold-light': '#F2D279', '--gold-dark': '#9a6c28',
+        '--gold-rgb': '189,134,54',
+        '--off-white': '#faf7f2', '--light-grey': '#ece5da',
+      },
     };
     // Explicit ?theme= wins; otherwise infer the theme from the embedding
     // site (document.referrer carries at least the parent origin for iframes),
     // so host sites get their palette with no edit on their end.
-    const REFERRER_THEMES = { 'lucidroi.com': 'lucid' };
+    const REFERRER_THEMES = { 'lucidroi.com': 'lucid', 'sevenbridgesdentalstudio.com': 'sevenbridges' };
     let name = new URLSearchParams(location.search).get('theme');
     if (!name && document.referrer) {
       try {
@@ -1068,6 +1074,7 @@ const TENANT = (() => {
   const BY_HOST = {
     'hallmarkdds.com': 'hallmark',
     'lucidroi.com': 'lucid',
+    'sevenbridgesdentalstudio.com': 'sevenbridges',
   };
   try {
     const host = new URL(document.referrer).hostname.replace(/^www\./, '');

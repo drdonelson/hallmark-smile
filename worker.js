@@ -8,6 +8,8 @@ const ALLOWED_ORIGINS = new Set([
   'https://www.hallmarkdds.com',
   'https://lucidroi.com',
   'https://www.lucidroi.com',
+  'https://sevenbridgesdentalstudio.com',
+  'https://www.sevenbridgesdentalstudio.com',
 ]);
 
 const OPENAI_BASE    = 'https://api.openai.com';
@@ -592,9 +594,10 @@ const WORKER_HOST = 'quiet-forest-e1f8.david-d73.workers.dev';
 // grade precision. 'sims' are counted in API CALLS — best-of-2 means
 // 2 calls per patient simulation, so caps are 2× the intended run count.
 const TENANTS = {
-  hallmark: { sims: 2000, videos: 100 },   // ≈1000 simulations/mo
-  lucid:    { sims: 1000, videos: 50 },    // ≈500 simulations/mo
-  unknown:  { sims: 200,  videos: 10 },    // direct opens / unrecognized embeds
+  hallmark:     { sims: 2000, videos: 100 },   // ≈1000 simulations/mo
+  lucid:        { sims: 1000, videos: 50 },    // ≈500 simulations/mo
+  sevenbridges: { sims: 1000, videos: 50 },    // Lucid client — Dr. Fariha Qureshi, Seven Bridges Dental Studio
+  unknown:      { sims: 200,  videos: 10 },    // direct opens / unrecognized embeds
 };
 const IP_DAILY = { sims: 30, videos: 6, shares: 12 };  // per-visitor abuse stop (≈15 sims/day)
 
