@@ -8,6 +8,7 @@ const ALLOWED_ORIGINS = new Set([
   'https://www.hallmarkdds.com',
   'https://lucidroi.com',
   'https://www.lucidroi.com',
+  'https://app.lucidroi.com',
   'https://sevenbridgesdentalstudio.com',
   'https://www.sevenbridgesdentalstudio.com',
 ]);
@@ -969,7 +970,7 @@ async function handleShare(request, env, origin) {
     await updateLead(env, tenantOf(body), body.leadId, { beforeUrl, afterUrl, videoUrl: videoUrl || null }).catch(() => {});
   }
 
-  const LEGAL = 'https://drdonelson.github.io/hallmark-smile/legal';
+  const LEGAL = 'https://app.lucidroi.com/legal';
   const label = `<div style="margin:14px 0 4px;font:600 12px sans-serif;letter-spacing:.04em;color:#8a6d12;background:#fff8e6;border:1px solid #e3c659;border-radius:6px;padding:8px 11px;display:inline-block">AI SIMULATION &mdash; NOT A CLINICAL OUTCOME</div>`;
   const baBlock = `
     <table style="border-collapse:collapse"><tr>
