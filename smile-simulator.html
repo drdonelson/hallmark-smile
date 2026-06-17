@@ -1956,6 +1956,23 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   const teCtx = teC.getContext('2d');
   teCtx.drawImage(mpMaskImg, cx, cy, cw, ch, 0, 0, outW, outH);
   const teMask = teCtx.getImageData(0, 0, outW, outH).data;
+
+  // Detect severe damage: average brightness of original (pre-erase) tooth pixels.
+  // Dark/decayed teeth avg <90. Normal/light teeth avg 120+.
+  // Routes severe cases to fullArch prompt which drops the "same smile width" constraint
+  // and explicitly requests canines + premolars in a broad restoration.
+  const cleanPx = cleanCropData.data;
+  let brightSum = 0, brightCount = 0;
+  for (let ti = 0; ti < teMask.length; ti += 4) {
+    if (teMask[ti] > 128) {
+      brightSum += 0.299 * cleanPx[ti] + 0.587 * cleanPx[ti+1] + 0.114 * cleanPx[ti+2];
+      brightCount++;
+    }
+  }
+  const avgToothBright = brightCount > 0 ? brightSum / brightCount : 128;
+  const severeDamage = !collapsed && avgToothBright < 90;
+  console.log('avg tooth brightness:', avgToothBright.toFixed(1), '→', severeDamage ? 'fullArch' : 'normalSmile');
+
   const teImg  = imgCtx2d.getImageData(0, 0, outW, outH);
   const te     = teImg.data;
   for (let i = 0; i < te.length; i += 4) {
@@ -1999,7 +2016,7 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
     const startRes = await fetch(`${PROXY_URL}/api/ideogram/inpaint`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: cropImgUrl, mask: ideoMaskUrl, variant: collapsed ? 'perioralSmile' : 'normalSmile', shade: selectedShade, tenant: TENANT }),
+      body: JSON.stringify({ image: cropImgUrl, mask: ideoMaskUrl, variant: collapsed ? 'perioralSmile' : severeDamage ? 'fullArch' : 'normalSmile', shade: selectedShade, tenant: TENANT }),
     });
     if (!startRes.ok) { const t = await startRes.text().catch(()=>''); throw new Error(`Ideogram ${startRes.status}: ${t.slice(0,200)}`); }
     const startData = await startRes.json();
