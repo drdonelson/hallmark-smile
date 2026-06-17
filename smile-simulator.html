@@ -1130,6 +1130,7 @@ const MSGS = [
 /* ── State ─────────────────────────────────────────────────────── */
 let imgDataUrl     = null;
 let currentLeadId  = null;
+let serverLeadId   = null;   // shared id tying the lead record to its media (dashboard)
 let msgInterval    = null;
 let msgIdx         = 0;
 let genStartTime   = null;
@@ -2767,6 +2768,7 @@ function shareResult(beforeUrl, afterUrl) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       tenant:       TENANT,
+      leadId:       serverLeadId,
       consent:      true,
       practice:     LEAD_PRACTICE,
       dentistEmail: LEAD_EMAIL,
@@ -2794,6 +2796,7 @@ $('leadForm').addEventListener('submit', async e => {
     phone:     $('fPhone').value.trim(),
     interest:  $('fInterest').value,
   });
+  serverLeadId = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
 
   // Record consent (audit log) — fire-and-forget. The checkbox is required by
   // validateForm(), so reaching here means the patient consented.
@@ -2815,6 +2818,9 @@ $('leadForm').addEventListener('submit', async e => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       to:        LEAD_EMAIL,
+      tenant:    TENANT,
+      leadId:    serverLeadId,
+      version:   CONSENT_VERSION,
       practice:  LEAD_PRACTICE,
       firstName: $('fFirstName').value.trim(),
       lastName:  $('fLastName').value.trim(),

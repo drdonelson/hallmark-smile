@@ -964,6 +964,11 @@ async function handleShare(request, env, origin) {
     action: 'share', afterId: afterUrl,
   });
 
+  // Enrich the dashboard lead record with the media URLs.
+  if (body.leadId) {
+    await updateLead(env, tenantOf(body), body.leadId, { beforeUrl, afterUrl, videoUrl: videoUrl || null }).catch(() => {});
+  }
+
   const LEGAL = 'https://drdonelson.github.io/hallmark-smile/legal';
   const label = `<div style="margin:14px 0 4px;font:600 12px sans-serif;letter-spacing:.04em;color:#8a6d12;background:#fff8e6;border:1px solid #e3c659;border-radius:6px;padding:8px 11px;display:inline-block">AI SIMULATION &mdash; NOT A CLINICAL OUTCOME</div>`;
   const baBlock = `
@@ -1011,8 +1016,109 @@ async function handleShare(request, env, origin) {
   });
 }
 
+// ── Central lead store (R2) ─────────────────────────────────────
+// One object per lead at leads/<tenant>/<id>.json so the dashboard can list
+// per practice. 180-day retention. Created on /api/lead, enriched with media
+// URLs on /api/share, status advanced from the dashboard.
+async function saveLead(env, tenant, id, rec) {
+  await env.TEMP_IMAGES.put(`leads/${tenant}/${id}.json`, JSON.stringify(rec), {
+    customMetadata: { expires: String(Date.now() + 180 * 86400_000) },
+  });
+}
+async function updateLead(env, tenant, id, patch) {
+  const key = `leads/${tenant}/${id}.json`;
+  const obj = await env.TEMP_IMAGES.get(key);
+  const rec = obj ? await obj.json() : { id, tenant, ts: new Date().toISOString(), status: 'new' };
+  Object.assign(rec, patch, { updatedAt: new Date().toISOString() });
+  await env.TEMP_IMAGES.put(key, JSON.stringify(rec), {
+    customMetadata: { expires: String(Date.now() + 180 * 86400_000) },
+  });
+}
+
+// ── Dashboard auth (HMAC-signed token; password → tenant) ───────
+async function dashSign(env, payload) {
+  const body = btoa(JSON.stringify(payload)).replace(/=+$/, '');
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.DASH_SECRET || ''),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body));
+  const s = btoa(String.fromCharCode(...new Uint8Array(sig))).replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
+  return body + '.' + s;
+}
+async function dashVerify(env, token) {
+  if (!token || !env.DASH_SECRET) return null;
+  const [body, s] = token.split('.');
+  if (!body || !s) return null;
+  try {
+    const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.DASH_SECRET),
+      { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
+    const sigBytes = Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+    const ok = await crypto.subtle.verify('HMAC', key, sigBytes, new TextEncoder().encode(body));
+    if (!ok) return null;
+    const payload = JSON.parse(atob(body));
+    if (payload.exp && Date.now() > payload.exp) return null;
+    return payload;
+  } catch { return null; }
+}
+function bearer(request) {
+  const h = request.headers.get('Authorization') || '';
+  return h.startsWith('Bearer ') ? h.slice(7) : null;
+}
+// Single-password login: the password identifies the tenant (env.DASH_PASSWORDS
+// is a JSON map slug→password). The "admin" slug grants all-tenant access ('*').
+async function handleDashLogin(request, env, origin) {
+  let body; try { body = await request.json(); } catch { body = {}; }
+  let pwmap = {}; try { pwmap = JSON.parse(env.DASH_PASSWORDS || '{}'); } catch {}
+  let matched = null;
+  for (const [slug, pw] of Object.entries(pwmap)) {
+    if (pw && typeof body.password === 'string' && body.password === pw) { matched = slug; break; }
+  }
+  if (!matched) {
+    return new Response(JSON.stringify({ error: 'Incorrect password' }), {
+      status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  const t = matched === 'admin' ? '*' : matched;
+  const token = await dashSign(env, { t, exp: Date.now() + 12 * 3600_000 });
+  return new Response(JSON.stringify({ token, scope: t }), {
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+}
+async function handleDashLeads(request, env, origin) {
+  const payload = await dashVerify(env, bearer(request));
+  if (!payload) return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+    status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+  const prefix = payload.t === '*' ? 'leads/' : `leads/${payload.t}/`;
+  const list = await env.TEMP_IMAGES.list({ prefix, limit: 1000 });
+  const objs = await Promise.all(list.objects.map(o =>
+    env.TEMP_IMAGES.get(o.key).then(r => r && r.json()).catch(() => null)));
+  const leads = objs.filter(Boolean).sort((a, b) => (b.ts || '').localeCompare(a.ts || '')).slice(0, 300);
+  return new Response(JSON.stringify({ leads, scope: payload.t }), {
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+}
+async function handleDashStatus(request, env, origin) {
+  const payload = await dashVerify(env, bearer(request));
+  if (!payload) return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+    status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+  let body; try { body = await request.json(); } catch { body = {}; }
+  const allowed = ['new', 'contacted', 'booked', 'closed'];
+  if (!allowed.includes(body.status)) return new Response(JSON.stringify({ error: 'Bad status' }), {
+    status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+  const t = payload.t === '*' ? (body.tenant || '').toLowerCase() : payload.t;
+  if (!t) return new Response(JSON.stringify({ error: 'Missing tenant' }), {
+    status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+  await updateLead(env, t, body.id, { status: body.status });
+  return new Response(JSON.stringify({ ok: true }), {
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+}
+
 // --- Lead email routing via Resend ---
-// Expects POST { to, practice, firstName, lastName, email, phone, interest }
+// Expects POST { to, practice, firstName, lastName, email, phone, interest, tenant, leadId }
 // `to` defaults to david@hallmarkdds.com when omitted (direct GitHub Pages access)
 async function handleLead(request, env, origin) {
   if (!env.RESEND_API_KEY) {
@@ -1035,6 +1141,15 @@ async function handleLead(request, env, origin) {
     phone     = '',
     interest  = '',
   } = body;
+
+  // Persist to the central lead store for the dashboard.
+  const tenant = tenantOf(body);
+  const leadId = body.leadId || randomToken();
+  await saveLead(env, tenant, leadId, {
+    id: leadId, ts: new Date().toISOString(), tenant, practice,
+    firstName, lastName, email, phone, interest,
+    consentVersion: body.version || null, status: 'new',
+  }).catch(() => {});
 
   const name    = [firstName, lastName].filter(Boolean).join(' ') || 'Unknown';
   const subject = `New Smile Simulator Lead — ${name}`;
@@ -1115,6 +1230,15 @@ export default {
       });
     }
 
+    if (url.pathname === '/api/dashboard/login' && request.method === 'POST') {
+      return handleDashLogin(request, env, origin);
+    }
+    if (url.pathname === '/api/dashboard/leads' && request.method === 'GET') {
+      return handleDashLeads(request, env, origin);
+    }
+    if (url.pathname === '/api/dashboard/status' && request.method === 'POST') {
+      return handleDashStatus(request, env, origin);
+    }
     if (url.pathname === '/api/consent' && request.method === 'POST') {
       return handleConsent(request, env, origin);
     }

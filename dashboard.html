@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Lucid ROI — Smile Simulator Leads</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Lora:wght@600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#0a1628; --ink2:#0e1d33; --blue:#2D6FFF; --blue-d:#1f56d6;
+    --bg:#f4f7fb; --card:#fff; --line:#e3e9f2; --muted:#6b7a90; --body:#33415c;
+    --new:#2D6FFF; --contacted:#b8860b; --booked:#16a34a; --closed:#94a3b8;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--body);font-family:'Inter',-apple-system,sans-serif;font-size:15px}
+  a{color:var(--blue)}
+  /* login */
+  .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+  .login{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:34px 30px;width:100%;max-width:380px;box-shadow:0 8px 40px rgba(10,22,40,.08);text-align:center}
+  .brand{font-family:'Lora',serif;font-weight:700;color:var(--ink);font-size:1.5rem;letter-spacing:-.01em}
+  .brand .dot{color:var(--blue)}
+  .sub{color:var(--muted);font-size:.86rem;margin:6px 0 24px}
+  .login input{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:15px;margin-bottom:12px}
+  .login input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(45,111,255,.12)}
+  .btn{background:var(--blue);color:#fff;border:none;border-radius:10px;padding:12px 18px;font-weight:700;font-size:15px;cursor:pointer;width:100%;transition:.15s}
+  .btn:hover{background:var(--blue-d)}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .err{color:#dc2626;font-size:.84rem;margin-top:10px;min-height:18px}
+  /* app */
+  header.top{background:var(--ink);color:#fff;padding:14px 22px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+  header .brand{color:#fff;font-size:1.2rem}
+  header .brand .dot{color:#6f9aff}
+  .top-right{display:flex;align-items:center;gap:14px;font-size:.85rem}
+  .top-right a{color:#9fb4d6;cursor:pointer;text-decoration:none}
+  .top-right a:hover{color:#fff}
+  .wrap{max-width:1080px;margin:0 auto;padding:22px 18px 80px}
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:18px}
+  .toolbar input,.toolbar select{padding:9px 12px;border:1px solid var(--line);border-radius:9px;font-size:14px;background:#fff}
+  .toolbar input{flex:1;min-width:160px}
+  .count{color:var(--muted);font-size:.85rem;margin-left:auto}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+  .lead{background:var(--card);border:1px solid var(--line);border-radius:13px;padding:16px;box-shadow:0 1px 4px rgba(10,22,40,.04)}
+  .lead-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+  .lead-name{font-weight:700;color:var(--ink);font-size:1.04rem}
+  .lead-practice{font-size:.74rem;color:var(--blue);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+  .pill{font-size:.7rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;padding:3px 9px;border-radius:99px;color:#fff;white-space:nowrap}
+  .lead-meta{color:var(--body);font-size:.86rem;margin:8px 0 4px;line-height:1.5}
+  .lead-meta a{text-decoration:none}
+  .lead-date{color:var(--muted);font-size:.76rem}
+  .ba{display:flex;gap:8px;margin:12px 0 4px}
+  .ba figure{margin:0;flex:1;text-align:center}
+  .ba img{width:100%;height:96px;object-fit:cover;border-radius:8px;border:1px solid var(--line);cursor:zoom-in;background:#eef2f8}
+  .ba figcaption{font-size:.66rem;color:var(--muted);font-weight:600;margin-top:3px;text-transform:uppercase;letter-spacing:.04em}
+  .lead-actions{display:flex;align-items:center;gap:10px;margin-top:12px;flex-wrap:wrap}
+  .lead-actions select{padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;font-weight:600}
+  .vid{font-size:.82rem;font-weight:600;text-decoration:none}
+  .empty{text-align:center;color:var(--muted);padding:60px 20px}
+  .empty h3{color:var(--ink);font-family:'Lora',serif}
+  .skeleton{height:230px;border-radius:13px;background:linear-gradient(90deg,#eef2f8,#f6f9fc,#eef2f8);background-size:200% 100%;animation:sk 1.3s linear infinite}
+  @keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}
+  /* lightbox */
+  .lb{position:fixed;inset:0;background:rgba(10,22,40,.85);display:none;align-items:center;justify-content:center;z-index:50;padding:20px}
+  .lb.open{display:flex}
+  .lb img{max-width:92vw;max-height:88vh;border-radius:10px}
+  .lb-close{position:absolute;top:18px;right:24px;color:#fff;font-size:30px;cursor:pointer;line-height:1}
+  .hidden{display:none!important}
+</style>
+</head>
+<body>
+
+<!-- Login -->
+<div class="login-wrap" id="loginView">
+  <form class="login" id="loginForm">
+    <div class="brand">Lucid<span class="dot">.</span>ROI</div>
+    <div class="sub">Smile Simulator — Leads</div>
+    <input type="password" id="pw" placeholder="Practice password" autocomplete="current-password" required>
+    <button class="btn" id="loginBtn" type="submit">Sign in</button>
+    <div class="err" id="loginErr"></div>
+  </form>
+</div>
+
+<!-- App -->
+<div class="hidden" id="appView">
+  <header class="top">
+    <div class="brand">Lucid<span class="dot">.</span>ROI</div>
+    <div class="top-right">
+      <span id="scopeLabel"></span>
+      <a id="refreshBtn">Refresh</a>
+      <a id="logoutBtn">Sign out</a>
+    </div>
+  </header>
+  <div class="wrap">
+    <div class="toolbar">
+      <input type="search" id="search" placeholder="Search name, email, phone…">
+      <select id="statusFilter">
+        <option value="">All statuses</option>
+        <option value="new">New</option>
+        <option value="contacted">Contacted</option>
+        <option value="booked">Booked</option>
+        <option value="closed">Closed</option>
+      </select>
+      <select id="practiceFilter" class="hidden"><option value="">All practices</option></select>
+      <span class="count" id="count"></span>
+    </div>
+    <div class="grid" id="grid"></div>
+  </div>
+</div>
+
+<div class="lb" id="lightbox"><span class="lb-close" id="lbClose">&times;</span><img id="lbImg" alt=""></div>
+
+<script>
+const API = 'https://quiet-forest-e1f8.david-d73.workers.dev';
+const $ = id => document.getElementById(id);
+const STATUS = ['new','contacted','booked','closed'];
+const COLORS = { new:'var(--new)', contacted:'var(--contacted)', booked:'var(--booked)', closed:'var(--closed)' };
+let token = sessionStorage.getItem('lucid_dash_token') || null;
+let scope = sessionStorage.getItem('lucid_dash_scope') || null;
+let leads = [];
+
+function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function fmtDate(ts){ if(!ts) return ''; const d=new Date(ts); return isNaN(d)?'':d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); }
+
+/* ── Login ── */
+$('loginForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  $('loginErr').textContent = '';
+  $('loginBtn').disabled = true;
+  try {
+    const r = await fetch(`${API}/api/dashboard/login`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ password: $('pw').value })
+    });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.error || 'Sign-in failed');
+    token = d.token; scope = d.scope;
+    sessionStorage.setItem('lucid_dash_token', token);
+    sessionStorage.setItem('lucid_dash_scope', scope);
+    showApp();
+  } catch (err) {
+    $('loginErr').textContent = err.message;
+  } finally { $('loginBtn').disabled = false; }
+});
+
+function logout(){
+  sessionStorage.removeItem('lucid_dash_token');
+  sessionStorage.removeItem('lucid_dash_scope');
+  token = scope = null;
+  $('appView').classList.add('hidden');
+  $('loginView').classList.remove('hidden');
+}
+$('logoutBtn').addEventListener('click', logout);
+$('refreshBtn').addEventListener('click', loadLeads);
+
+async function showApp(){
+  $('loginView').classList.add('hidden');
+  $('appView').classList.remove('hidden');
+  $('scopeLabel').textContent = scope === '*' ? 'All practices' : scope;
+  if (scope === '*') $('practiceFilter').classList.remove('hidden');
+  await loadLeads();
+}
+
+async function loadLeads(){
+  $('grid').innerHTML = Array.from({length:3}).map(()=>'<div class="skeleton"></div>').join('');
+  try {
+    const r = await fetch(`${API}/api/dashboard/leads`, { headers:{ Authorization:`Bearer ${token}` } });
+    if (r.status === 401) return logout();
+    const d = await r.json();
+    leads = d.leads || [];
+    if (scope === '*') {
+      const practices = [...new Set(leads.map(l=>l.practice).filter(Boolean))].sort();
+      $('practiceFilter').innerHTML = '<option value="">All practices</option>' +
+        practices.map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join('');
+    }
+    render();
+  } catch { $('grid').innerHTML = '<div class="empty"><h3>Couldn\'t load leads</h3><p>Please refresh.</p></div>'; }
+}
+
+function render(){
+  const q = $('search').value.trim().toLowerCase();
+  const sf = $('statusFilter').value;
+  const pf = $('practiceFilter').value;
+  const rows = leads.filter(l=>{
+    if (sf && (l.status||'new') !== sf) return false;
+    if (pf && l.practice !== pf) return false;
+    if (q) {
+      const hay = `${l.firstName||''} ${l.lastName||''} ${l.email||''} ${l.phone||''} ${l.interest||''}`.toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  $('count').textContent = `${rows.length} lead${rows.length===1?'':'s'}`;
+  if (!rows.length){ $('grid').innerHTML = '<div class="empty"><h3>No leads yet</h3><p>New simulator leads will appear here automatically.</p></div>'; return; }
+  $('grid').innerHTML = rows.map(cardHTML).join('');
+  document.querySelectorAll('.ba img').forEach(img=>img.addEventListener('click',()=>openLb(img.dataset.full||img.src)));
+  document.querySelectorAll('.statusSel').forEach(sel=>sel.addEventListener('change',onStatusChange));
+}
+
+function cardHTML(l){
+  const st = l.status || 'new';
+  const name = esc(`${l.firstName||''} ${l.lastName||''}`.trim() || 'Unknown');
+  const ba = (l.beforeUrl || l.afterUrl) ? `
+    <div class="ba">
+      ${l.beforeUrl?`<figure><img src="${esc(l.beforeUrl)}" alt="Before"><figcaption>Before</figcaption></figure>`:''}
+      ${l.afterUrl?`<figure><img src="${esc(l.afterUrl)}" alt="After"><figcaption>After</figcaption></figure>`:''}
+    </div>` : '<div class="lead-date" style="margin-top:10px">Visualization pending…</div>';
+  return `<div class="lead">
+    <div class="lead-head">
+      <div>
+        ${scope==='*'&&l.practice?`<div class="lead-practice">${esc(l.practice)}</div>`:''}
+        <div class="lead-name">${name}</div>
+      </div>
+      <span class="pill" style="background:${COLORS[st]}">${st}</span>
+    </div>
+    <div class="lead-meta">
+      ${l.email?`<a href="mailto:${esc(l.email)}">${esc(l.email)}</a><br>`:''}
+      ${l.phone?`<a href="tel:${esc(l.phone)}">${esc(l.phone)}</a> · `:''}${esc(l.interest||'')}
+    </div>
+    <div class="lead-date">${fmtDate(l.ts)}</div>
+    ${ba}
+    <div class="lead-actions">
+      <select class="statusSel" data-id="${esc(l.id)}" data-tenant="${esc(l.tenant)}">
+        ${STATUS.map(s=>`<option value="${s}"${s===st?' selected':''}>${s[0].toUpperCase()+s.slice(1)}</option>`).join('')}
+      </select>
+      ${l.videoUrl?`<a class="vid" href="${esc(l.videoUrl)}" target="_blank" rel="noopener">▶ Video</a>`:''}
+    </div>
+  </div>`;
+}
+
+async function onStatusChange(e){
+  const sel = e.target;
+  const id = sel.dataset.id, tenant = sel.dataset.tenant, status = sel.value;
+  sel.disabled = true;
+  try {
+    const r = await fetch(`${API}/api/dashboard/status`, {
+      method:'POST', headers:{'Content-Type':'application/json', Authorization:`Bearer ${token}`},
+      body: JSON.stringify({ id, tenant, status })
+    });
+    if (r.status === 401) return logout();
+    const lead = leads.find(l=>l.id===id); if (lead) lead.status = status;
+    const pill = sel.closest('.lead').querySelector('.pill');
+    pill.textContent = status; pill.style.background = COLORS[status];
+  } finally { sel.disabled = false; }
+}
+
+['search','statusFilter','practiceFilter'].forEach(id=>$(id).addEventListener('input',render));
+
+/* ── Lightbox ── */
+function openLb(src){ $('lbImg').src = src; $('lightbox').classList.add('open'); }
+$('lbClose').addEventListener('click',()=>$('lightbox').classList.remove('open'));
+$('lightbox').addEventListener('click',e=>{ if(e.target===$('lightbox')) $('lightbox').classList.remove('open'); });
+
+/* ── Boot ── */
+if (token && scope) showApp();
+</script>
+</body>
+</html>
