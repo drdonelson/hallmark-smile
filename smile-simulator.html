@@ -1061,6 +1061,11 @@
 <script>
 'use strict';
 
+// Force HTTPS — the API only accepts the secure origin; over http it is blocked.
+if (location.protocol === 'http:' && location.hostname !== 'localhost') {
+  location.replace(location.href.replace(/^http:/, 'https:'));
+}
+
 /* ── Constants ─────────────────────────────────────────────────── */
 // REPLACE THIS WITH YOUR CLOUDFLARE WORKER URL BEFORE GOING LIVE
 const PROXY_URL  = 'https://quiet-forest-e1f8.david-d73.workers.dev';

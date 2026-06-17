@@ -112,6 +112,10 @@
 <div class="lb" id="lightbox"><span class="lb-close" id="lbClose">&times;</span><img id="lbImg" alt=""></div>
 
 <script>
+// Force HTTPS — the API only accepts the secure origin; over http the call is blocked.
+if (location.protocol === 'http:' && location.hostname !== 'localhost') {
+  location.replace(location.href.replace(/^http:/, 'https:'));
+}
 const API = 'https://quiet-forest-e1f8.david-d73.workers.dev';
 const $ = id => document.getElementById(id);
 const STATUS = ['new','contacted','booked','closed'];
