@@ -2029,7 +2029,10 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   const alphaMaskC = document.createElement('canvas');
   alphaMaskC.width = outW; alphaMaskC.height = outH;
   const amCtx = alphaMaskC.getContext('2d');
-  drawMask(amCtx);
+  // Blend mask uses MP tooth pixels ONLY — NOT the gum-expanded zone.
+  // Ideogram's regenerated gum is darker than the face; compositing it back
+  // creates a visible dark band at the gumline. The original face gum shows naturally.
+  amCtx.drawImage(mpMaskImg, cx, cy, cw, ch, 0, 0, outW, outH);
   const amData = amCtx.getImageData(0, 0, outW, outH);
   const am = amData.data;
   // toothA from original MP tooth pixels only — NOT the expanded gum zone.
