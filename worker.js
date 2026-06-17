@@ -1129,6 +1129,21 @@ async function handleDashStatus(request, env, origin) {
     headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
   });
 }
+async function handleDashDelete(request, env, origin) {
+  const payload = await dashVerify(env, bearer(request));
+  if (!payload) return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+    status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+  let body; try { body = await request.json(); } catch { body = {}; }
+  const t = payload.t === '*' ? (body.tenant || '').toLowerCase() : payload.t;
+  if (!t || !body.id) return new Response(JSON.stringify({ error: 'Missing id/tenant' }), {
+    status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+  await env.TEMP_IMAGES.delete(`leads/${t}/${body.id}.json`).catch(() => {});
+  return new Response(JSON.stringify({ ok: true }), {
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+}
 
 // --- Lead email routing via Resend ---
 // Expects POST { to, practice, firstName, lastName, email, phone, interest, tenant, leadId }
@@ -1251,6 +1266,9 @@ export default {
     }
     if (url.pathname === '/api/dashboard/status' && request.method === 'POST') {
       return handleDashStatus(request, env, origin);
+    }
+    if (url.pathname === '/api/dashboard/delete' && request.method === 'POST') {
+      return handleDashDelete(request, env, origin);
     }
     if (url.pathname === '/api/consent' && request.method === 'POST') {
       return handleConsent(request, env, origin);
