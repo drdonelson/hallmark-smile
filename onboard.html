@@ -4,12 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Lucid ROI — Onboard New Practice</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@300&display=swap" rel="stylesheet">
 <style>
   :root{--blue:#2D6FFF;--bg:#f5f7ff;--card:#fff;--line:#e0e6f0;--text:#0A1628;--dim:#6b7a9a}
   *{box-sizing:border-box;margin:0;padding:0}
   body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:48px 16px}
   .wrap{width:100%;max-width:580px}
-  .logo{font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--blue);margin-bottom:8px}
+  .logo{display:flex;align-items:center;gap:10px;color:var(--text);margin-bottom:8px}
+  .logo-name{font-family:'Josefin Sans',sans-serif;font-weight:300;font-size:18px;letter-spacing:.28em;text-transform:uppercase}
   h1{font-size:24px;font-weight:700;margin-bottom:6px}
   .sub{color:var(--dim);font-size:14px;margin-bottom:32px}
   .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:28px 28px 32px}
@@ -41,7 +45,26 @@
 </head>
 <body>
 <div class="wrap">
-  <div class="logo">Lucid ROI</div>
+  <div class="logo">
+    <svg viewBox="0 0 200 200" width="26" height="26" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <polygon stroke-width="5" points="100,12 176,56 176,144 100,188 24,144 24,56"/>
+      <line stroke-width="2.8" x1="100" y1="12" x2="130" y2="48"/><line stroke-width="2.8" x1="100" y1="12" x2="70" y2="48"/>
+      <line stroke-width="2.8" x1="176" y1="56" x2="130" y2="48"/><line stroke-width="2.8" x1="176" y1="56" x2="160" y2="100"/>
+      <line stroke-width="2.8" x1="176" y1="144" x2="160" y2="100"/><line stroke-width="2.8" x1="176" y1="144" x2="130" y2="152"/>
+      <line stroke-width="2.8" x1="100" y1="188" x2="130" y2="152"/><line stroke-width="2.8" x1="100" y1="188" x2="70" y2="152"/>
+      <line stroke-width="2.8" x1="24" y1="144" x2="70" y2="152"/><line stroke-width="2.8" x1="24" y1="144" x2="40" y2="100"/>
+      <line stroke-width="2.8" x1="24" y1="56" x2="40" y2="100"/><line stroke-width="2.8" x1="24" y1="56" x2="70" y2="48"/>
+      <polygon stroke-width="2.8" points="160,100 130,48 70,48 40,100 70,152 130,152"/>
+      <line stroke-width="2.2" x1="160" y1="100" x2="133" y2="81"/><line stroke-width="2.2" x1="160" y1="100" x2="133" y2="119"/>
+      <line stroke-width="2.2" x1="130" y1="48" x2="100" y2="62"/><line stroke-width="2.2" x1="130" y1="48" x2="133" y2="81"/>
+      <line stroke-width="2.2" x1="70" y1="48" x2="67" y2="81"/><line stroke-width="2.2" x1="70" y1="48" x2="100" y2="62"/>
+      <line stroke-width="2.2" x1="40" y1="100" x2="67" y2="119"/><line stroke-width="2.2" x1="40" y1="100" x2="67" y2="81"/>
+      <line stroke-width="2.2" x1="70" y1="152" x2="100" y2="138"/><line stroke-width="2.2" x1="70" y1="152" x2="67" y2="119"/>
+      <line stroke-width="2.2" x1="130" y1="152" x2="133" y2="119"/><line stroke-width="2.2" x1="130" y1="152" x2="100" y2="138"/>
+      <polygon stroke-width="2.8" points="100,62 133,81 133,119 100,138 67,119 67,81"/>
+    </svg>
+    <span class="logo-name">LUCID</span>
+  </div>
   <h1>Onboard New Practice</h1>
   <p class="sub">Fill this in once — the practice gets their simulator link, embed code, and dashboard access automatically by email.</p>
 
