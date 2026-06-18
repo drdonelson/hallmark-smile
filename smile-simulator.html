@@ -1868,23 +1868,27 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   // full-res original, and a vertically expanded edit/blend mask so Ideogram has
   // room to draw full crowns meeting the lip line.
   const collapsed = (bounds.yMax - bounds.yMin) / (bounds.xMax - bounds.xMin) < 0.18;
-  const padX = (bounds.xMax - bounds.xMin) * (collapsed ? 0.8 : 2.0);
-  const padY = (bounds.yMax - bounds.yMin) * (collapsed ? 3.0 : 1.5);
+  // TIGHT crop from the FULL-RESOLUTION photo (not the 1536 resize). This gives
+  // Ideogram ~5x the tooth pixels of the old soft 2.0x/1.5x crop (~205px → ~500px),
+  // which is the difference between soft/pasted-looking teeth and defined,
+  // bitebot-grade crowns. Collapsed (edentulous) cases keep wider perioral
+  // padding so the model can rebuild a full lip-supported arch.
+  const padX = (bounds.xMax - bounds.xMin) * (collapsed ? 0.8 : 0.5);
+  const padY = (bounds.yMax - bounds.yMin) * (collapsed ? 3.0 : 1.0);
   const cx = Math.max(0, Math.round(bounds.xMin - padX));
   const cy = Math.max(0, Math.round(bounds.yMin - padY));
   const cw = Math.min(width  - cx, Math.round(bounds.xMax - bounds.xMin + padX * 2));
   const ch = Math.min(height - cy, Math.round(bounds.yMax - bounds.yMin + padY * 2));
 
+  // Crop pixels from the full-resolution original when available (both paths).
   let srcImg = origImg, f = 1;
-  if (collapsed && origFullUrl) {
+  if (origFullUrl) {
     try {
       srcImg = await loadImage(origFullUrl);
       f = srcImg.naturalWidth / width;
     } catch (e) { srcImg = origImg; f = 1; }
   }
-  const scale = collapsed
-    ? Math.min(1024 / (cw * f), 1024 / (ch * f), 1) * f
-    : Math.min(1024 / cw, 1024 / ch);
+  const scale = Math.min(1024 / (cw * f), 1024 / (ch * f), 1) * f;
   const outW  = Math.round(cw * scale / 64) * 64;
   const outH  = Math.round(ch * scale / 64) * 64;
 
