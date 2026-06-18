@@ -325,7 +325,7 @@ async function run() {
     eCtx.fillStyle = '#000'; eCtx.fillRect(0, 0, outW, outH);
     eCtx.fillStyle = '#fff';
     eCtx.beginPath();
-    eCtx.ellipse(tbX + tbW / 2, tbY + tbH / 2, tbW * 0.72, tbH * 2.2, 0, 0, Math.PI * 2);
+    eCtx.ellipse(tbX + tbW / 2, tbY + tbH / 2, tbW * (parseFloat(qs.get('rx')) || 0.72), tbH * (parseFloat(qs.get('ry')) || 2.2), 0, 0, Math.PI * 2);
     eCtx.fill();
   } else if (P.expand > 0) {
     expMaskC = document.createElement('canvas');
