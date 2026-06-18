@@ -1941,7 +1941,7 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
     eCtx.fillStyle = '#000'; eCtx.fillRect(0, 0, outW, outH);
     eCtx.fillStyle = '#fff';
     eCtx.beginPath();
-    eCtx.ellipse(tbX + tbW / 2, tbY + tbH / 2, tbW * 0.72, tbH * 2.2, 0, 0, Math.PI * 2);
+    eCtx.ellipse(tbX + tbW / 2, tbY + tbH / 2, tbW * 0.72, tbH * 2.5, 0, 0, Math.PI * 2);
     eCtx.fill();
   }
   const gumExpand = perioral ? 0 : Math.round(tbH * 0.30);
@@ -2024,7 +2024,7 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
     const startRes = await fetch(`${PROXY_URL}/api/ideogram/inpaint`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: cropImgUrl, mask: ideoMaskUrl, variant: perioral ? 'perioralSmile' : severeDamage ? 'fullArch' : 'normalSmile', shade: selectedShade, tenant: TENANT }),
+      body: JSON.stringify({ image: cropImgUrl, mask: ideoMaskUrl, variant: perioral ? 'openSmile' : severeDamage ? 'fullArch' : 'normalSmile', shade: selectedShade, tenant: TENANT }),
     });
     if (!startRes.ok) { const t = await startRes.text().catch(()=>''); throw new Error(`Ideogram ${startRes.status}: ${t.slice(0,200)}`); }
     const startData = await startRes.json();
