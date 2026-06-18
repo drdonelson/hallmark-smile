@@ -7,7 +7,7 @@
 <title>Lucid ROI — Smile Simulator Leads</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Lora:wght@600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Josefin+Sans:wght@300;400&display=swap" rel="stylesheet">
 <style>
   :root{
     --ink:#0a1628; --blue:#2D6FFF; --blue-d:#1f56d6;
@@ -21,8 +21,8 @@
   /* login */
   .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
   .login{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:34px 30px;width:100%;max-width:380px;box-shadow:0 8px 40px rgba(10,22,40,.08);text-align:center}
-  .brand{font-family:'Lora',serif;font-weight:700;color:var(--ink);font-size:1.5rem;letter-spacing:-.01em}
-  .brand .dot{color:var(--blue)}
+  .brand-mark{display:inline-flex;align-items:center;gap:10px;color:var(--ink)}
+  .brand-name{font-family:'Josefin Sans','Inter',sans-serif;font-weight:300;font-size:1.25rem;letter-spacing:.3em;text-transform:uppercase;line-height:1}
   .sub{color:var(--muted);font-size:.86rem;margin:6px 0 24px}
   .login input{width:100%;padding:12px 14px;border:1px solid var(--line);border-radius:10px;font-size:15px;margin-bottom:12px}
   .login input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(45,111,255,.12)}
@@ -31,7 +31,7 @@
   .err{color:#dc2626;font-size:.84rem;margin-top:10px;min-height:18px}
   /* app */
   header.top{background:var(--ink);color:#fff;padding:14px 22px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
-  header .brand{color:#fff;font-size:1.2rem} header .brand .dot{color:#6f9aff}
+  header .brand-mark{color:#fff}
   .top-right{display:flex;align-items:center;gap:14px;font-size:.85rem}
   .top-right a{color:#9fb4d6;cursor:pointer;text-decoration:none} .top-right a:hover{color:#fff}
   .wrap{max-width:1320px;margin:0 auto;padding:18px 16px 60px}
@@ -86,7 +86,19 @@
 
 <div class="login-wrap" id="loginView">
   <form class="login" id="loginForm">
-    <div class="brand">Lucid<span class="dot">.</span>ROI</div>
+    <div class="brand-mark" aria-label="Lucid">
+      <svg viewBox="0 0 32 36" width="26" height="29" aria-hidden="true">
+        <path d="M16 2 L27 9 L16 12 Z" fill="currentColor" opacity="1"/>
+        <path d="M16 2 L5 9 L16 12 Z" fill="currentColor" opacity="0.72"/>
+        <path d="M5 9 L27 9 L16 12 Z" fill="currentColor" opacity="0.55"/>
+        <path d="M5 9 L5 25 L16 20 L16 12 Z" fill="currentColor" opacity="0.65"/>
+        <path d="M27 9 L27 25 L16 20 L16 12 Z" fill="currentColor" opacity="0.88"/>
+        <path d="M5 25 L16 20 L16 34 Z" fill="currentColor" opacity="0.5"/>
+        <path d="M27 25 L16 20 L16 34 Z" fill="currentColor" opacity="0.75"/>
+        <path d="M5 25 L27 25 L16 34 Z" fill="currentColor" opacity="0.42"/>
+      </svg>
+      <span class="brand-name">LUCID</span>
+    </div>
     <div class="sub">Smile Simulator — Leads</div>
     <input type="password" id="pw" placeholder="Practice password" autocomplete="current-password" required>
     <button class="btn" id="loginBtn" type="submit">Sign in</button>
@@ -96,7 +108,19 @@
 
 <div class="hidden" id="appView">
   <header class="top">
-    <div class="brand">Lucid<span class="dot">.</span>ROI</div>
+    <div class="brand-mark" aria-label="Lucid">
+      <svg viewBox="0 0 32 36" width="26" height="29" aria-hidden="true">
+        <path d="M16 2 L27 9 L16 12 Z" fill="currentColor" opacity="1"/>
+        <path d="M16 2 L5 9 L16 12 Z" fill="currentColor" opacity="0.72"/>
+        <path d="M5 9 L27 9 L16 12 Z" fill="currentColor" opacity="0.55"/>
+        <path d="M5 9 L5 25 L16 20 L16 12 Z" fill="currentColor" opacity="0.65"/>
+        <path d="M27 9 L27 25 L16 20 L16 12 Z" fill="currentColor" opacity="0.88"/>
+        <path d="M5 25 L16 20 L16 34 Z" fill="currentColor" opacity="0.5"/>
+        <path d="M27 25 L16 20 L16 34 Z" fill="currentColor" opacity="0.75"/>
+        <path d="M5 25 L27 25 L16 34 Z" fill="currentColor" opacity="0.42"/>
+      </svg>
+      <span class="brand-name">LUCID</span>
+    </div>
     <div class="top-right">
       <span id="scopeLabel"></span>
       <a id="refreshBtn">Refresh</a>
