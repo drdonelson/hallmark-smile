@@ -142,7 +142,8 @@ function api(path, opts={}){ return fetch(`${API}${path}`, { ...opts, headers:{ 
 $('loginForm').addEventListener('submit', async e=>{
   e.preventDefault(); $('loginErr').textContent=''; $('loginBtn').disabled=true;
   try{
-    const r = await fetch(`${API}/api/dashboard/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:$('pw').value})});
+    const tenant = new URLSearchParams(location.search).get('t') || '';
+    const r = await fetch(`${API}/api/dashboard/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:$('pw').value, ...(tenant && {tenant})})});
     const d = await r.json();
     if(!r.ok) throw new Error(d.error||'Sign-in failed');
     token=d.token; scope=d.scope;

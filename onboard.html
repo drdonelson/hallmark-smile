@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Lucid ROI — Onboard New Practice</title>
+<style>
+  :root{--blue:#2D6FFF;--bg:#f5f7ff;--card:#fff;--line:#e0e6f0;--text:#0A1628;--dim:#6b7a9a}
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:'Segoe UI',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;align-items:flex-start;justify-content:center;padding:48px 16px}
+  .wrap{width:100%;max-width:580px}
+  .logo{font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--blue);margin-bottom:8px}
+  h1{font-size:24px;font-weight:700;margin-bottom:6px}
+  .sub{color:var(--dim);font-size:14px;margin-bottom:32px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:28px 28px 32px}
+  label{display:block;font-size:13px;font-weight:600;margin-bottom:6px;margin-top:20px}
+  label:first-child{margin-top:0}
+  input{width:100%;padding:11px 14px;border:1px solid var(--line);border-radius:10px;font-size:15px;color:var(--text);outline:none;transition:border .15s,box-shadow .15s}
+  input:focus{border-color:var(--blue);box-shadow:0 0 0 3px rgba(45,111,255,.12)}
+  .hint{font-size:12px;color:var(--dim);margin-top:4px}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:480px){.row{grid-template-columns:1fr}}
+  .btn{display:block;width:100%;margin-top:28px;padding:14px;background:var(--blue);color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:700;cursor:pointer;transition:opacity .15s}
+  .btn:disabled{opacity:.5;cursor:default}
+  .err{margin-top:12px;padding:10px 14px;background:#fff0f0;border:1px solid #fcc;border-radius:8px;font-size:13px;color:#c00;display:none}
+  .result{margin-top:28px;border:1px solid var(--line);border-radius:14px;overflow:hidden;display:none}
+  .result-header{background:var(--blue);color:#fff;padding:14px 20px;font-weight:700;font-size:14px;display:flex;align-items:center;gap:8px}
+  .result-header svg{flex-shrink:0}
+  .result-body{padding:20px}
+  .rrow{margin-bottom:18px}
+  .rrow:last-child{margin-bottom:0}
+  .rlabel{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--dim);margin-bottom:6px}
+  .rval{font-size:14px;word-break:break-all}
+  .rval a{color:var(--blue);text-decoration:none}
+  pre.embed{background:#f5f7ff;border:1px solid var(--line);border-radius:8px;padding:12px 14px;font-size:12px;overflow:auto;white-space:pre-wrap;margin-top:4px}
+  .copy-btn{margin-top:6px;padding:6px 14px;font-size:12px;font-weight:600;border:1px solid var(--line);border-radius:6px;background:#fff;cursor:pointer;transition:background .12s}
+  .copy-btn:hover{background:var(--bg)}
+  .pw-box{display:inline-flex;align-items:center;gap:10px;background:#f0f5ff;border:1px solid #c8d8ff;border-radius:8px;padding:8px 14px}
+  .pw-val{font-family:monospace;font-size:16px;font-weight:700;letter-spacing:.04em;color:var(--blue)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="logo">Lucid ROI</div>
+  <h1>Onboard New Practice</h1>
+  <p class="sub">Fill this in once — the practice gets their simulator link, embed code, and dashboard access automatically by email.</p>
+
+  <div class="card">
+    <label for="adminKey">Admin key</label>
+    <input type="password" id="adminKey" placeholder="••••••••••••" autocomplete="off">
+
+    <label for="practiceName">Practice name</label>
+    <input type="text" id="practiceName" placeholder="Seven Bridges Dental Studio">
+
+    <label for="leadEmail">Lead notification email</label>
+    <input type="email" id="leadEmail" placeholder="doctor@practice.com">
+    <div class="hint">Where patient leads will be emailed. Welcome email also goes here.</div>
+
+    <label for="website">Practice website <span style="font-weight:400;color:var(--dim)">(optional — enables iframe embed from their site)</span></label>
+    <input type="url" id="website" placeholder="https://sevenbridgesdentalstudio.com">
+
+    <div class="row" style="margin-top:20px">
+      <div>
+        <label for="simsPerMonth" style="margin-top:0">Monthly sim cap</label>
+        <input type="number" id="simsPerMonth" value="1000" min="100" step="100">
+        <div class="hint">AI calls/mo (2× runs per patient)</div>
+      </div>
+      <div>
+        <label for="videosPerMonth" style="margin-top:0">Monthly video cap</label>
+        <input type="number" id="videosPerMonth" value="50" min="10" step="10">
+      </div>
+    </div>
+
+    <label for="slugOverride">Slug override <span style="font-weight:400;color:var(--dim)">(optional — auto-derived from name)</span></label>
+    <input type="text" id="slugOverride" placeholder="sevenbridges" pattern="[a-z0-9]+" style="text-transform:lowercase">
+
+    <button class="btn" id="submitBtn" type="button">Onboard practice →</button>
+    <div class="err" id="errBox"></div>
+  </div>
+
+  <div class="result" id="resultBox">
+    <div class="result-header">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
+      Practice onboarded — welcome email sent
+    </div>
+    <div class="result-body" id="resultBody"></div>
+  </div>
+</div>
+
+<script>
+const API = 'https://quiet-forest-e1f8.david-d73.workers.dev';
+
+function $(id){ return document.getElementById(id); }
+
+function copy(text, btn) {
+  navigator.clipboard.writeText(text).then(() => {
+    const orig = btn.textContent;
+    btn.textContent = 'Copied!';
+    setTimeout(() => btn.textContent = orig, 1500);
+  });
+}
+
+$('submitBtn').addEventListener('click', async () => {
+  const adminKey     = $('adminKey').value.trim();
+  const practiceName = $('practiceName').value.trim();
+  const leadEmail    = $('leadEmail').value.trim();
+  const website      = $('website').value.trim();
+  const simsPerMonth = parseInt($('simsPerMonth').value) || 1000;
+  const videosPerMonth = parseInt($('videosPerMonth').value) || 50;
+  const slug         = $('slugOverride').value.trim().toLowerCase();
+
+  $('errBox').style.display = 'none';
+  $('resultBox').style.display = 'none';
+
+  if (!adminKey || !practiceName || !leadEmail) {
+    $('errBox').textContent = 'Admin key, practice name, and lead email are required.';
+    $('errBox').style.display = 'block';
+    return;
+  }
+
+  $('submitBtn').disabled = true;
+  $('submitBtn').textContent = 'Onboarding…';
+
+  try {
+    const res = await fetch(`${API}/api/onboard`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        adminKey, practiceName, leadEmail,
+        ...(website && { website }),
+        simsPerMonth, videosPerMonth,
+        ...(slug && { slug }),
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Onboarding failed');
+
+    $('resultBody').innerHTML = `
+      <div class="rrow">
+        <div class="rlabel">Dashboard password</div>
+        <div class="pw-box"><span class="pw-val">${data.password}</span></div>
+      </div>
+      <div class="rrow">
+        <div class="rlabel">Dashboard URL</div>
+        <div class="rval"><a href="${data.dashUrl}" target="_blank">${data.dashUrl}</a></div>
+        <button class="copy-btn" onclick="copy('${data.dashUrl}',this)">Copy link</button>
+      </div>
+      <div class="rrow">
+        <div class="rlabel">Direct simulator link</div>
+        <div class="rval"><a href="${data.simUrl}" target="_blank">${data.simUrl}</a></div>
+        <button class="copy-btn" onclick="copy(\`${data.simUrl}\`,this)">Copy link</button>
+      </div>
+      <div class="rrow">
+        <div class="rlabel">Website embed code</div>
+        <pre class="embed">${data.embedCode.replace(/</g,'&lt;')}</pre>
+        <button class="copy-btn" onclick="copy(\`${data.embedCode}\`,this)">Copy embed code</button>
+      </div>
+    `;
+    $('resultBox').style.display = 'block';
+    $('resultBox').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  } catch (err) {
+    $('errBox').textContent = err.message;
+    $('errBox').style.display = 'block';
+  } finally {
+    $('submitBtn').disabled = false;
+    $('submitBtn').textContent = 'Onboard practice →';
+  }
+});
+</script>
+</body>
+</html>

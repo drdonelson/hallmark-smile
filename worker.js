@@ -32,9 +32,17 @@ function corsHeaders(origin) {
   };
 }
 
-function getAllowedOrigin(request) {
+async function getAllowedOrigin(request, env) {
   const origin = request.headers.get('Origin') || '';
-  return ALLOWED_ORIGINS.has(origin) ? origin : null;
+  if (ALLOWED_ORIGINS.has(origin)) return origin;
+  // Check dynamic registry for practice websites added via /api/onboard
+  try {
+    const domain = origin.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
+    const key = `origins/${domain.replace(/[^a-z0-9.-]/gi, '_')}.json`;
+    const rec = await env.TEMP_IMAGES.get(key);
+    if (rec) return origin;
+  } catch { /* fail closed */ }
+  return null;
 }
 
 // --- Runway: Start video generation ---
@@ -619,9 +627,23 @@ const IP_DAILY = { sims: 30, videos: 6, shares: 12 };  // per-visitor abuse stop
 // registry later if per-agency routing is ever needed.
 const AGENCY_EMAIL = 'ritesh@affordabledentistmarketing.com';
 
+async function registryGet(env, slug) {
+  try {
+    const obj = await env.TEMP_IMAGES.get(`registry/${slug}.json`);
+    return obj ? await obj.json() : null;
+  } catch { return null; }
+}
+
 function tenantOf(body) {
   const t = ((body && body.tenant) || '').toLowerCase();
-  return TENANTS[t] ? t : 'unknown';
+  return (TENANTS[t] || t) ? t : 'unknown';
+}
+
+// Returns caps for a tenant — checks static TENANTS first, then R2 registry.
+async function tenantCaps(env, slug) {
+  if (TENANTS[slug]) return TENANTS[slug];
+  const rec = await registryGet(env, slug);
+  return rec ? { sims: rec.sims || 500, videos: rec.videos || 25 } : TENANTS.unknown;
 }
 async function usageRead(env, key) {
   try {
@@ -635,8 +657,8 @@ async function meter(env, request, tenant, kind, origin) {
     const now = new Date().toISOString();
     const tKey  = `usage/${tenant}/${now.slice(0, 7)}.json`;
     const ipKey = `usage/ip/${now.slice(0, 10)}/${request.headers.get('CF-Connecting-IP') || 'noip'}.json`;
-    const [tUse, ipUse] = await Promise.all([usageRead(env, tKey), usageRead(env, ipKey)]);
-    const tCap = TENANTS[tenant][kind];   // may be undefined (e.g. 'shares' is IP-only)
+    const [tUse, ipUse, caps] = await Promise.all([usageRead(env, tKey), usageRead(env, ipKey), tenantCaps(env, tenant)]);
+    const tCap = caps[kind];   // may be undefined (e.g. 'shares' is IP-only)
     if (tCap != null && (tUse[kind] || 0) >= tCap) {
       return new Response(JSON.stringify({ error: 'This site has reached its monthly simulation limit. Please contact the practice.' }), {
         status: 429, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
@@ -1085,6 +1107,11 @@ async function handleDashLogin(request, env, origin) {
   for (const [slug, pw] of Object.entries(pwmap)) {
     if (pw && typeof body.password === 'string' && body.password === pw) { matched = slug; break; }
   }
+  // Dynamic tenants: if body.tenant is provided and not found in DASH_PASSWORDS, check registry
+  if (!matched && body.tenant && typeof body.password === 'string') {
+    const rec = await registryGet(env, body.tenant.toLowerCase());
+    if (rec && rec.password && body.password === rec.password) matched = rec.slug;
+  }
   if (!matched) {
     return new Response(JSON.stringify({ error: 'Incorrect password' }), {
       status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
@@ -1142,6 +1169,94 @@ async function handleDashDelete(request, env, origin) {
   await env.TEMP_IMAGES.delete(`leads/${t}/${body.id}.json`).catch(() => {});
   return new Response(JSON.stringify({ ok: true }), {
     headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+}
+
+// --- Practice onboarding (admin-key gated, no origin check) ---
+// POST { adminKey, practiceName, leadEmail, website?, simsPerMonth?, videosPerMonth? }
+// Creates R2 registry entry + origins index, sends welcome email, returns all links.
+async function handleOnboard(request, env) {
+  const json = h => ({ 'Content-Type': 'application/json', ...h });
+  let body; try { body = await request.json(); } catch {
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: json() });
+  }
+  if (!env.ONBOARD_ADMIN_KEY || body.adminKey !== env.ONBOARD_ADMIN_KEY) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: json() });
+  }
+  const { practiceName, leadEmail, website } = body;
+  if (!practiceName || !leadEmail) {
+    return new Response(JSON.stringify({ error: 'practiceName and leadEmail are required' }), { status: 400, headers: json() });
+  }
+
+  // Derive slug: lowercase alphanum only, max 24 chars
+  const slug = (body.slug || practiceName).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24);
+  if (!slug) return new Response(JSON.stringify({ error: 'Cannot derive slug from practiceName' }), { status: 400, headers: json() });
+
+  // Prevent duplicate slugs
+  const existing = await env.TEMP_IMAGES.get(`registry/${slug}.json`);
+  if (existing) return new Response(JSON.stringify({ error: `Tenant '${slug}' already exists — use a different slug` }), { status: 409, headers: json() });
+
+  // Random 12-char password (base36, URL-safe)
+  const pwBytes = crypto.getRandomValues(new Uint8Array(9));
+  const password = Array.from(pwBytes, b => b.toString(36).padStart(2, '0')).join('').slice(0, 12);
+
+  const sims   = body.simsPerMonth   || 1000;
+  const videos = body.videosPerMonth || 50;
+  const createdAt = new Date().toISOString();
+
+  // Persist registry entry
+  const record = { slug, name: practiceName, leadEmail, website: website || null, sims, videos, password, createdAt };
+  await env.TEMP_IMAGES.put(`registry/${slug}.json`, JSON.stringify(record), { httpMetadata: { contentType: 'application/json' } });
+
+  // Index website domain(s) for dynamic CORS lookup
+  if (website) {
+    const domain = website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
+    const idx = JSON.stringify({ slug });
+    const domainKey = domain.replace(/[^a-z0-9.-]/gi, '_');
+    await Promise.all([
+      env.TEMP_IMAGES.put(`origins/${domainKey}.json`,      idx, { httpMetadata: { contentType: 'application/json' } }),
+      env.TEMP_IMAGES.put(`origins/www.${domainKey}.json`,  idx, { httpMetadata: { contentType: 'application/json' } }),
+    ]);
+  }
+
+  // Build deliverables
+  const base    = 'https://drdonelson.github.io/hallmark-smile';
+  const simUrl  = `${base}/smile-simulator.html?leadEmail=${encodeURIComponent(leadEmail)}&practice=${encodeURIComponent(practiceName)}&tenant=${slug}`;
+  const dashUrl = `${base}/dashboard.html?t=${slug}`;
+  const embedCode = `<iframe\n  src="${simUrl}"\n  width="100%" height="900"\n  allow="camera"\n  style="border:none;display:block"\n></iframe>`;
+
+  // Welcome email to practice
+  if (env.RESEND_API_KEY) {
+    const welcomeHtml = `
+<div style="font-family:sans-serif;max-width:560px;color:#0A1628">
+  <h2 style="color:#2D6FFF">Your Smile Simulator is ready!</h2>
+  <p>Hi ${practiceName},</p>
+  <p>Your AI smile simulator is set up and ready to go. Here's everything you need:</p>
+  <h3 style="margin-top:24px">Direct link (share on social, email, ads)</h3>
+  <p><a href="${simUrl}" style="color:#2D6FFF">${simUrl}</a></p>
+  <h3>Website embed code</h3>
+  <pre style="background:#f5f7ff;padding:14px;border-radius:8px;font-size:12px;overflow:auto">${embedCode.replace(/</g,'&lt;')}</pre>
+  <h3>Lead dashboard</h3>
+  <p><a href="${dashUrl}" style="color:#2D6FFF">${dashUrl}</a></p>
+  <p><strong>Password:</strong> <code style="background:#f0f0f0;padding:2px 6px;border-radius:4px">${password}</code></p>
+  <p style="color:#888;font-size:13px;margin-top:32px">Questions? Reply to this email or contact your Lucid ROI account manager.</p>
+</div>`;
+    await Promise.all([
+      fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: 'Lucid ROI <onboarding@lucidroi.com>', to: [leadEmail], subject: `Your Smile Simulator is ready — ${practiceName}`, html: welcomeHtml }),
+      }),
+      fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: 'Lucid ROI <onboarding@lucidroi.com>', to: ['dr.donelson@lucidroi.com'], subject: `New practice onboarded: ${practiceName}`, html: `<p><strong>${practiceName}</strong> (${slug}) onboarded. Lead email: ${leadEmail}. Dashboard: <a href="${dashUrl}">${dashUrl}</a>. Password: <code>${password}</code></p>` }),
+      }),
+    ]).catch(() => {});
+  }
+
+  return new Response(JSON.stringify({ ok: true, slug, simUrl, dashUrl, embedCode, password, leadEmail }), {
+    headers: json(),
   });
 }
 
@@ -1243,7 +1358,12 @@ export default {
       return handleStoredMedia(env, mMatch[1]);
     }
 
-    const origin = getAllowedOrigin(request);
+    // Practice onboarding — admin-key gated, no origin check required
+    if (url.pathname === '/api/onboard' && request.method === 'POST') {
+      return handleOnboard(request, env);
+    }
+
+    const origin = await getAllowedOrigin(request, env);
 
     // Reject requests from disallowed origins
     if (!origin) {
