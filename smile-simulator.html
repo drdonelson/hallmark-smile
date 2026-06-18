@@ -1867,12 +1867,11 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   // Collapsed cases instead get tight padding (≈3:1 crop), pixels from the
   // full-res original, and a vertically expanded edit/blend mask so Ideogram has
   // room to draw full crowns meeting the lip line.
-  // Perioral full-smile approach (wider ellipse edit zone + full-arch prompt) is
-  // now the DEFAULT for every case — it produces bitebot-grade broad, edge-to-edge
-  // smiles. Validated across 7 case types (severe decay, missing teeth, mild,
-  // older, gap, stained, sideways); none showed the old "clown-face" distortion.
-  // The tooth-confined branch (perioral ? … : …) is kept only as dead fallback.
-  const perioral = true;
+  // Perioral full-smile approach (wider ellipse edit zone + full-arch prompt) =
+  // broad, edge-to-edge, bitebot-grade smiles; the DEFAULT for every case.
+  // Live A/B toggle: ?smile=tooth forces the older tooth-confined (narrower but
+  // sometimes more individually-defined) path so the same photo can be compared.
+  const perioral = _lp.get('smile') !== 'tooth';
   // TIGHT crop from the FULL-RESOLUTION photo (not the 1536 resize). This gives
   // Ideogram ~5x the tooth pixels of the old soft 2.0x/1.5x crop (~205px → ~500px),
   // which is the difference between soft/pasted-looking teeth and defined,
