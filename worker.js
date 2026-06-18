@@ -117,13 +117,16 @@ async function handleKlingStart(request, env, origin) {
   const blockedVid = await meter(env, request, tenantOf(body), 'videos', origin);
   if (blockedVid) return blockedVid;
 
+  // Video line is configurable per request (?videoLine=); defaults to "this is amazing".
+  // Short phrases read clearer on the lips since Seedance is visual-only (no audio).
+  const line = (body.videoLine || 'this is amazing').replace(/["\\]/g, '');
   const prompt =
-    'The person slowly turns their head to the left showing their new smile in profile, ' +
-    'then turns back to face the camera directly, smiling broadly the whole time. ' +
-    'Looking at the camera, they mouth the words "this smile is absolutely amazing" ' +
-    'with natural lip and jaw articulation, then laugh warmly and naturally. ' +
-    'Joyful confident energy, eyes sparkling, natural blinking, ' +
-    'photorealistic human face, soft studio lighting, camera static.';
+    'The person turns their head slightly to show off their new smile, then faces the camera. ' +
+    `Looking at the camera with a delighted, surprised expression, they clearly mouth the words "${line}" ` +
+    'with deliberate, natural lip and jaw movement, then break into a big warm genuine laugh — ' +
+    'head tilting back a little, cheeks lifting, eyes crinkling with joy, shoulders relaxing. ' +
+    'Broad bright smile showing their new teeth the whole time. Joyful, confident, celebratory energy, ' +
+    'natural blinking, photorealistic human face, soft studio lighting, camera static.';
 
   let fal;
   try {
