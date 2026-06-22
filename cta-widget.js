@@ -27,7 +27,7 @@
     simUrl:    script.getAttribute('data-sim-url')    || ext.simUrl    || 'https://app.lucidroi.com/smile-simulator.html',
     heading:   script.getAttribute('data-heading')    || ext.heading   || 'Ready for a New Smile?',
     sub:       script.getAttribute('data-sub')        || ext.sub       || 'Get a Quick Smile Makeover Preview to See What’s Possible.',
-    avatarUrl: script.getAttribute('data-avatar-url') || ext.avatarUrl || '',
+    avatarUrl: script.getAttribute('data-avatar-url') || ext.avatarUrl || 'https://app.lucidroi.com/smile-avatar.png',
     delay:     parseInt(script.getAttribute('data-delay') || ext.delay || '3000', 10),
     theme:     script.getAttribute('data-theme')      || ext.theme     || 'hallmark',
     openMode:  script.getAttribute('data-open')       || ext.openMode  || 'tab', // 'tab' | 'modal'
