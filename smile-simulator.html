@@ -130,6 +130,33 @@
     }
     .gear-float:hover { color: var(--navy); border-color: var(--navy); }
 
+    /* ── Site Header ─────────────────────────────────────────────── */
+    .site-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 20px;
+      background: var(--navy-dark);
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+    }
+    .logo-wrap { display: flex; flex-direction: column; gap: 2px; }
+    .logo-name {
+      font-family: 'Playfair Display', Georgia, serif;
+      font-size: 1.3rem; font-weight: 600;
+      color: #fff;
+      letter-spacing: 0.01em; line-height: 1.2;
+    }
+    .logo-tagline {
+      font-size: 0.68rem; font-weight: 500;
+      letter-spacing: 0.11em; text-transform: uppercase;
+      color: var(--gold); opacity: 0.9;
+    }
+    .header-badge {
+      font-size: 0.66rem; font-weight: 500;
+      letter-spacing: 0.08em; text-transform: uppercase;
+      color: rgba(255,255,255,0.35);
+    }
+    @media (max-width: 580px) { .logo-name { font-size: 1.1rem; } }
+    @media (max-width: 380px) { .logo-name { font-size: 0.95rem; } .logo-tagline { font-size: 0.6rem; } }
+
     /* ── Hero ────────────────────────────────────────────────────── */
     .hero {
       text-align: center;
@@ -870,6 +897,21 @@
   </script>
 </head>
 <body>
+
+<!-- Site Header -->
+<header class="site-header">
+  <div class="logo-wrap">
+    <div class="logo-name" id="headerPracticeName">Hallmark Dental</div>
+    <div class="logo-tagline">AI Smile Simulator</div>
+  </div>
+  <div class="header-badge">Powered by Lucid</div>
+</header>
+<script>
+(function(){
+  var p = new URLSearchParams(location.search).get('practice');
+  if (p) document.getElementById('headerPracticeName').textContent = p;
+})();
+</script>
 
 <!-- Floating settings gear -->
 <button class="gear-btn gear-float" id="gearBtn" title="Settings" aria-label="Open settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
