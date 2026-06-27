@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hallmark Smile Simulator — Developer Status Brief</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: #0f1117;
+    color: #e2e8f0;
+    line-height: 1.7;
+    font-size: 15px;
+  }
+
+  .hero {
+    background: linear-gradient(135deg, #1a1f2e 0%, #0f1117 100%);
+    border-bottom: 1px solid #2d3748;
+    padding: 48px 24px 40px;
+    text-align: center;
+  }
+  .hero-label {
+    display: inline-block;
+    background: #2d3748;
+    color: #90cdf4;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    padding: 4px 12px;
+    border-radius: 20px;
+    margin-bottom: 16px;
+  }
+  .hero h1 {
+    font-size: clamp(24px, 4vw, 40px);
+    font-weight: 800;
+    color: #f7fafc;
+    line-height: 1.2;
+    margin-bottom: 10px;
+  }
+  .hero-sub {
+    color: #718096;
+    font-size: 14px;
+  }
+  .hero-links {
+    margin-top: 20px;
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+  }
+  .hero-links a {
+    display: inline-block;
+    background: #2d3748;
+    color: #90cdf4;
+    text-decoration: none;
+    padding: 7px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    transition: background 0.15s;
+  }
+  .hero-links a:hover { background: #4a5568; }
+
+  .toc {
+    max-width: 800px;
+    margin: 32px auto;
+    padding: 0 24px;
+  }
+  .toc-box {
+    background: #1a1f2e;
+    border: 1px solid #2d3748;
+    border-radius: 12px;
+    padding: 20px 24px;
+  }
+  .toc-box h3 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: #718096; margin-bottom: 12px; }
+  .toc-box ol { padding-left: 20px; }
+  .toc-box li { margin: 4px 0; }
+  .toc-box a { color: #90cdf4; text-decoration: none; font-size: 14px; }
+  .toc-box a:hover { text-decoration: underline; }
+
+  .content {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 0 24px 80px;
+  }
+
+  .section {
+    margin-top: 56px;
+  }
+
+  .section-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #4a5568;
+    margin-bottom: 8px;
+  }
+  .section-label .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: #4299e1;
+  }
+
+  h2 {
+    font-size: clamp(20px, 3vw, 26px);
+    font-weight: 700;
+    color: #f7fafc;
+    margin-bottom: 16px;
+    line-height: 1.3;
+  }
+
+  h3 {
+    font-size: 17px;
+    font-weight: 700;
+    color: #e2e8f0;
+    margin: 32px 0 10px;
+  }
+
+  h4 {
+    font-size: 14px;
+    font-weight: 700;
+    color: #a0aec0;
+    margin: 20px 0 6px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+  }
+
+  p { margin-bottom: 14px; color: #cbd5e0; }
+
+  ul, ol {
+    padding-left: 22px;
+    margin-bottom: 14px;
+  }
+  li { margin: 6px 0; color: #cbd5e0; }
+  li strong { color: #e2e8f0; }
+
+  a { color: #90cdf4; }
+
+  pre {
+    background: #1a1f2e;
+    border: 1px solid #2d3748;
+    border-radius: 10px;
+    padding: 18px 20px;
+    overflow-x: auto;
+    margin: 16px 0 20px;
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  code {
+    font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
+    font-size: 13px;
+  }
+  p code, li code {
+    background: #2d3748;
+    padding: 1px 6px;
+    border-radius: 4px;
+    color: #90cdf4;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 16px 0 24px;
+    font-size: 14px;
+  }
+  th {
+    text-align: left;
+    padding: 10px 14px;
+    background: #1a1f2e;
+    color: #a0aec0;
+    font-weight: 600;
+    font-size: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    border-bottom: 1px solid #2d3748;
+  }
+  td {
+    padding: 10px 14px;
+    border-bottom: 1px solid #1a1f2e;
+    color: #cbd5e0;
+    vertical-align: top;
+  }
+  tr:last-child td { border-bottom: none; }
+  tbody tr:hover td { background: #1a1f2e44; }
+
+  .card {
+    background: #1a1f2e;
+    border: 1px solid #2d3748;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin: 16px 0;
+  }
+
+  .callout {
+    border-left: 3px solid #4299e1;
+    background: #1a1f2e;
+    padding: 14px 18px;
+    border-radius: 0 8px 8px 0;
+    margin: 16px 0;
+    font-size: 14px;
+    color: #a0aec0;
+  }
+  .callout.warn { border-color: #f6ad55; }
+  .callout.success { border-color: #68d391; }
+  .callout strong { color: #e2e8f0; }
+
+  .iter-grid {
+    display: grid;
+    gap: 14px;
+    margin: 16px 0;
+  }
+  .iter-card {
+    background: #1a1f2e;
+    border: 1px solid #2d3748;
+    border-radius: 10px;
+    padding: 16px 20px;
+  }
+  .iter-card .iter-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .iter-num {
+    background: #2d3748;
+    color: #90cdf4;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    white-space: nowrap;
+  }
+  .iter-card h4 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 700;
+    color: #e2e8f0;
+    text-transform: none;
+    letter-spacing: normal;
+  }
+  .iter-card p { margin: 0; font-size: 13.5px; color: #a0aec0; }
+  .status-tag {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-left: auto;
+    white-space: nowrap;
+  }
+  .status-dead { background: #1a202c; color: #718096; border: 1px solid #2d3748; }
+  .status-live { background: #1c3a2a; color: #68d391; border: 1px solid #276749; }
+  .status-fail { background: #3b1f1a; color: #fc8181; border: 1px solid #822727; }
+
+  .gap-table-wrap { overflow-x: auto; margin: 16px 0; }
+
+  .roadmap-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 20px 0;
+  }
+  @media (max-width: 600px) { .roadmap-col { grid-template-columns: 1fr; } }
+  .roadmap-box {
+    background: #1a1f2e;
+    border: 1px solid #2d3748;
+    border-radius: 10px;
+    padding: 18px 20px;
+  }
+  .roadmap-box h4 {
+    margin: 0 0 10px;
+    font-size: 13px;
+    color: #90cdf4;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .roadmap-box ul { margin: 0; padding-left: 18px; }
+  .roadmap-box li { font-size: 13.5px; color: #a0aec0; margin: 5px 0; }
+
+  .divider {
+    border: none;
+    border-top: 1px solid #2d3748;
+    margin: 48px 0 0;
+  }
+
+  footer {
+    text-align: center;
+    padding: 24px;
+    color: #4a5568;
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+
+<div class="hero">
+  <div class="hero-label">Developer Brief · June 2026</div>
+  <h1>Hallmark Smile Simulator</h1>
+  <p class="hero-sub">Technical status, iteration history, bitebot gap analysis, and roadmap</p>
+  <div class="hero-links">
+    <a href="https://drdonelson.github.io/hallmark-smile/smile-simulator.html" target="_blank">Live Demo</a>
+    <a href="https://github.com/drdonelson/hallmark-smile" target="_blank">GitHub Repo</a>
+    <a href="https://sevenbridgesdentalstudio.com" target="_blank">First Client (Seven Bridges)</a>
+    <a href="https://bitebot.io" target="_blank">Competitor: bitebot.io</a>
+  </div>
+</div>
+
+<div class="toc">
+  <div class="toc-box">
+    <h3>Contents</h3>
+    <ol>
+      <li><a href="#what">What This Is</a></li>
+      <li><a href="#pipeline">Current Pipeline Architecture</a></li>
+      <li><a href="#bitebot">What Bitebot Does Differently</a></li>
+      <li><a href="#history">Full Iteration History (Inception → Now)</a></li>
+      <li><a href="#quality">Current Quality Assessment</a></li>
+      <li><a href="#infra">Infrastructure &amp; Technical Details</a></li>
+      <li><a href="#roadmap">Roadmap: Two Paths Forward</a></li>
+      <li><a href="#constraints">Hard Constraints</a></li>
+      <li><a href="#repo">Repo Structure</a></li>
+    </ol>
+  </div>
+</div>
+
+<div class="content">
+
+  <!-- WHAT THIS IS -->
+  <div class="section" id="what">
+    <div class="section-label"><span class="dot"></span>Overview</div>
+    <h2>What This Is</h2>
+    <p>A patient-facing AI smile simulator embedded on dental practice websites. Patient takes a selfie in the dental chair; the simulator generates a photorealistic "after" showing a full cosmetic makeover — Dr. Apa–style golden proportion symmetry, individually defined teeth with visible embrasures, BL1 whitening. Goal: patient emotionally commits to treatment before leaving the chair.</p>
+
+    <div class="roadmap-col">
+      <div class="roadmap-box">
+        <h4>Business model</h4>
+        <ul>
+          <li>SaaS via Lucid ROI platform</li>
+          <li>~$149/mo per dental practice</li>
+          <li>White-labeled embed via <code>?theme=</code> param</li>
+          <li>Lead capture → dentist dashboard</li>
+        </ul>
+      </div>
+      <div class="roadmap-box">
+        <h4>Competing product</h4>
+        <ul>
+          <li><a href="https://bitebot.io" target="_blank">bitebot.io</a> — same category</li>
+          <li>Further ahead on output quality</li>
+          <li>Closing the gap is the primary technical goal</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="callout warn">
+      <strong>Note:</strong> Dr. David Donelson (dentist/founder) pushes directly to this repo. Always pull before you push. He also edits <code>worker.js</code> directly for business logic additions.
+    </div>
+  </div>
+
+  <!-- PIPELINE -->
+  <div class="section" id="pipeline">
+    <div class="section-label"><span class="dot"></span>Architecture</div>
+    <h2>Current Pipeline Architecture</h2>
+
+    <pre><code>Patient selfie (mobile camera)
+    ↓
+MediaPipe 468-point face mesh  (runs browser-side, landmarks never leave device)
+    → inner-lip polygon → tooth bounding box + mask PNG
+    ↓
+ideogramCropMakeover()  ← PRIMARY PATH
+    1. Perioral ellipse edit zone  (rx 0.85·tbW, ry 2.5·tbH)
+    2. Crop from FULL-RES photo, scale to 1024px longest side
+    3. Tooth erase: fill tooth pixels rgb(20,12,12) — forces generation from scratch
+    4. Bib desaturation below ellipse (strips teal dental bib color)
+    5. Ideogram v2 inpaint via Replicate (BLACK=edit, WHITE=preserve)
+    6. Best-of-2 parallel draws — scored by embrasure + coverage − glare
+    7. Pixel-precise blend mask (MP brightness→alpha) → composite to original face
+    ↓
+Fallback chain (each fires only if primary throws):
+    [2] gpt-image-2 crop-zoom (OpenAI)
+    [4] FLUX Pro Fill full image (fal.ai)
+    [6] Client-side HSL whitening  ← always works, lowest quality
+    ↓
+After image displayed → VIDEO PREGEN starts immediately
+    → Seedance v1 lite (fal.ai): 8s/720p, patient mouths "this is amazing" + laughs
+    → "Watch Video" button attaches to already-running job → perceived wait ~0
+    ↓
+Email: before + after → patient + dentist (Resend API, hosted R2 URLs)</code></pre>
+
+    <div class="callout">
+      <strong>Fallbacks 1, 3, 5 are dead</strong> — Modal A10G and RunPod are defunded as of June 2026. LoRA weights survive on HuggingFace.
+    </div>
+  </div>
+
+  <!-- BITEBOT GAP -->
+  <div class="section" id="bitebot">
+    <div class="section-label"><span class="dot"></span>Competitive Analysis</div>
+    <h2>What Bitebot Does Differently</h2>
+
+    <p>We've compared bitebot's before/after pairs extensively. Their output shows consistent signals of full lower-face regeneration, not tooth inpainting:</p>
+
+    <div class="gap-table-wrap">
+    <table>
+      <thead>
+        <tr><th>Signal in bitebot output</th><th>What it implies</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Hair and upper face are pixel-identical to before</td>
+          <td>NOT doing full-face AI — upper face is preserved</td>
+        </tr>
+        <tr>
+          <td>Smile is noticeably wider than original anatomy allows</td>
+          <td>Regenerating more than just teeth — perioral zone is included</td>
+        </tr>
+        <tr>
+          <td>Lip shape and support change between before/after</td>
+          <td>Lower face (lips, gum, perioral) is regenerated as a unit</td>
+        </tr>
+        <tr>
+          <td>No visible composite seam anywhere</td>
+          <td>Edit zone boundary falls on cheek skin, outside the face expression area</td>
+        </tr>
+        <tr>
+          <td>Every case gets full arch canine-to-canine</td>
+          <td>Not constrained by original tooth detection — fills full ellipse</td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+
+    <div class="callout success">
+      <strong>Their likely approach:</strong> Inpaint a large perioral ellipse (teeth + gums + lips) so the blend boundary falls on cheek skin where any seam is invisible, then regenerate everything inside as a coherent unit. We now do this too — the remaining gap is ellipse calibration and potentially a fine-tuned model.
+    </div>
+  </div>
+
+  <!-- HISTORY -->
+  <div class="section" id="history">
+    <div class="section-label"><span class="dot"></span>Iteration History</div>
+    <h2>Full Iteration History</h2>
+    <p>Every approach tried, from first commit to now — what we learned from each.</p>
+
+    <div class="iter-grid">
+
+      <div class="iter-card">
+        <div class="iter-header">
+          <span class="iter-num">01</span>
+          <h4>Brightness-threshold masking</h4>
+          <span class="status-tag status-dead">Dead</span>
+        </div>
+        <p>Built <code>buildToothMask()</code> using HSV/brightness to find white pixels. Finds ~628 pixels. Misses yellowish, stained, decayed teeth entirely. Never use — <code>buildMediaPipeMask</code> supersedes it completely (finds 6,000+ pixels geometrically regardless of tooth color).</p>
+      </div>
+
+      <div class="iter-card">
+        <div class="iter-header">
+          <span class="iter-num">02</span>
+          <h4>ControlNet + LoRA full-face inpaint (Modal A10G)</h4>
+          <span class="status-tag status-dead">Dead</span>
+        </div>
+        <p>SDXL + dental LoRA (456MB, trained on ~600 Instagram before/after pairs). Ran at 1024px full-face — tooth region only ~200px wide. Cannot render individual tooth anatomy at 200px. Additional failure: LoRA img2img had no workable strength range (≥0.70 → white slab, &lt;0.70 → too subtle). Modal/RunPod defunded June 2026. <strong>LoRA weights on HuggingFace</strong> (<code>drdonelson/dental-lora</code>).</p>
+      </div>
+
+      <div class="iter-card">
+        <div class="iter-header">
+          <span class="iter-num">03</span>
+          <h4>FLUX Pro Fill crop-zoom</h4>
+          <span class="status-tag status-dead">Fallback</span>
+        </div>
+        <p>Crop mouth region, zoom to 1024px, FLUX inpaint. Mask convention: WHITE=edit (opposite of Ideogram). Decent results but Ideogram v2 consistently outperforms on tooth anatomy detail. Now Fallback 4.</p>
+      </div>
+
+      <div class="iter-card">
+        <div class="iter-header">
+          <span class="iter-num">04</span>
+          <h4>Ideogram v2 crop-zoom — primary</h4>
+          <span class="status-tag status-live">Live (Primary)</span>
+        </div>
+        <p>Crop to tooth region at 2.0×/1.5× padding, scale to 1024px. Teeth fill most of the Ideogram input — 5× more compute on the relevant zone. Core sub-discoveries:</p>
+        <ul style="margin-top:8px">
+          <li><strong>Tooth erase</strong> — fill MP-detected teeth with <code>rgb(20,12,12)</code> before sending. Without this, Ideogram sees existing light teeth and barely changes them → white slab. Dark fill = "missing teeth" signal = full generation from scratch.</li>
+          <li><strong>Mask convention</strong> — Ideogram v2 uses BLACK=edit, WHITE=preserve. FLUX/SDXL are the opposite. Getting this backwards silently edits the face.</li>
+          <li><strong>Bib desaturation</strong> — patients wear teal bibs. Ideogram samples context → blue teeth. Fix: desaturate all pixels below the tooth zone.</li>
+          <li><strong>Pixel-precise blend mask</strong> — bbox rectangle blend → visible rectangular seam. MediaPipe mask brightness→alpha → blend follows exact tooth geometry.</li>
+          <li><strong>Commissure fade</strong> — INNER_LIP polygon traces to mouth corners. Ideogram drifts there → fade blend to 0 over outer 5–10% of tooth width.</li>
+          <li><strong>destination-in alpha trap</strong> — clips by source ALPHA not color. Black (alpha 255) = opaque. Blend mask canvas must default transparent.</li>
+        </ul>
+      </div>
+
+      <div class="iter-card">
+        <div class="iter-header">
+          <span class="iter-num">05</span>
+          <h4>Lighting harmonization (<code>harmonizeTeeth()</code>)</h4>
+          <span class="status-tag status-live">Live</span>
+        </div>
+        <p>After compositing Ideogram teeth, they looked "pasted on" — too cool, too bright. Built LAB color space illuminant transfer: sample scene color temperature from perioral skin only (warm pixels: <code>LAB a &gt; 4</code>) — not whole crop (white walls contaminate and cyan-shift the teeth). Transfer ~half the chroma shift, match brightness to skin highlight level, apply per-column light falloff.</p>
+      </div>
+
+      <div class="iter-card">
+        <div class="iter-header">
+          <span class="iter-num">06</span>
+          <h4>Collapsed/edentulous detection</h4>
+          <span class="status-tag status-live">Live</span>
+        </div>
+        <p>Full-arch tooth loss → nearly closed mouth → inner-lip bbox aspect &lt;0.18 (normal smiles: 0.22–0.26). When collapsed: tight 0.5×/1.0× padding, vertical mask expansion, <code>perioralSmile</code> prompt, harmonization disabled.</p>
+      </div>
+
+      <div class="iter-card">
+        <div class="iter-header">
+          <span class="iter-num">07</span>
+          <h4>Perioral ellipse for edentulous cases</h4>
+          <span class="status-tag status-live">Live</span>
+        </div>
+        <p>Tooth-confined inpainting can't restore lip support — bounded by original lip line. Fix: draw perioral ellipse (rx=0.72·tbW, ry=2.2·tbH) covering full mouth opening including lips. Ideogram regenerates entire smile zone. 5/5 validated. Shipped June 2026.</p>
+      </div>
+
+      <div class="iter-card">
+        <div class="iter-header">
+          <span class="iter-num">08</span>
+          <h4>Best-of-2 QC</h4>
+          <span class="status-tag status-live">Live</span>
+        </div>
+        <p>Ideogram has large run-to-run variance. Run 2 parallel draws, score both with <code>scoreToothGeneration()</code> (embrasure local-minima + tonal stddev − cold glare penalty + coverage fill ratio), keep higher score. ~$0.16/run.</p>
+      </div>
+
+      <div class="iter-card">
+        <div class="iter-header">
+          <span class="iter-num">09</span>
+          <h4>Perioral ellipse for ALL cases (attempt 1)</h4>
+          <span class="status-tag status-fail">Reverted</span>
+        </div>
+        <p>Applied perioral ellipse to all patients with rx=0.85·tbW, ry=1.6·tbH. On patients with intact existing teeth, Ideogram generated a grotesquely wide, anatomically impossible "clown smile." Reverted within hours while live on Seven Bridges Dental. Root cause: ry=1.6 cuts through the smile arc — vertical opening too small relative to horizontal, creating an unnatural mouth shape that Ideogram can't resolve plausibly.</p>
+      </div>
+
+      <div class="iter-card">
+        <div class="iter-header">
+          <span class="iter-num">10</span>
+          <h4>Hires geometry — tight crop from full-res photo</h4>
+          <span class="status-tag status-live">Live</span>
+        </div>
+        <p>Production crop (2.0×/1.5× padding) spans nearly the full image → teeth hit Ideogram at ~205px, no real zoom benefit. Switch to: crop from the full-resolution original (not the downscaled working image), tight 0.5×/1.0× padding, ~3:1 AR matching Ideogram's native output. Teeth now ~500px wide at Ideogram — dramatically sharper anatomy.</p>
+      </div>
+
+      <div class="iter-card">
+        <div class="iter-header">
+          <span class="iter-num">11</span>
+          <h4>Perioral ellipse for ALL cases (attempt 2) — current</h4>
+          <span class="status-tag status-live">Live</span>
+        </div>
+        <p>Re-applied perioral approach to all cases with better calibration: rx=0.85·tbW, ry=2.5·tbH (larger vertical than the failed attempt's 1.6), <code>openSmile</code>/<code>perioralSmile</code> prompt. Larger ry prevents the ellipse from cutting through the smile arc. Validated across 7 case types. No clown-face artifacts.</p>
+      </div>
+
+      <div class="iter-card">
+        <div class="iter-header">
+          <span class="iter-num">12</span>
+          <h4>Severe damage routing</h4>
+          <span class="status-tag status-live">Live</span>
+        </div>
+        <p>Measure average brightness of original tooth pixels. If avgBright &lt;90 → route to <code>fullArch</code> Ideogram variant. The <code>normalSmile</code> prompt negated "wider smile, different smile width" — exactly wrong for heavily decayed teeth. <code>fullArch</code> prompt explicitly requests "premolars visible toward the corners" and "broad confident smile arc."</p>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- QUALITY -->
+  <div class="section" id="quality">
+    <div class="section-label"><span class="dot"></span>Current State</div>
+    <h2>Current Quality Assessment</h2>
+
+    <div class="roadmap-col">
+      <div class="roadmap-box">
+        <h4 style="color:#68d391">Working well</h4>
+        <ul>
+          <li>Natural/mild discoloration cases</li>
+          <li>True edentulous/collapsed cases</li>
+          <li>Bib desaturation (no more teal teeth)</li>
+          <li>Lighting harmonization (no pasted-on look)</li>
+          <li>Video generation (~60s, pre-generated)</li>
+          <li>Lead capture + email to dentist</li>
+          <li>Multi-tenant SaaS infrastructure</li>
+        </ul>
+      </div>
+      <div class="roadmap-box">
+        <h4 style="color:#fc8181">Still short of bitebot</h4>
+        <ul>
+          <li>Smile width on moderate damage cases</li>
+          <li>Gum-tooth transition on gum-showing smiles</li>
+          <li>Run-to-run variance (~15% bad draws even with best-of-2)</li>
+          <li>Severe decay artifact edge cases</li>
+          <li>Buccal corridor naturalness</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- INFRA -->
+  <div class="section" id="infra">
+    <div class="section-label"><span class="dot"></span>Technical Details</div>
+    <h2>Infrastructure &amp; Technical Details</h2>
+
+    <h3>Stack</h3>
+    <table>
+      <thead><tr><th>Layer</th><th>Technology</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Hosting</td><td>GitHub Pages</td><td>Static. Free. Already set up.</td></tr>
+        <tr><td>API proxy</td><td>Cloudflare Worker</td><td><code>worker.js</code> — CORS gate, metering, rate limiting, all AI calls</td></tr>
+        <tr><td>Storage</td><td>Cloudflare R2</td><td>Single bucket: temp images, media library, consent log, usage counters, practice registry</td></tr>
+        <tr><td>AI — images</td><td>Replicate (Ideogram v2)</td><td>Primary. ~$0.08/image. 20–90s generation.</td></tr>
+        <tr><td>AI — video</td><td>fal.ai (Seedance v1 lite)</td><td>8s/720p, ~60s. Visual only (no audio).</td></tr>
+        <tr><td>AI — fallback</td><td>OpenAI (gpt-image-2)</td><td>Fallback 2. More expensive.</td></tr>
+        <tr><td>Email</td><td>Resend</td><td>Before+after to patient+dentist. Hosted image URLs from R2.</td></tr>
+        <tr><td>Face mesh</td><td>MediaPipe (browser WASM)</td><td>468 landmarks. Client-side only. No WebGL in headless Chromium.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Critical Worker Constraints</h3>
+    <div class="callout warn">
+      <strong>Cloudflare Worker has a 30-second subrequest limit.</strong> Ideogram takes 20–90s. The Worker CANNOT wait for it. Pattern: Worker starts the Replicate prediction → returns prediction ID → browser polls <code>/api/replicate/status?id=X</code> every 4s. Same async pattern applies to all long-running jobs.
+    </div>
+
+    <h3>Ideogram v2 Specifics</h3>
+    <ul>
+      <li>Mask convention: <strong>BLACK = edit zone, WHITE = preserve</strong> (opposite of FLUX/SDXL — this has burned us before)</li>
+      <li>Output is always ~3:1 aspect ratio regardless of input. A 5:1 input → 3:1 output with quality loss. Keep crop AR near 3:1.</li>
+      <li>Cost: ~$0.08/image, ~$0.16/run with best-of-2</li>
+    </ul>
+
+    <h3>Prompt Variants in worker.js</h3>
+    <table>
+      <thead><tr><th>Variant</th><th>Used for</th><th>Key difference</th></tr></thead>
+      <tbody>
+        <tr><td><code>normalSmile</code></td><td>Intact/mild cases</td><td>Preserves smile width. Negates "wider smile." Good for veneers on healthy teeth.</td></tr>
+        <tr><td><code>fullArch</code></td><td>Severe decay (avgBright &lt;90)</td><td>Full arch corner-to-corner. Drops "same width" constraint. Requests premolars + buccal corridors.</td></tr>
+        <tr><td><code>perioralSmile</code></td><td>Edentulous/collapsed</td><td>Perioral zone regeneration with lip support.</td></tr>
+        <tr><td><code>openSmile</code></td><td>Perioral ellipse cases</td><td>Aperture-opening prompt for full perioral regeneration.</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Local Development</h3>
+    <pre><code># Test harness — runs Worker proxy + serves harness.html
+node harness/server.mjs   # port 8788
+
+# URL params:
+# photo=X.jpg             patient photo from test-photos/ (gitignored)
+# mode=baseline           current production path
+# mode=hires              tight-crop high-res experiment
+# gum=0.25                gum-band preservation experiment
+
+# MediaPipe for headless use (no WebGL in Node):
+python harness/landmarks.py &lt;photo&gt;   # outputs JSON landmarks
+
+# Harness caches all Ideogram intermediates to test-outputs/&lt;photo&gt;/
+# First run costs ~$0.08 via Worker proxy (spoofed Origin header)
+# All subsequent iteration is FREE — reuses cached generation</code></pre>
+  </div>
+
+  <!-- ROADMAP -->
+  <div class="section" id="roadmap">
+    <div class="section-label"><span class="dot"></span>Roadmap</div>
+    <h2>Two Paths Forward</h2>
+
+    <h3>Path A — Closing the Gap Without Training Data</h3>
+    <p>Achievable with Ideogram inpainting as-is. Estimated developer time per item:</p>
+
+    <div class="card">
+      <h4>1. Aperture parameter sweep — 2–4 hours</h4>
+      <p>The perioral ellipse rx/ry (0.85 width, 2.5 height) is a single fixed value for all cases. Larger ry → more lip area regenerated → closer to bitebot. But too large → identity drift. Need 10+ patient test photos to find the stable ceiling. Add <code>rx</code>/<code>ry</code> tunable params to harness UI and run a grid search.</p>
+    </div>
+
+    <div class="card">
+      <h4>2. Artifact detection + auto-retry — 3–5 hours</h4>
+      <p><code>scoreToothGeneration()</code> already runs on both best-of-2 draws. Add a minimum score threshold — if BOTH draws score below it, run a 3rd draw. Catches ~15% of runs that produce slabs or partial arches. Adds $0.08 and ~30s to those cases only.</p>
+    </div>
+
+    <div class="card">
+      <h4>3. Gum-band anchor for gum-showing smiles — 4–8 hours</h4>
+      <p>Full tooth erase leaves Ideogram no gingival anchor → dark void above generated teeth on gum-showing patients. Research in harness (<code>gum=0.25</code>): preserve top 25% of each tooth column globally if ≥40% of columns have healthy pink gum. Per-pixel or per-column decisions both fail (decay pixels and striping artifacts). Global per-photo decision is clean. Validated at hires crop; needs production crop validation.</p>
+    </div>
+
+    <div class="card">
+      <h4>4. FLUX Kontext as alternative primary — 1–2 days exploratory</h4>
+      <p>FLUX Dev Kontext (mid-2026) takes a reference image and follows transformation instructions — no mask needed. "Replace the teeth with BL1 veneers, keep everything else." Could sidestep Ideogram's inpainting constraints entirely. Quality on dental cases is unknown. Worth a harness proof-of-concept. Cost: ~$0.06/image.</p>
+    </div>
+
+    <h3>Path B — Training Data (Closes the Bitebot Gap)</h3>
+    <p>This is the path to truly matching or beating bitebot. Their quality edge almost certainly comes from a fine-tuned model.</p>
+
+    <div class="callout warn">
+      <strong>Training data status:</strong> ~600 before/after pairs exist from a dentist friend's Instagram, but they are NOT commercially licensed. Commercial training on friends' patients needs a written partner agreement (privacy + copyright). Dr. D's OWN practice archive (e.g., the <code>_DSC1529</code>/<code>_DSC3401</code> pair) is clean and usable immediately.
+    </div>
+
+    <div class="card">
+      <h4>FLUX Kontext LoRA fine-tuning</h4>
+      <p>FLUX Dev Kontext LoRA needs only <strong>50–150 before/after pairs</strong> (far less than Stable Diffusion). Dr. D's own archive may already have enough for an initial model.</p>
+      <p><strong>Pair requirements:</strong> matched lighting, same face position, full-face (not crops), minimum 3 case types (mild whitening / veneer makeover / full-arch restoration).</p>
+      <p><strong>What a fine-tuned model changes:</strong></p>
+      <ul>
+        <li>No mask needed — model understands "cosmetic dental makeover" as a transformation</li>
+        <li>Full perioral coherence — lips, gum, teeth regenerated as a unit because the model saw real results</li>
+        <li>No bib desaturation hack — model learns to ignore bibs from training data</li>
+        <li>Eliminates run-to-run variance — trained signal is consistent, not zero-shot prompting</li>
+        <li>Cost: ~$0.06/image inference, ~$30–80 to train on Replicate</li>
+      </ul>
+      <h4 style="margin-top:16px">Training workflow</h4>
+      <ol>
+        <li>Curate 50–100 pairs from Dr. D's own archive (or partner practice with written consent)</li>
+        <li>Fine-tune FLUX Dev Kontext LoRA on Replicate or fal.ai (both have hosted training)</li>
+        <li>Deploy the fine-tuned version on Replicate</li>
+        <li>Replace <code>ideogramCropMakeover()</code> with a full-face FLUX Kontext call</li>
+        <li>Keep current Ideogram pipeline as fallback</li>
+      </ol>
+    </div>
+
+    <div class="roadmap-col" style="margin-top:20px">
+      <div class="roadmap-box">
+        <h4>Path A timeline</h4>
+        <ul>
+          <li>Week 1: Aperture sweep + artifact retry</li>
+          <li>Week 2: Gum-band anchor + FLUX Kontext POC</li>
+          <li>Gets closer, doesn't fully close gap</li>
+        </ul>
+      </div>
+      <div class="roadmap-box">
+        <h4>Path B timeline</h4>
+        <ul>
+          <li>Week 1–2: Curate + license 50+ pairs</li>
+          <li>Week 2–3: Fine-tune + evaluate</li>
+          <li>Week 3–4: A/B test + ship</li>
+          <li>Should close the bitebot gap entirely</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- CONSTRAINTS -->
+  <div class="section" id="constraints">
+    <div class="section-label"><span class="dot"></span>Know Before You Start</div>
+    <h2>Hard Constraints</h2>
+
+    <table>
+      <thead><tr><th>Constraint</th><th>Why It Matters</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>CF Worker 30s limit</strong></td>
+          <td>All AI calls must be async. Never await a long job inside the Worker. Start → return ID → browser polls.</td>
+        </tr>
+        <tr>
+          <td><strong>Ideogram mask is BLACK=edit</strong></td>
+          <td>Opposite of FLUX/SDXL. Getting this wrong silently edits the face and preserves the teeth. Has burned us twice.</td>
+        </tr>
+        <tr>
+          <td><strong>Tooth erase is mandatory</strong></td>
+          <td>Without erasing existing teeth to <code>rgb(20,12,12)</code>, Ideogram minimally adjusts light teeth → white slab with no embrasures.</td>
+        </tr>
+        <tr>
+          <td><strong>Ideogram output is always ~3:1 AR</strong></td>
+          <td>Different input AR → Ideogram pads and returns 3:1. Stretch-drawing it back costs sharpness. Keep crop near 3:1.</td>
+        </tr>
+        <tr>
+          <td><strong>MediaPipe requires WebGL</strong></td>
+          <td>Won't run in headless Chromium or Node. Use <code>harness/landmarks.py</code> (Python mediapipe) for server-side automation.</td>
+        </tr>
+        <tr>
+          <td><strong>Ideogram variance is large</strong></td>
+          <td>Never validate a generation recipe on one draw. Best-of-2 is table stakes. Test 5+ draws before shipping any pipeline change.</td>
+        </tr>
+        <tr>
+          <td><strong>HIPAA: face photos are identifiers</strong></td>
+          <td>Public marketing embeds (visitor's selfie) are generally outside HIPAA scope. Chairside use IS HIPAA. Replicate/fal.ai/Resend don't sign BAAs. AWS S3 gives free BAA for true compliance path.</td>
+        </tr>
+        <tr>
+          <td><strong>Instagram training data not licensed</strong></td>
+          <td>The 600 pairs from a friend's account need a written commercial license for commercial training. Dr. D's own archive is clean.</td>
+        </tr>
+        <tr>
+          <td><strong>destination-in clips by alpha, not color</strong></td>
+          <td>Opaque black = alpha 255 = same as white. Blend mask canvas must default transparent or the whole crop composites.</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- REPO -->
+  <div class="section" id="repo">
+    <div class="section-label"><span class="dot"></span>Codebase</div>
+    <h2>Repo Structure</h2>
+
+    <pre><code>hallmark-smile/
+├── smile-simulator.html    # All browser pipeline logic (~3000 lines)
+├── worker.js               # Cloudflare Worker: API proxy + all AI integrations
+├── dashboard.html          # Lead management Kanban (dentist-facing)
+├── dev-status.html         # This document
+├── legal/
+│   ├── privacy.html        # Privacy policy (DRAFT — attorney review pending)
+│   ├── terms.html
+│   └── disclaimer.html
+├── modal-model/
+│   └── dental_app.py       # ControlNet+LoRA (defunded; weights on HuggingFace)
+├── harness/
+│   ├── server.mjs          # Local test server (port 8788)
+│   ├── harness.html        # Test UI with mode/photo params
+│   ├── landmarks.py        # Python MediaPipe for headless env
+│   ├── test-video.mjs      # End-to-end video generation test
+│   └── frames.html         # Frame-strip inspection
+├── test-photos/            # Gitignored — patient photos
+├── test-outputs/           # Gitignored — cached generation intermediates
+├── COLD_START.md           # Hard-won lessons + anti-patterns (READ FIRST)
+├── DEVELOPER_HANDOFF.md    # Comprehensive technical handoff
+└── COMPLIANCE.md           # HIPAA/BAA matrix + attorney checklist</code></pre>
+
+    <div class="callout">
+      <strong>Read COLD_START.md before touching the pipeline.</strong> Many of these lessons were discovered by shipping a failure to a live client first.
+    </div>
+  </div>
+
+</div>
+
+<hr class="divider">
+<footer>
+  Hallmark Smile Simulator · Developer Status Brief · June 2026 ·
+  <a href="https://github.com/drdonelson/hallmark-smile" target="_blank">github.com/drdonelson/hallmark-smile</a>
+</footer>
+
+</body>
+</html>
