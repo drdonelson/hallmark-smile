@@ -17,7 +17,7 @@ Competing product: **bitebot.io** — same product category, further along on qu
 
 ## Business Context
 
-- SaaS platform model: dental practices subscribe via Lucid ROI (lucidroi.com) for ~$149/mo
+- SaaS platform model: dental practices subscribe via Lucid ROI (lucidroi.com)
 - Dr. David Donelson (dentist/founder) edits this repo directly — always pull before pushing
 - Worker deployed to Cloudflare; simulator hosted on GitHub Pages
 - Cloudflare R2 bucket (`TEMP_IMAGES`) is the single storage layer: metering, media library, consent audit, practice registry
