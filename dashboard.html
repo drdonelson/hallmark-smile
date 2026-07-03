@@ -75,6 +75,69 @@
   .col-empty{color:var(--muted);font-size:.78rem;text-align:center;padding:18px 8px;opacity:.7}
   .skeleton{height:300px;border-radius:13px;background:linear-gradient(90deg,rgba(255,255,255,.04),rgba(255,255,255,.08),rgba(255,255,255,.04));background-size:200% 100%;animation:sk 1.3s linear infinite}
   @keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}
+  /* tabs */
+  .tabs{display:flex;gap:2px;flex-wrap:wrap;align-items:center;border-bottom:1px solid var(--line);margin-bottom:20px}
+  .tab{background:none;border:none;color:var(--muted);font-family:inherit;font-weight:600;font-size:.9rem;padding:11px 16px;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;border-radius:8px 8px 0 0;transition:.15s}
+  .tab:hover{color:var(--text);background:rgba(255,255,255,.03)}
+  .tab.active{color:var(--text);border-bottom-color:var(--blue)}
+  .tab-ctx{margin-left:auto;display:flex;align-items:center;gap:8px;padding:4px 0}
+  .tab-ctx select{padding:8px 11px;border:1px solid rgba(255,255,255,.1);border-radius:9px;font-size:13px;background:rgba(255,255,255,.05);color:var(--text)}
+  .panel{display:none} .panel.active{display:block}
+  /* settings */
+  .settings-grid{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:24px;align-items:start}
+  @media(max-width:920px){.settings-grid{grid-template-columns:1fr}}
+  .cols2{display:grid;grid-template-columns:1fr 1fr;gap:0 20px;align-items:start}
+  @media(max-width:700px){.cols2{grid-template-columns:1fr}}
+  .card2{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:13px;padding:18px 18px 20px;margin-bottom:20px}
+  .card2 h3{margin:0 0 3px;color:var(--text);font-size:1rem}
+  .card2 .hint{color:var(--muted);font-size:.8rem;margin:0 0 16px}
+  .field{margin-bottom:14px}
+  .field > label{display:block;font-size:.72rem;font-weight:700;color:var(--body);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em}
+  .field input[type=text],.field input[type=email],.field input[type=url],.field input[type=number],.field textarea,.field select{width:100%;padding:10px 12px;border:1px solid rgba(255,255,255,.1);border-radius:9px;font-size:14px;background:rgba(255,255,255,.05);color:var(--text);font-family:inherit}
+  .cap-row{display:flex;gap:14px}.cap-row .field{flex:1}
+  .field textarea{resize:vertical;min-height:56px}
+  .field input:focus,.field textarea:focus,.field select:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(100,130,255,.15)}
+  .field input::placeholder,.field textarea::placeholder{color:rgba(155,178,220,.4)}
+  .color-row{display:flex;align-items:center;gap:10px;margin-bottom:11px}
+  .color-row input[type=color]{width:44px;height:38px;padding:2px;border:1px solid rgba(255,255,255,.1);border-radius:8px;background:rgba(255,255,255,.05);cursor:pointer;flex:none}
+  .color-row label{flex:1;font-size:.85rem;color:var(--body)}
+  .color-row input[type=text]{width:104px;flex:none;padding:8px 10px;border:1px solid rgba(255,255,255,.1);border-radius:8px;background:rgba(255,255,255,.05);color:var(--text);font-size:13px;font-family:ui-monospace,Menlo,monospace}
+  details.adv{margin:4px 0 16px;border:1px solid var(--line);border-radius:10px;padding:0 14px;background:rgba(255,255,255,.02)}
+  details.adv > summary{cursor:pointer;padding:12px 0;font-size:.82rem;font-weight:600;color:var(--body);list-style:none}
+  details.adv[open] > summary{border-bottom:1px solid var(--line);margin-bottom:12px}
+  details.adv summary::-webkit-details-marker{display:none}
+  details.adv summary::before{content:'▸ ';color:var(--muted)}
+  details.adv[open] summary::before{content:'▾ '}
+  .list-editor{display:flex;flex-direction:column;gap:8px;margin-bottom:10px}
+  .le-row{display:flex;gap:8px;align-items:center;background:rgba(255,255,255,.03);border:1px solid var(--line);border-radius:9px;padding:8px}
+  .le-row.col{flex-direction:column;align-items:stretch}
+  .le-row .le-line{display:flex;gap:8px;align-items:center}
+  .le-row input[type=text],.le-row input[type=email]{flex:1;min-width:60px;padding:8px 10px;border:1px solid rgba(255,255,255,.1);border-radius:7px;background:rgba(255,255,255,.05);color:var(--text);font-size:13px;font-family:inherit}
+  .le-row input::placeholder{color:rgba(155,178,220,.4)}
+  .le-check{display:flex;align-items:center;gap:5px;font-size:.76rem;color:var(--muted);white-space:nowrap;cursor:pointer}
+  .le-rm{background:none;border:none;color:rgba(155,178,220,.4);cursor:pointer;padding:4px 7px;border-radius:6px;flex:none;font-size:18px;line-height:1}
+  .le-rm:hover{color:#f87171;background:rgba(248,113,113,.1)}
+  .btn-sm{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:var(--text);border-radius:8px;padding:8px 13px;font-weight:600;font-size:.82rem;cursor:pointer;width:auto;font-family:inherit}
+  .btn-sm:hover{background:rgba(100,130,255,.15);border-color:var(--blue)}
+  .btn-save{width:auto;padding:11px 28px}
+  .save-bar{display:flex;align-items:center;gap:14px;margin-top:6px}
+  .save-note{color:var(--muted);font-size:.8rem}
+  .logo-prev{display:flex;align-items:center;gap:14px;margin-bottom:12px}
+  .logo-prev img{max-width:130px;max-height:56px;border-radius:8px;background:rgba(255,255,255,.08);padding:6px;object-fit:contain}
+  input[type=file]{color:var(--body);font-size:13px;max-width:100%}
+  input[type=file]::file-selector-button{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:var(--text);border-radius:8px;padding:8px 13px;font-weight:600;font-size:.82rem;cursor:pointer;margin-right:10px;font-family:inherit}
+  .preview-wrap{position:sticky;top:16px}
+  .preview-wrap h3{margin:0 0 8px;color:var(--text);font-size:.95rem}
+  .preview-frame{width:380px;max-width:100%;height:660px;border:1px solid var(--line);border-radius:16px;background:#000;display:block}
+  @media(max-width:920px){.preview-frame{width:100%;height:560px}}
+  .snippet{background:#04050A;border:1px solid var(--line);border-radius:10px;padding:14px;font-family:ui-monospace,Menlo,monospace;font-size:12px;color:var(--body);white-space:pre-wrap;word-break:break-all;line-height:1.55;margin:6px 0 6px}
+  .bar-wrap{margin:20px 0}
+  .bar-label{display:flex;justify-content:space-between;font-size:.88rem;margin-bottom:7px;color:var(--body)}
+  .bar-label b{color:var(--text)}
+  .bar{height:12px;background:rgba(255,255,255,.07);border-radius:99px;overflow:hidden}
+  .bar > span{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--blue),var(--booked));border-radius:99px;transition:width .5s}
+  .coming{margin-top:22px;border:1px dashed var(--line);border-radius:12px;padding:22px;text-align:center;color:var(--muted);font-size:.85rem}
+  .placeholder-msg{color:var(--muted);font-size:.9rem;padding:40px 6px;text-align:center}
   /* lightbox + toast */
   .lb{position:fixed;inset:0;background:rgba(0,0,0,.88);display:none;align-items:center;justify-content:center;z-index:50;padding:20px}
   .lb.open{display:flex} .lb img{max-width:92vw;max-height:88vh;border-radius:10px}
@@ -111,8 +174,9 @@
       </svg>
       <span class="brand-name">LUCID</span>
     </div>
-    <div class="sub">Smile Simulator — Leads</div>
-    <input type="password" id="pw" placeholder="Practice password" autocomplete="current-password" required>
+    <div class="sub">Smile Simulator — Practice Dashboard</div>
+    <input type="email" id="email" placeholder="Email" autocomplete="username" autocapitalize="off" spellcheck="false">
+    <input type="password" id="pw" placeholder="Password" autocomplete="current-password" required>
     <button class="btn" id="loginBtn" type="submit">Sign in</button>
     <div class="err" id="loginErr"></div>
   </form>
@@ -147,12 +211,192 @@
     </div>
   </header>
   <div class="wrap">
-    <div class="toolbar">
-      <input type="search" id="search" placeholder="Search name, email, phone…">
-      <select id="practiceFilter" class="hidden"><option value="">All practices</option></select>
-      <span class="count" id="count"></span>
-    </div>
-    <div class="board" id="board"></div>
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="leads" type="button">Leads</button>
+      <button class="tab" data-tab="branding" type="button">Branding</button>
+      <button class="tab" data-tab="booking" type="button">Booking &amp; Treatments</button>
+      <button class="tab" data-tab="embed" type="button">Embed</button>
+      <button class="tab" data-tab="usage" type="button">Usage</button>
+      <div class="tab-ctx">
+        <select id="settingsTenant" class="hidden" title="Practice to manage"></select>
+      </div>
+    </nav>
+
+    <!-- ── Leads (Kanban) ── -->
+    <section class="panel active" id="panel-leads">
+      <div class="toolbar">
+        <input type="search" id="search" placeholder="Search name, email, phone…">
+        <select id="practiceFilter" class="hidden"><option value="">All practices</option></select>
+        <span class="count" id="count"></span>
+      </div>
+      <div class="board" id="board"></div>
+    </section>
+
+    <!-- ── Branding ── -->
+    <section class="panel" id="panel-branding">
+      <div class="no-tenant placeholder-msg hidden">Select a practice above to manage its branding.</div>
+      <div class="needs-tenant settings-grid">
+        <div>
+          <div class="card2">
+            <h3>Brand identity</h3>
+            <p class="hint">Names and labels shown throughout the simulator.</p>
+            <div class="field"><label>Practice name</label><input type="text" id="b-name" placeholder="Your Practice"></div>
+            <div class="field"><label>Tagline</label><input type="text" id="b-tagline" placeholder="AI Smile Simulator"></div>
+            <div class="field"><label>“Powered by” label</label><input type="text" id="b-powered" placeholder="Powered by Lucid"></div>
+          </div>
+          <div class="card2">
+            <h3>Colors</h3>
+            <p class="hint">Leave blank to use the simulator's default palette.</p>
+            <div id="colorPrimary"></div>
+            <details class="adv"><summary>Advanced colors</summary><div id="colorAdvanced"></div></details>
+          </div>
+          <div class="card2">
+            <h3>Logo</h3>
+            <p class="hint">PNG or JPEG. Auto-resized to 512px. Applied when you save.</p>
+            <div class="logo-prev"><img id="logoImg" alt="Logo preview" style="display:none"></div>
+            <input type="file" id="logoFile" accept="image/png,image/jpeg,image/webp">
+            <input type="hidden" id="b-logoUrl">
+          </div>
+          <div class="save-bar">
+            <button class="btn btn-save" id="saveBranding" type="button">Save branding</button>
+            <span class="save-note">Preview reloads after saving.</span>
+          </div>
+        </div>
+        <div class="preview-wrap">
+          <h3>Live preview</h3>
+          <iframe class="preview-frame" id="previewFrame" title="Simulator preview" allow="camera"></iframe>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Booking & Treatments ── -->
+    <section class="panel" id="panel-booking">
+      <div class="no-tenant placeholder-msg hidden">Select a practice above to manage its settings.</div>
+      <div class="needs-tenant">
+        <div class="cols2">
+          <div class="card2">
+            <h3>Booking</h3>
+            <p class="hint">Where the “book” button sends patients.</p>
+            <div class="field"><label>Booking URL</label><input type="url" id="bk-url" placeholder="https://…"></div>
+            <div class="field"><label>Button label</label><input type="text" id="bk-cta" placeholder="Book Your Free Consultation"></div>
+            <div class="field"><label>If no booking URL</label>
+              <select id="bk-fallback">
+                <option value="lead-capture">Show lead capture form</option>
+                <option value="hidden">Hide button</option>
+              </select>
+            </div>
+          </div>
+          <div class="card2">
+            <h3>Legal &amp; locale</h3>
+            <p class="hint">Shown in the simulator footer / consent.</p>
+            <div class="field"><label>Company name</label><input type="text" id="lg-company" placeholder="Your Practice, LLC"></div>
+            <div class="field"><label>Support email</label><input type="email" id="lg-support" placeholder="support@example.com"></div>
+            <div class="field"><label>Legal base URL</label><input type="url" id="lg-base" placeholder="https://…/legal"></div>
+            <div class="field"><label>Language</label>
+              <select id="lc-locale">
+                <option value="en">English</option>
+                <option value="fr">French</option>
+                <option value="es">Spanish</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="card2">
+          <h3>Treatments</h3>
+          <p class="hint">Options patients can select. The ID is auto-generated from the name.</p>
+          <div class="list-editor" id="treatList"></div>
+          <button class="btn-sm" id="addTreat" type="button">+ Add treatment</button>
+        </div>
+        <div class="card2">
+          <h3>Shades</h3>
+          <p class="hint">Whitening / result shade choices.</p>
+          <div class="list-editor" id="shadeList"></div>
+          <button class="btn-sm" id="addShade" type="button">+ Add shade</button>
+        </div>
+        <div class="card2">
+          <h3>Lead notification emails</h3>
+          <p class="hint">Who gets emailed when a new lead comes in.</p>
+          <div class="list-editor" id="emailList"></div>
+          <button class="btn-sm" id="addEmail" type="button">+ Add email</button>
+        </div>
+        <div class="card2">
+          <h3>Qualification questions <span class="hint" style="display:inline">(optional)</span></h3>
+          <p class="hint">Screen leads. Use comma-separated values. Leave empty to skip.</p>
+          <div class="list-editor" id="qualList"></div>
+          <button class="btn-sm" id="addQual" type="button">+ Add question</button>
+        </div>
+        <div class="save-bar">
+          <button class="btn btn-save" id="saveBooking" type="button">Save settings</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Embed ── -->
+    <section class="panel" id="panel-embed">
+      <div class="no-tenant placeholder-msg hidden">Select a practice above to get its embed code.</div>
+      <div class="needs-tenant">
+        <div class="card2">
+          <h3>Embed as an inline section</h3>
+          <p class="hint">Drop this into any page to show the simulator inline.</p>
+          <div class="snippet" id="snipIframe"></div>
+          <button class="btn-sm" data-copy="snipIframe" type="button">Copy iframe code</button>
+        </div>
+        <div class="card2">
+          <h3>Floating “new smile” button</h3>
+          <p class="hint">Adds a floating call-to-action widget on every page it's loaded on.</p>
+          <div class="snippet" id="snipWidget"></div>
+          <button class="btn-sm" data-copy="snipWidget" type="button">Copy widget code</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Usage ── -->
+    <section class="panel" id="panel-usage">
+      <div class="no-tenant placeholder-msg hidden">Select a practice above to see its usage.</div>
+      <div class="needs-tenant">
+        <div class="card2">
+          <h3>This month <span class="hint" style="display:inline">(<span id="usageMonth">—</span>)</span></h3>
+          <div class="bar-wrap">
+            <div class="bar-label"><span>Simulations</span><b id="u-sims-lbl">—</b></div>
+            <div class="bar"><span id="u-sims-bar"></span></div>
+          </div>
+          <div class="bar-wrap">
+            <div class="bar-label"><span>Videos</span><b id="u-videos-lbl">—</b></div>
+            <div class="bar"><span id="u-videos-bar"></span></div>
+          </div>
+        </div>
+
+        <!-- Token management — admins only -->
+        <div class="card2 admin-only hidden" id="tokenMgmtCard">
+          <h3>Token management <span class="hint" style="display:inline">(monthly allowance)</span></h3>
+          <div class="cap-row">
+            <div class="field"><label for="cap-sims">Simulations / month</label>
+              <input type="number" id="cap-sims" min="0" step="50" placeholder="1000"></div>
+            <div class="field"><label for="cap-videos">Videos / month</label>
+              <input type="number" id="cap-videos" min="0" step="10" placeholder="50"></div>
+          </div>
+          <button class="btn btn-save" id="saveCaps" type="button">Save allowance</button>
+          <div class="coming" style="margin-top:12px">Credit balances &amp; top-ups — coming soon.</div>
+        </div>
+
+        <!-- Client login management — super-admin only -->
+        <div class="card2 super-only hidden" id="resetPwCard">
+          <h3>Client login</h3>
+          <p class="hint">Reset this practice's dashboard password. Leave blank to auto-generate. The new password is shown here and emailed to the practice.</p>
+          <div class="field"><label for="newPw">New password (optional, min 8 chars)</label>
+            <input type="text" id="newPw" placeholder="auto-generate" autocomplete="off"></div>
+          <button class="btn btn-save" id="resetPwBtn" type="button">Reset password</button>
+          <div id="resetPwResult" class="hint" style="display:none;margin-top:12px;color:var(--text)"></div>
+        </div>
+
+        <!-- Danger zone — super-admin only -->
+        <div class="card2 super-only hidden" id="dangerCard" style="border-color:#5b2330">
+          <h3 style="color:#ff9aa8">Danger zone</h3>
+          <p class="hint">Permanently remove this practice's account (branding, login, config). Leads and media stay under retention. This cannot be undone.</p>
+          <button class="btn btn-save" id="deletePractice" type="button" style="background:#7a2230">Delete this practice</button>
+        </div>
+      </div>
+    </section>
   </div>
 </div>
 
@@ -174,7 +418,12 @@ const STAGES = [
 ];
 let token = sessionStorage.getItem('lucid_dash_token') || null;
 let scope = sessionStorage.getItem('lucid_dash_scope') || null;
+let role  = sessionStorage.getItem('lucid_dash_role')  || null;
 let leads = [];
+// Legacy tokens (pre-roles) carry no role: infer from scope so old sessions work.
+function effRole(){ return role || (scope==='*' ? 'admin' : 'client'); }
+function isAdminRole(){ const r=effRole(); return r==='admin' || r==='superadmin'; }
+function isSuperRole(){ return effRole()==='superadmin'; }
 
 function esc(s){ return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function fmtDate(ts){ if(!ts) return ''; const d=new Date(ts); return isNaN(d)?'':d.toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'}); }
@@ -186,25 +435,57 @@ $('loginForm').addEventListener('submit', async e=>{
   e.preventDefault(); $('loginErr').textContent=''; $('loginBtn').disabled=true;
   try{
     const tenant = new URLSearchParams(location.search).get('t') || '';
-    const r = await fetch(`${API}/api/dashboard/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password:$('pw').value, ...(tenant && {tenant})})});
+    const email = $('email').value.trim();
+    const password = $('pw').value;
+    if(!password){ throw new Error('Enter your password'); }
+    // Admins sign in with password only (matched against DASH_PASSWORDS server-
+    // side). Practice clients sign in with email + password (or a ?t= link).
+    const r = await fetch(`${API}/api/dashboard/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ ...(email && {email}), password, ...(tenant && {tenant})})});
     const d = await r.json();
     if(!r.ok) throw new Error(d.error||'Sign-in failed');
-    token=d.token; scope=d.scope;
+    token=d.token; scope=d.scope; role=d.role||null;
     sessionStorage.setItem('lucid_dash_token',token);
     sessionStorage.setItem('lucid_dash_scope',scope);
+    sessionStorage.setItem('lucid_dash_role',role||'');
     showApp();
   }catch(err){ $('loginErr').textContent=err.message; }
   finally{ $('loginBtn').disabled=false; }
 });
-function logout(){ sessionStorage.removeItem('lucid_dash_token'); sessionStorage.removeItem('lucid_dash_scope'); token=scope=null; $('appView').classList.add('hidden'); $('loginView').classList.remove('hidden'); }
+function logout(){ sessionStorage.removeItem('lucid_dash_token'); sessionStorage.removeItem('lucid_dash_scope'); sessionStorage.removeItem('lucid_dash_role'); token=scope=role=null; $('appView').classList.add('hidden'); $('loginView').classList.remove('hidden'); }
 $('logoutBtn').addEventListener('click',logout);
 $('refreshBtn').addEventListener('click',loadLeads);
 
 async function showApp(){
   $('loginView').classList.add('hidden'); $('appView').classList.remove('hidden');
-  $('scopeLabel').textContent = scope==='*' ? 'All practices' : scope;
+  const roleName = { superadmin:'Super Admin', admin:'Admin', client:'' }[effRole()] || '';
+  $('scopeLabel').textContent = scope==='*' ? `${roleName} — All practices` : scope;
   if(scope==='*') $('practiceFilter').classList.remove('hidden');
+  applyRoleUI();
+  renderColorPickers();
   await loadLeads();
+  if(isAdminRole()) await loadPractices();
+  await refreshSettingsCtx();
+}
+
+// Show/hide role-gated controls. Admin-only: token management (usage caps) +
+// the all-practices picker. Super-admin-only: destructive delete-practice.
+function applyRoleUI(){
+  document.querySelectorAll('.admin-only').forEach(el=>el.classList.toggle('hidden', !isAdminRole()));
+  document.querySelectorAll('.super-only').forEach(el=>el.classList.toggle('hidden', !isSuperRole()));
+}
+
+// Admin: list ALL registered practices (not just those with leads) for the picker.
+async function loadPractices(){
+  try{
+    const r = await api('/api/dashboard/practices');
+    if(!r.ok) return;
+    const d = await r.json();
+    const sel = $('settingsTenant');
+    const cur = sel.value || tParam();
+    sel.innerHTML = (d.practices||[]).map(p=>`<option value="${esc(p.slug)}">${esc(p.name||p.slug)}</option>`).join('');
+    if(cur && [...sel.options].some(o=>o.value===cur)) sel.value = cur;
+    sel.classList.remove('hidden');
+  }catch{ /* fall back to leads-derived list */ }
 }
 
 async function loadLeads(){
@@ -217,6 +498,8 @@ async function loadLeads(){
     if(scope==='*'){
       const ps=[...new Set(leads.map(l=>l.practice).filter(Boolean))].sort();
       $('practiceFilter').innerHTML = '<option value="">All practices</option>'+ps.map(p=>`<option value="${esc(p)}">${esc(p)}</option>`).join('');
+      // Settings-tenant picker is populated from the full practices list
+      // (loadPractices) so admins can manage practices that have no leads yet.
     }
     render();
   }catch{ $('board').innerHTML = '<div class="col-empty" style="grid-column:1/-1">Couldn\'t load leads — tap Refresh.</div>'; }
@@ -329,7 +612,353 @@ function openLb(src){ $('lbImg').src=src; $('lightbox').classList.add('open'); }
 $('lbClose').addEventListener('click',()=>$('lightbox').classList.remove('open'));
 $('lightbox').addEventListener('click',e=>{ if(e.target===$('lightbox')) $('lightbox').classList.remove('open'); });
 
+/* ═══════════════ Settings suite ═══════════════ */
+const SIM_BASE = 'https://drdonelson.github.io/hallmark-smile/smile-simulator.html';
+const WIDGET_SRC = 'https://drdonelson.github.io/hallmark-smile/cta-widget.js';
+let config = null, settingsSlug = '', settingsName = '';
+let colorState = {}, pendingLogoDataUrl = null;
+
+const COLOR_FIELDS = [
+  { key:'navy',      label:'Brand color (navy)',  def:'#1B3A5C', adv:false },
+  { key:'gold',      label:'Accent color (gold)', def:'#C9A84C', adv:false },
+  { key:'navyDark',  label:'Navy — dark',   def:'#12283F', adv:true },
+  { key:'navyMid',   label:'Navy — mid',    def:'#24486B', adv:true },
+  { key:'navyLight', label:'Navy — light',  def:'#3A6494', adv:true },
+  { key:'goldLight', label:'Gold — light',  def:'#E0C877', adv:true },
+  { key:'goldDark',  label:'Gold — dark',   def:'#A8863A', adv:true },
+  { key:'offWhite',  label:'Off white',     def:'#F7F4EE', adv:true },
+  { key:'lightGrey', label:'Light grey',    def:'#E8EBF0', adv:true },
+];
+function prettyName(slug){ return slug ? slug.charAt(0).toUpperCase()+slug.slice(1) : ''; }
+function hexToRgb(hex){
+  const m = /^#?([0-9a-f]{6})$/i.exec((hex||'').trim());
+  if(!m) return '';
+  const n = parseInt(m[1],16);
+  return `${(n>>16)&255},${(n>>8)&255},${n&255}`;
+}
+function slugify(s){ return (s||'').toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'').slice(0,24) || 'opt'; }
+function tParam(){ return (new URLSearchParams(location.search).get('t')||'').toLowerCase(); }
+function currentSettingsTenant(){
+  if(scope && scope!=='*') return scope;
+  return ($('settingsTenant').value || tParam() || '').toLowerCase();
+}
+
+/* ── Tenant selector (admin) ── */
+function populateSettingsTenant(){
+  const sel = $('settingsTenant');
+  const map = {};
+  leads.forEach(l=>{ if(l.tenant) map[l.tenant] = l.practice || prettyName(l.tenant); });
+  const slugs = Object.keys(map).sort();
+  const cur = sel.value;
+  sel.innerHTML = slugs.map(s=>`<option value="${esc(s)}">${esc(map[s])}</option>`).join('');
+  if(cur && slugs.includes(cur)) sel.value = cur;
+  else if(tParam() && slugs.includes(tParam())) sel.value = tParam();
+  sel.classList.remove('hidden');
+}
+$('settingsTenant').addEventListener('change', refreshSettingsCtx);
+
+/* ── Tabs ── */
+document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{
+  document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t===b));
+  document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active', p.id==='panel-'+b.dataset.tab));
+}));
+
+/* ── Color pickers ── */
+function renderColorPickers(){
+  const build = f => `<div class="color-row">
+      <input type="color" data-ck="${f.key}" value="${colorState[f.key]||f.def}" aria-label="${f.label}">
+      <label>${f.label}</label>
+      <input type="text" data-ct="${f.key}" placeholder="${f.def}" value="${colorState[f.key]||''}" spellcheck="false">
+    </div>`;
+  $('colorPrimary').innerHTML = COLOR_FIELDS.filter(f=>!f.adv).map(build).join('');
+  $('colorAdvanced').innerHTML = COLOR_FIELDS.filter(f=>f.adv).map(build).join('');
+  document.querySelectorAll('input[data-ck]').forEach(inp=>inp.addEventListener('input',()=>{
+    const k=inp.dataset.ck; colorState[k]=inp.value;
+    const t=document.querySelector(`input[data-ct="${k}"]`); if(t) t.value=inp.value;
+  }));
+  document.querySelectorAll('input[data-ct]').forEach(inp=>inp.addEventListener('input',()=>{
+    const k=inp.dataset.ct, v=inp.value.trim();
+    if(/^#?[0-9a-f]{6}$/i.test(v)){
+      const hex = v.startsWith('#')?v:'#'+v; colorState[k]=hex;
+      const c=document.querySelector(`input[data-ck="${k}"]`); if(c) c.value=hex;
+    } else if(!v){ delete colorState[k]; }
+  }));
+}
+function gatherColors(){
+  const colors = {};
+  COLOR_FIELDS.forEach(f=>{ if(colorState[f.key]) colors[f.key]=colorState[f.key]; });
+  if(colors.gold) colors.goldRgb = hexToRgb(colors.gold);
+  return colors;
+}
+
+/* ── List editors ── */
+function rowTreat(t={}){ return `<div class="le-row" data-row>
+    <input type="text" class="t-label" placeholder="Treatment name" value="${esc(t.label||'')}">
+    <label class="le-check"><input type="checkbox" class="t-en" ${t.enabled!==false?'checked':''}> On</label>
+    <button type="button" class="le-rm" title="Remove">&times;</button></div>`; }
+function rowShade(s={}){ return `<div class="le-row col" data-row>
+    <div class="le-line"><input type="text" class="s-label" placeholder="Shade name" value="${esc(s.label||'')}"><button type="button" class="le-rm" title="Remove">&times;</button></div>
+    <input type="text" class="s-desc" placeholder="Short description" value="${esc(s.desc||'')}"></div>`; }
+function rowEmail(e=''){ return `<div class="le-row" data-row>
+    <input type="email" class="em" placeholder="name@practice.com" value="${esc(e)}">
+    <button type="button" class="le-rm" title="Remove">&times;</button></div>`; }
+function rowQual(q={}){ return `<div class="le-row col" data-row>
+    <div class="le-line"><input type="text" class="q-q" placeholder="Question text" value="${esc(q.q||'')}"><button type="button" class="le-rm" title="Remove">&times;</button></div>
+    <input type="text" class="q-opts" placeholder="Options (comma separated)" value="${esc((q.options||[]).join(', '))}">
+    <input type="text" class="q-dq" placeholder="Disqualifying answers (comma separated)" value="${esc((q.disqualifyValues||[]).join(', '))}">
+    <input type="text" class="q-msg" placeholder="Disqualify message" value="${esc(q.disqualifyMsg||'')}">
+    <input type="text" class="q-url" placeholder="Booking URL (optional)" value="${esc(q.bookUrl||'')}"></div>`; }
+
+function renderLists(){
+  $('treatList').innerHTML = (config.treatments||[]).map(rowTreat).join('');
+  $('shadeList').innerHTML = (config.shades||[]).map(rowShade).join('');
+  $('emailList').innerHTML = (config.leads?.notifyEmails||[]).map(rowEmail).join('') || rowEmail();
+  $('qualList').innerHTML = (config.qualification||[]).map(rowQual).join('');
+}
+$('addTreat').addEventListener('click',()=>$('treatList').insertAdjacentHTML('beforeend',rowTreat({enabled:true})));
+$('addShade').addEventListener('click',()=>$('shadeList').insertAdjacentHTML('beforeend',rowShade()));
+$('addEmail').addEventListener('click',()=>$('emailList').insertAdjacentHTML('beforeend',rowEmail()));
+$('addQual').addEventListener('click',()=>$('qualList').insertAdjacentHTML('beforeend',rowQual()));
+document.querySelectorAll('.list-editor').forEach(c=>c.addEventListener('click',e=>{
+  const rm=e.target.closest('.le-rm'); if(rm) rm.closest('[data-row]').remove();
+}));
+const csv = s => s.split(',').map(x=>x.trim()).filter(Boolean);
+function gatherLists(){
+  const treatments = [...$('treatList').querySelectorAll('[data-row]')].map(r=>{
+    const label=r.querySelector('.t-label').value.trim();
+    return label ? { id:slugify(label), label, enabled:r.querySelector('.t-en').checked } : null;
+  }).filter(Boolean);
+  const shades = [...$('shadeList').querySelectorAll('[data-row]')].map(r=>{
+    const label=r.querySelector('.s-label').value.trim();
+    return label ? { id:slugify(label), label, desc:r.querySelector('.s-desc').value.trim() } : null;
+  }).filter(Boolean);
+  const notifyEmails = [...$('emailList').querySelectorAll('.em')].map(i=>i.value.trim()).filter(v=>v.includes('@'));
+  const qualification = [...$('qualList').querySelectorAll('[data-row]')].map(r=>{
+    const q=r.querySelector('.q-q').value.trim();
+    return q ? {
+      q, options:csv(r.querySelector('.q-opts').value),
+      disqualifyValues:csv(r.querySelector('.q-dq').value),
+      disqualifyMsg:r.querySelector('.q-msg').value.trim(),
+      bookUrl:r.querySelector('.q-url').value.trim(),
+    } : null;
+  }).filter(Boolean);
+  return { treatments, shades, notifyEmails, qualification };
+}
+
+/* ── Populate from server ── */
+function populateSettings(d){
+  config = d.config || {}; settingsSlug = d.slug || currentSettingsTenant(); settingsName = d.name || '';
+  const b = config.branding || {};
+  $('b-name').value = b.name||''; $('b-tagline').value = b.tagline||'';
+  $('b-powered').value = b.poweredByLabel||''; $('b-logoUrl').value = b.logoUrl||'';
+  if(b.logoUrl){ $('logoImg').src=b.logoUrl; $('logoImg').style.display=''; } else { $('logoImg').style.display='none'; }
+  pendingLogoDataUrl = null; $('logoFile').value='';
+  colorState = { ...(b.colors||{}) }; renderColorPickers();
+  const bk = config.booking || {};
+  $('bk-url').value = bk.url||''; $('bk-cta').value = bk.ctaLabel||'';
+  $('bk-fallback').value = bk.ctaFallback==='hidden' ? 'hidden' : 'lead-capture';
+  const lg = config.legal || {};
+  $('lg-company').value = lg.companyName||''; $('lg-support').value = lg.supportEmail||''; $('lg-base').value = lg.legalBaseUrl||'';
+  $('lc-locale').value = ['en','fr','es'].includes(config.locale) ? config.locale : 'en';
+  // Token management (admin) — populate cap inputs from the registry caps.
+  const caps = d.caps || {};
+  if($('cap-sims'))   $('cap-sims').value   = caps.sims   ?? '';
+  if($('cap-videos')) $('cap-videos').value = caps.videos ?? '';
+  renderLists();
+  setPreview();
+  updateEmbed();
+}
+function gatherConfig(){
+  const c = JSON.parse(JSON.stringify(config||{}));
+  c.branding = c.branding || {};
+  c.branding.name = $('b-name').value.trim();
+  c.branding.tagline = $('b-tagline').value.trim();
+  c.branding.poweredByLabel = $('b-powered').value.trim();
+  c.branding.logoUrl = $('b-logoUrl').value || '';
+  c.branding.colors = gatherColors();
+  c.booking = { url:$('bk-url').value.trim(), ctaLabel:$('bk-cta').value.trim(), ctaFallback:$('bk-fallback').value };
+  const g = gatherLists();
+  c.leads = { notifyEmails:g.notifyEmails };
+  c.treatments = g.treatments; c.shades = g.shades; c.qualification = g.qualification;
+  c.legal = { companyName:$('lg-company').value.trim(), supportEmail:$('lg-support').value.trim(), legalBaseUrl:$('lg-base').value.trim() };
+  c.locale = $('lc-locale').value;
+  return c;
+}
+
+/* ── Logo upload ── */
+function downscaleImage(file, max){
+  return new Promise((res,rej)=>{
+    const img=new Image(), url=URL.createObjectURL(file);
+    img.onload=()=>{
+      URL.revokeObjectURL(url);
+      let w=img.naturalWidth, h=img.naturalHeight;
+      if(Math.max(w,h)>max){ const r=max/Math.max(w,h); w=Math.round(w*r); h=Math.round(h*r); }
+      const cv=document.createElement('canvas'); cv.width=w; cv.height=h;
+      cv.getContext('2d').drawImage(img,0,0,w,h);
+      let out=cv.toDataURL('image/png');
+      if(out.length>800000) out=cv.toDataURL('image/jpeg',0.85);
+      if(out.length>800000) out=cv.toDataURL('image/jpeg',0.7);
+      res(out);
+    };
+    img.onerror=()=>rej(new Error('Could not read image')); img.src=url;
+  });
+}
+$('logoFile').addEventListener('change', async e=>{
+  const f=e.target.files[0]; if(!f) return;
+  try{
+    pendingLogoDataUrl = await downscaleImage(f, 512);
+    $('logoImg').src = pendingLogoDataUrl; $('logoImg').style.display='';
+  }catch(err){ toast(err.message||'Bad image'); }
+});
+
+/* ── Save ── */
+async function saveSettings(btn){
+  const t = currentSettingsTenant();
+  if(!t){ toast('Select a practice first'); return; }
+  btn.disabled=true; const orig=btn.textContent; btn.textContent='Saving…';
+  try{
+    if(pendingLogoDataUrl){
+      const lr = await api('/api/dashboard/logo',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({dataUrl:pendingLogoDataUrl, ...(scope==='*'&&{tenant:t})})});
+      const ld = await lr.json();
+      if(!lr.ok) throw new Error(ld.error||'Logo upload failed');
+      $('b-logoUrl').value = ld.url; pendingLogoDataUrl=null;
+    }
+    const cfg = gatherConfig();
+    const r = await api('/api/dashboard/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({config:cfg, ...(scope==='*'&&{tenant:t})})});
+    if(r.status===401) return logout();
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error||'Save failed');
+    config = d.config; if(config.branding?.name) settingsName = config.branding.name;
+    updateEmbed(); setPreview(); toast('Saved');
+  }catch(err){ toast(err.message||'Save failed'); }
+  finally{ btn.disabled=false; btn.textContent=orig; }
+}
+$('saveBranding').addEventListener('click',()=>saveSettings($('saveBranding')));
+$('saveBooking').addEventListener('click',()=>saveSettings($('saveBooking')));
+
+/* ── Token management (admin only) ── */
+async function saveCaps(btn){
+  if(!isAdminRole()) return;
+  const t = currentSettingsTenant();
+  if(!t){ toast('Select a practice first'); return; }
+  btn.disabled=true; const orig=btn.textContent; btn.textContent='Saving…';
+  try{
+    const caps = { sims:+$('cap-sims').value||0, videos:+$('cap-videos').value||0 };
+    // Settings POST always writes config too; send the current config unchanged.
+    const r = await api('/api/dashboard/settings',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({config:gatherConfig(), caps, ...(scope==='*'&&{tenant:t})})});
+    if(r.status===401) return logout();
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error||'Save failed');
+    if(d.caps){ $('cap-sims').value=d.caps.sims; $('cap-videos').value=d.caps.videos; }
+    loadUsage(); toast('Allowance updated');
+  }catch(err){ toast(err.message||'Save failed'); }
+  finally{ btn.disabled=false; btn.textContent=orig; }
+}
+if($('saveCaps')) $('saveCaps').addEventListener('click',()=>saveCaps($('saveCaps')));
+
+/* ── Reset client password (super-admin only) ── */
+if($('resetPwBtn')) $('resetPwBtn').addEventListener('click',async()=>{
+  if(!isSuperRole()) return;
+  const t = currentSettingsTenant();
+  if(!t){ toast('Select a practice first'); return; }
+  const np = $('newPw').value.trim();
+  if(np && np.length<8){ toast('Password must be at least 8 characters'); return; }
+  if(!confirm(`Reset the dashboard password for "${settingsName||t}"?`)) return;
+  const btn=$('resetPwBtn'); btn.disabled=true; const o=btn.textContent; btn.textContent='Resetting…';
+  try{
+    const r = await api('/api/dashboard/practice/reset-password',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tenant:t, ...(np&&{newPassword:np})})});
+    if(r.status===401) return logout();
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error||'Reset failed');
+    $('newPw').value='';
+    const res=$('resetPwResult'); res.style.display='block';
+    res.innerHTML = `New password: <b>${esc(d.password)}</b>` + (d.emailed ? ` — emailed to ${esc(d.email)}` : ' — no email on file, copy it now');
+    toast('Password reset');
+  }catch(err){ toast(err.message||'Reset failed'); }
+  finally{ btn.disabled=false; btn.textContent=o; }
+});
+
+/* ── Delete practice (super-admin only, destructive) ── */
+if($('deletePractice')) $('deletePractice').addEventListener('click',async()=>{
+  if(!isSuperRole()) return;
+  const t = currentSettingsTenant();
+  if(!t){ toast('Select a practice first'); return; }
+  if(!confirm(`Permanently delete "${settingsName||t}"? This removes their login, branding, and config. This cannot be undone.`)) return;
+  try{
+    const r = await api('/api/dashboard/practice/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({tenant:t})});
+    if(r.status===401) return logout();
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error||'Delete failed');
+    toast('Practice deleted'); await loadPractices(); await refreshSettingsCtx();
+  }catch(err){ toast(err.message||'Delete failed'); }
+});
+
+/* ── Embed snippets ── */
+function updateEmbed(){
+  const slug = currentSettingsTenant();
+  const name = encodeURIComponent(settingsName || config?.branding?.name || '');
+  const simUrl = `${SIM_BASE}?tenant=${slug}&practice=${name}`;
+  $('snipIframe').textContent = `<iframe src="${simUrl}" width="100%" height="900" allow="camera" style="border:none;display:block"></iframe>`;
+  $('snipWidget').textContent = `<script src="${WIDGET_SRC}" data-sim-url="${simUrl}" data-heading="Ready for a New Smile?" async><\/script>`;
+}
+document.querySelectorAll('[data-copy]').forEach(b=>b.addEventListener('click',async()=>{
+  try{ await navigator.clipboard.writeText($(b.dataset.copy).textContent); toast('Copied'); }
+  catch{ toast('Copy failed'); }
+}));
+
+/* ── Live preview ── */
+function setPreview(){
+  const slug = currentSettingsTenant();
+  $('previewFrame').src = `${SIM_BASE}?tenant=${encodeURIComponent(slug)}&_=${Date.now()}`;
+}
+
+/* ── Usage ── */
+function setBar(name, used, cap){
+  used = used||0; cap = cap||0;
+  $(`u-${name}-lbl`).textContent = `${used} / ${cap||'∞'}`;
+  $(`u-${name}-bar`).style.width = (cap>0 ? Math.min(100, Math.round(used/cap*100)) : 0) + '%';
+}
+async function loadUsage(){
+  const t = currentSettingsTenant(); if(!t) return;
+  try{
+    const r = await api(`/api/usage?tenant=${encodeURIComponent(t)}`);
+    const d = await r.json();
+    if(!r.ok) return;
+    $('usageMonth').textContent = d.month||'—';
+    setBar('sims', d.used?.sims, d.caps?.sims);
+    setBar('videos', d.used?.videos, d.caps?.videos);
+  }catch{ /* leave placeholders */ }
+}
+
+/* ── Load settings for current tenant ── */
+async function loadSettings(){
+  const t = currentSettingsTenant(); if(!t) return;
+  try{
+    const q = scope==='*' ? `?tenant=${encodeURIComponent(t)}` : '';
+    const r = await api(`/api/dashboard/settings${q}`);
+    if(r.status===401) return logout();
+    const d = await r.json();
+    if(!r.ok) throw new Error(d.error||'Load failed');
+    populateSettings(d);
+  }catch(err){ toast(err.message||'Could not load settings'); }
+}
+async function refreshSettingsCtx(){
+  const hasT = !!currentSettingsTenant();
+  document.querySelectorAll('.needs-tenant').forEach(el=>el.classList.toggle('hidden', !hasT));
+  document.querySelectorAll('.no-tenant').forEach(el=>el.classList.toggle('hidden', hasT));
+  if(!hasT) return;
+  await loadSettings();
+  loadUsage();
+  updateEmbed();
+}
+
 /* ── Boot ── */
+(function initBoot(){
+  const p = new URLSearchParams(location.search);
+  const em = p.get('email'); if(em) $('email').value = em;
+  // With ?t= present the tenant resolves login, so email is optional; otherwise show it as the primary field.
+  if(p.get('t')) $('email').placeholder = 'Email (optional)';
+})();
 if(token && scope) showApp();
 </script>
 </body>

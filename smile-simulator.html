@@ -72,6 +72,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,600;0,700;1,400&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
   <style>
     /* ── Variables & Reset ───────────────────────────────────────── */
     :root {
@@ -137,7 +138,8 @@
       background: var(--navy-dark);
       border-bottom: 1px solid rgba(255,255,255,0.07);
     }
-    .logo-wrap { display: flex; flex-direction: column; gap: 2px; }
+    .logo-wrap { display: flex; align-items: center; gap: 12px; }
+    .logo-img { height: 40px; width: auto; max-width: 160px; object-fit: contain; display: block; border-radius: 6px; }
     .logo-name {
       font-family: 'Playfair Display', Georgia, serif;
       font-size: 1.3rem; font-weight: 600;
@@ -504,42 +506,46 @@
     }
 
     /* ── Results — Side-by-Side ──────────────────────────────────── */
-    .ba-side-by-side {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 10px;
-      margin-bottom: 18px;
-    }
-    .ba-panel {
+    /* Interactive before/after slider */
+    .ba-slider {
       position: relative;
+      margin-bottom: 18px;
       border-radius: var(--radius-sm);
       overflow: hidden;
       background: var(--off-white);
-      aspect-ratio: 3 / 4;
+      user-select: none;
+      touch-action: pan-y;
+      cursor: ew-resize;
+      line-height: 0;
     }
-    .ba-panel img {
-      width: 100%;
-      height: 100%;
-      object-fit: cover;
-      object-position: center top;
-      display: block;
+    .ba-base { width: 100%; display: block; object-fit: cover; object-position: center top; }
+    .ba-after-clip {
+      position: absolute; top: 0; left: 0; height: 100%; width: 50%;
+      overflow: hidden; will-change: width;
     }
-    .ba-panel-label {
-      position: absolute;
-      bottom: 8px;
-      left: 50%;
-      transform: translateX(-50%);
-      background: rgba(0,0,0,0.55);
-      color: #fff;
-      font-size: 0.68rem;
-      font-weight: 700;
-      letter-spacing: 0.12em;
-      text-transform: uppercase;
-      padding: 4px 12px;
-      border-radius: 20px;
-      backdrop-filter: blur(4px);
-      white-space: nowrap;
+    .ba-after { position: absolute; top: 0; left: 0; height: 100%; width: auto; display: block; object-fit: cover; object-position: center top; }
+    .ba-label {
+      position: absolute; bottom: 10px;
+      background: rgba(0,0,0,0.55); color: #fff;
+      font-size: 0.66rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+      padding: 4px 12px; border-radius: 20px; backdrop-filter: blur(4px); white-space: nowrap;
+      line-height: 1; pointer-events: none;
     }
+    .ba-label-before { left: 10px; }
+    .ba-label-after  { right: 10px; }
+    .ba-handle {
+      position: absolute; top: 0; bottom: 0; left: 50%; width: 3px;
+      background: rgba(255,255,255,0.9); transform: translateX(-50%);
+      box-shadow: 0 0 0 1px rgba(0,0,0,0.15); will-change: left; touch-action: none;
+    }
+    .ba-handle-grip {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%,-50%);
+      width: 38px; height: 38px; border-radius: 50%;
+      background: #fff; color: var(--navy);
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.35); cursor: ew-resize;
+    }
+    .ba-handle:focus-visible { outline: 2px solid var(--gold); outline-offset: 2px; }
     .ba-gen-badge {
       position: absolute;
       top: 8px; right: 8px;
@@ -552,10 +558,10 @@
       letter-spacing: 0.05em;
       backdrop-filter: blur(8px);
       border: 1px solid rgba(var(--gold-rgb),0.3);
+      pointer-events: none;
     }
     /* keep hidden-img class for JS compatibility */
-    .ba-img { display: block; }
-    .ba-img.hidden-img { display: none; }
+    .ba-base.hidden-img, .ba-after.hidden-img { display: none; }
     .disclaimer {
       font-size: 0.72rem;
       color: var(--mid-grey);
@@ -859,6 +865,41 @@
       .hero-title { font-size: 1.45rem; }
       .hero-badge { font-size: 0.65rem; padding: 5px 12px; }
     }
+
+    /* Upload CTA row (choose / camera) */
+    .upload-cta-row { display: flex; gap: 10px; margin-top: 14px; }
+    .upload-cta-row .btn-outline { flex: 1; }
+    @media (max-width: 420px) { .upload-cta-row { flex-direction: column; } }
+
+    /* Video style selector */
+    .video-style-row { display: flex; align-items: center; gap: 10px; }
+    .video-style-row label { font-size: 0.78rem; color: var(--dark-grey); font-weight: 600; white-space: nowrap; }
+    .video-style-row select {
+      flex: 1; padding: 9px 12px; border-radius: var(--radius-sm);
+      border: 1px solid var(--light-grey); background: #fff; color: var(--text); font: inherit;
+    }
+
+    /* Camera modal */
+    .cam-overlay {
+      position: fixed; inset: 0; background: rgba(6,12,22,0.82);
+      display: none; align-items: center; justify-content: center; z-index: 1000; padding: 16px;
+      backdrop-filter: blur(3px);
+    }
+    .cam-overlay.open { display: flex; }
+    .cam-modal {
+      background: var(--navy-dark); color: #fff; border-radius: var(--radius);
+      width: 100%; max-width: 460px; overflow: hidden; box-shadow: var(--shadow-lg);
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    .cam-header { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+    .cam-title { font-family: 'Playfair Display', Georgia, serif; font-size: 1.1rem; }
+    .cam-close { background: none; border: none; color: rgba(255,255,255,0.7); font-size: 1.1rem; cursor: pointer; }
+    .cam-stage { position: relative; background: #000; aspect-ratio: 3 / 4; }
+    .cam-stage video { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .cam-error { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; padding: 20px; font-size: 0.9rem; color: #ffd7d7; }
+    .cam-actions { display: flex; gap: 10px; padding: 14px 18px 6px; }
+    .cam-actions .btn-gold { flex: 2; } .cam-actions .btn-outline { flex: 1; }
+    .cam-hint { font-size: 0.72rem; color: var(--mid-grey); text-align: center; padding: 4px 18px 16px; }
   </style>
   <script>
   // Per-site theming for iframe embeds. Each host site embeds the SAME file
@@ -901,10 +942,13 @@
 <!-- Site Header -->
 <header class="site-header">
   <div class="logo-wrap">
-    <div class="logo-name" id="headerPracticeName">Hallmark Dental</div>
-    <div class="logo-tagline">AI Smile Simulator</div>
+    <img id="headerLogo" class="logo-img" alt="" style="display:none">
+    <div>
+      <div class="logo-name" id="headerPracticeName">Hallmark Dental</div>
+      <div class="logo-tagline" id="headerTagline">AI Smile Simulator</div>
+    </div>
   </div>
-  <div class="header-badge">Powered by Lucid</div>
+  <div class="header-badge" id="headerBadge">Powered by Lucid</div>
 </header>
 <script>
 (function(){
@@ -912,9 +956,6 @@
   if (p) document.getElementById('headerPracticeName').textContent = p;
 })();
 </script>
-
-<!-- Floating settings gear -->
-<button class="gear-btn gear-float" id="gearBtn" title="Settings" aria-label="Open settings"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg></button>
 
 <!-- Hero -->
 <section class="hero">
@@ -948,6 +989,10 @@
           </div>
         </div>
       </div>
+    </div>
+    <div class="upload-cta-row" id="uploadCtaRow">
+      <button class="btn-outline" id="chooseFileBtn" type="button">Choose a Photo</button>
+      <button class="btn-outline" id="openCameraBtn" type="button">📷 Take a Photo</button>
     </div>
   </div>
 
@@ -1021,6 +1066,17 @@
         <div class="shade-desc">Brilliant, ultra-white smile for maximum impact</div>
       </button>
     </div>
+    <div id="shadeError" class="error-banner hidden" style="margin-top:16px"></div>
+  </div>
+
+  <!-- Optional qualification questions (populated from config) -->
+  <div class="card hidden" id="qualCard">
+    <h2 class="card-title"><span class="step-badge">✓</span> A Few Quick Questions</h2>
+    <form id="qualForm" novalidate>
+      <div id="qualFields"></div>
+      <div id="qualDisqualify" class="hidden" style="margin-top:14px"></div>
+      <button type="submit" class="btn-primary" id="qualContinue" style="margin-top:18px">Continue</button>
+    </form>
   </div>
 
   <!-- Step 4: Progress -->
@@ -1038,15 +1094,16 @@
     <h2 class="card-title" style="justify-content:center;">
       <span style="color:var(--gold)">✦</span>&nbsp;Your Smile Transformation
     </h2>
-    <div class="ba-side-by-side">
-      <div class="ba-panel">
-        <img id="beforeImg" class="ba-img" alt="Before">
-        <div class="ba-panel-label">Before</div>
+    <div class="ba-slider" id="baSlider">
+      <img id="beforeImg" class="ba-base" alt="Before">
+      <div class="ba-after-clip" id="baAfterClip">
+        <img id="afterImg" class="ba-after" alt="After — AI Visualization">
       </div>
-      <div class="ba-panel">
-        <img id="afterImg" class="ba-img" alt="After — AI Visualization">
-        <div class="ba-gen-badge" id="genBadge" style="display:none"></div>
-        <div class="ba-panel-label">After ✦</div>
+      <div class="ba-label ba-label-before">Before</div>
+      <div class="ba-label ba-label-after">After ✦</div>
+      <div class="ba-gen-badge" id="genBadge" style="display:none"></div>
+      <div class="ba-handle" id="baHandle" role="slider" aria-label="Compare before and after" aria-valuemin="0" aria-valuemax="100" aria-valuenow="50" tabindex="0">
+        <span class="ba-handle-grip"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/><polyline points="9 6 15 12 9 18" transform="translate(0)"/></svg></span>
       </div>
     </div>
     <div class="disclaimer">
@@ -1060,6 +1117,14 @@
         Book Your Free Consultation
       </a>
       <!-- Video generator -->
+      <div class="video-style-row" id="videoStyleRow">
+        <label for="videoStyle">Video style</label>
+        <select id="videoStyle">
+          <option value="laugh">Joyful laugh</option>
+          <option value="reveal">Confident reveal</option>
+          <option value="talk">Talking to camera</option>
+        </select>
+      </div>
       <button class="btn-video" id="createVideoBtn" type="button">Create Shareable Video</button>
       <div class="video-progress-wrap" id="videoProgressWrap">
         <div class="video-progress-label" id="videoProgressLabel">Rendering video… 0%</div>
@@ -1074,6 +1139,7 @@
       </div>
       <div class="secondary-actions">
         <button class="btn-outline" id="downloadBtn" type="button">Download Photo</button>
+        <button class="btn-outline" id="downloadPdfBtn" type="button">Download PDF</button>
         <button class="btn-ghost" id="tryAnotherBtn" type="button">Try Another Photo</button>
       </div>
     </div>
@@ -1086,53 +1152,22 @@
   </footer>
 </main>
 
-<!-- Config Slide-out Panel -->
-<div class="overlay" id="cfgOverlay"></div>
-<div class="config-panel" id="cfgPanel">
-  <div class="cp-header">
-    <span class="cp-title">Settings</span>
-    <button class="cp-close" id="cfgClose" type="button">✕</button>
-  </div>
-  <div class="cp-body">
-    <div class="cp-section">Booking Link</div>
-    <div class="cp-group">
-      <label for="cfgUrl">Consultation Booking URL</label>
-      <input type="text" id="cfgUrl" placeholder="https://yourdomain.com/book" autocomplete="off">
+<!-- Camera capture modal -->
+<div class="cam-overlay" id="camOverlay">
+  <div class="cam-modal">
+    <div class="cam-header">
+      <span class="cam-title">Take Your Photo</span>
+      <button class="cam-close" id="camClose" type="button" aria-label="Close">✕</button>
     </div>
-    <button class="cp-save" id="cfgSave" type="button">Save Settings</button>
-    <div class="cp-status" id="cfgStatus"></div>
-  </div>
-</div>
-
-<!-- Admin Panel (Ctrl+Shift+A) -->
-<div class="admin-panel" id="adminPanel">
-  <div class="admin-header">
-    <span class="admin-title">Admin — Lead Manager</span>
-    <button class="admin-close" id="adminClose" type="button">✕</button>
-  </div>
-  <div class="admin-body">
-    <div class="admin-stats" id="adminStats"></div>
-    <div class="admin-actions">
-      <button class="btn-admin" id="exportBtn" type="button">Export to CSV</button>
-      <button class="btn-admin-danger" id="clearBtn" type="button">🗑 Clear All Leads</button>
+    <div class="cam-stage">
+      <video id="camVideo" playsinline autoplay muted></video>
+      <div class="cam-error" id="camError" style="display:none"></div>
     </div>
-    <div class="table-wrap" id="leadsTable"></div>
-  </div>
-</div>
-
-<!-- Confirm Modal (Clear All Leads) -->
-<div class="modal-overlay" id="confirmModal">
-  <div class="modal">
-    <div class="modal-title">Clear All Leads</div>
-    <div class="modal-text">
-      This will permanently delete all stored lead data.<br>
-      To confirm, type <strong>CONFIRM</strong> below:
+    <div class="cam-actions">
+      <button class="btn-outline" id="camFlipBtn" type="button">Flip</button>
+      <button class="btn-gold" id="camSnapBtn" type="button">Capture</button>
     </div>
-    <input type="text" class="modal-input" id="confirmInput" placeholder="CONFIRM" maxlength="10" autocomplete="off">
-    <div class="modal-actions">
-      <button class="btn-mcancel" id="confirmCancel" type="button">Cancel</button>
-      <button class="btn-mconfirm" id="confirmDelete" type="button" disabled>Delete All</button>
-    </div>
+    <div class="cam-hint">Face the camera straight-on with a relaxed, open smile in good light.</div>
   </div>
 </div>
 
@@ -1225,45 +1260,47 @@ const $    = id => document.getElementById(id);
 const show = el => el.classList.remove('hidden');
 const hide = el => el.classList.add('hidden');
 
-/* ── Config ────────────────────────────────────────────────────── */
-const getCfg = () => ({
-  // Embed param wins, then gear-settings (localStorage), else unset ('#').
-  bookingUrl: BOOKING_URL || localStorage.getItem(LS_URL) || '#',
-});
+/* ── Config (white-label) ──────────────────────────────────────── */
+// PRACTICE holds the live white-label config. It starts from URL params /
+// defaults and is overwritten by GET /api/config?tenant= (loadPracticeConfig).
+const PRACTICE = {
+  name: LEAD_PRACTICE,
+  bookingUrl: BOOKING_URL || '',
+  ctaLabel: 'Book Your Free Consultation',
+  ctaFallback: 'lead-capture',       // 'lead-capture' | 'hidden'
+  notifyEmail: LEAD_EMAIL,
+  legalBaseUrl: '',
+  companyName: 'Lucid ROI',
+  locale: 'en',
+  qualification: [],
+};
 
-function openConfig() {
-  const c = getCfg();
-  $('cfgUrl').value = c.bookingUrl === '#' ? '' : c.bookingUrl;
-  $('cfgOverlay').classList.add('open');
-  $('cfgPanel').classList.add('open');
-}
-function closeConfig() {
-  $('cfgOverlay').classList.remove('open');
-  $('cfgPanel').classList.remove('open');
-}
+const getCfg = () => ({ bookingUrl: PRACTICE.bookingUrl || '#' });
 
-$('gearBtn').addEventListener('click', openConfig);
-$('cfgOverlay').addEventListener('click', closeConfig);
-$('cfgClose').addEventListener('click', closeConfig);
-$('cfgSave').addEventListener('click', () => {
-  const u = $('cfgUrl').value.trim();
-  localStorage.setItem(LS_URL, u || '#');
-  syncBookBtn();
-  $('cfgStatus').textContent = '✓ Settings saved';
-  setTimeout(() => { $('cfgStatus').textContent = ''; }, 3000);
-});
-
+// Wire up the results-screen booking CTA. When a booking URL is set the button
+// opens it. When none is set we DON'T silently vanish the primary conversion
+// action: unless the practice chose 'hidden', fall back to a mailto to the
+// practice so the patient can still reach out (the lead is already captured).
 function syncBookBtn() {
-  const u = getCfg().bookingUrl;
   const btn = $('bookBtn');
-  if (u && u !== '#') {
+  if (!btn) return;
+  const u = (PRACTICE.bookingUrl || '').trim();
+  btn.textContent = PRACTICE.ctaLabel || 'Book Your Free Consultation';
+  if (u) {
     btn.href = u;
+    btn.target = '_blank';
     btn.style.display = '';
-  } else {
-    // No scheduling link configured — hide rather than open a broken link
-    // (an href="#" with target=_blank reopens this same page in a new tab).
+  } else if (PRACTICE.ctaFallback === 'hidden') {
     btn.removeAttribute('href');
     btn.style.display = 'none';
+  } else {
+    // Fallback: email the practice. Always functional, never a broken link.
+    const subject = encodeURIComponent(`Consultation request — ${PRACTICE.name}`);
+    btn.href = `mailto:${PRACTICE.notifyEmail}?subject=${subject}`;
+    btn.removeAttribute('target');
+    btn.textContent = PRACTICE.ctaLabel && PRACTICE.ctaLabel !== 'Book Your Free Consultation'
+      ? PRACTICE.ctaLabel : 'Request Your Consultation';
+    btn.style.display = '';
   }
 }
 
@@ -1351,6 +1388,60 @@ async function processFile(file) {
     alert('Could not process this image. Please try a different photo.');
   }
 }
+
+/* ── Camera capture (getUserMedia) ─────────────────────────────── */
+let camStream = null;
+let camFacing = 'user';
+$('chooseFileBtn').addEventListener('click', e => { e.stopPropagation(); fileInput.click(); });
+
+async function openCamera() {
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    // No camera API (older browser / insecure context) — fall back to the OS
+    // camera via a capture-hinted file picker.
+    fileInput.setAttribute('capture', 'user'); fileInput.click();
+    setTimeout(() => fileInput.removeAttribute('capture'), 500);
+    return;
+  }
+  $('camOverlay').classList.add('open');
+  $('camError').style.display = 'none';
+  await startCamStream();
+}
+async function startCamStream() {
+  stopCamStream();
+  try {
+    camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: camFacing }, audio: false });
+    const v = $('camVideo');
+    v.srcObject = camStream;
+    await v.play().catch(() => {});
+  } catch (err) {
+    $('camError').textContent = 'Camera unavailable — please allow camera access or choose a photo instead.';
+    $('camError').style.display = 'flex';
+  }
+}
+function stopCamStream() {
+  if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; }
+}
+function closeCamera() { stopCamStream(); $('camOverlay').classList.remove('open'); }
+
+$('openCameraBtn').addEventListener('click', e => { e.stopPropagation(); openCamera(); });
+$('camClose').addEventListener('click', closeCamera);
+$('camOverlay').addEventListener('click', e => { if (e.target.id === 'camOverlay') closeCamera(); });
+$('camFlipBtn').addEventListener('click', () => { camFacing = camFacing === 'user' ? 'environment' : 'user'; startCamStream(); });
+$('camSnapBtn').addEventListener('click', () => {
+  const v = $('camVideo');
+  if (!v.videoWidth) return;
+  const c = document.createElement('canvas');
+  c.width = v.videoWidth; c.height = v.videoHeight;
+  const ctx = c.getContext('2d');
+  if (camFacing === 'user') { ctx.translate(c.width, 0); ctx.scale(-1, 1); }  // un-mirror selfie
+  ctx.drawImage(v, 0, 0, c.width, c.height);
+  c.toBlob(blob => {
+    if (!blob) return;
+    const file = new File([blob], 'camera-photo.jpg', { type: 'image/jpeg' });
+    closeCamera();
+    processFile(file);
+  }, 'image/jpeg', 0.92);
+});
 
 /* ── Form validation ───────────────────────────────────────────── */
 $('fDisclaimer').addEventListener('change', () => {
@@ -2893,8 +2984,8 @@ function shareResult(beforeUrl, afterUrl) {
       tenant:       TENANT,
       leadId:       serverLeadId,
       consent:      true,
-      practice:     LEAD_PRACTICE,
-      dentistEmail: LEAD_EMAIL,
+      practice:     PRACTICE.name,
+      dentistEmail: PRACTICE.notifyEmail,
       patientEmail: $('fEmail').value.trim(),
       patientName:  [$('fFirstName').value.trim(), $('fLastName').value.trim()].filter(Boolean).join(' '),
       beforeImage:  beforeUrl,
@@ -2928,7 +3019,7 @@ $('leadForm').addEventListener('submit', async e => {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       tenant:   TENANT,
-      practice: LEAD_PRACTICE,
+      practice: PRACTICE.name,
       version:  CONSENT_VERSION,
       scope:    ['ai_processing', 'email_share'],
       patientEmail: $('fEmail').value.trim(),
@@ -2940,11 +3031,11 @@ $('leadForm').addEventListener('submit', async e => {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      to:        LEAD_EMAIL,
+      to:        PRACTICE.notifyEmail,
       tenant:    TENANT,
       leadId:    serverLeadId,
       version:   CONSENT_VERSION,
-      practice:  LEAD_PRACTICE,
+      practice:  PRACTICE.name,
       firstName: $('fFirstName').value.trim(),
       lastName:  $('fLastName').value.trim(),
       email:     $('fEmail').value.trim(),
@@ -2954,12 +3045,59 @@ $('leadForm').addEventListener('submit', async e => {
   }).catch(() => {}); // silently ignore — lead is already saved to localStorage
 
   hide($('formCard'));
+  // Optional qualification questions gate (lead is already captured above).
+  if (PRACTICE.qualification && PRACTICE.qualification.length) {
+    show($('qualCard'));
+    $('qualCard').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } else {
+    show($('shadeCard'));
+    $('shadeCard').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+});
+
+/* ── Optional qualification questions (config-driven) ───────────── */
+function buildQualification() {
+  const wrap = $('qualFields');
+  if (!wrap) return;
+  const qs = PRACTICE.qualification || [];
+  if (!qs.length) { wrap.innerHTML = ''; return; }
+  wrap.innerHTML = qs.map((q, i) => {
+    const opts = (q.options || []).map(o => `<option value="${escAttr(o)}">${escHtml(o)}</option>`).join('');
+    return `<div class="form-group full-width">
+      <label for="qual${i}">${escHtml(q.q)} <span class="req">*</span></label>
+      <select id="qual${i}" data-qi="${i}">
+        <option value="">— Select —</option>${opts}
+      </select>
+    </div>`;
+  }).join('');
+}
+$('qualForm').addEventListener('submit', e => {
+  e.preventDefault();
+  const qs = PRACTICE.qualification || [];
+  let disqualified = null;
+  for (let i = 0; i < qs.length; i++) {
+    const val = ($(`qual${i}`) || {}).value || '';
+    if (!val) { $(`qual${i}`).focus(); return; }   // all required
+    if ((qs[i].disqualifyValues || []).includes(val)) { disqualified = qs[i]; break; }
+  }
+  if (disqualified) {
+    const dq = $('qualDisqualify');
+    const book = disqualified.bookUrl
+      ? `<a href="${escAttr(disqualified.bookUrl)}" target="_blank" rel="noopener" class="btn-gold" style="margin-top:12px;display:inline-block">Book a Consultation</a>` : '';
+    dq.innerHTML = `<div class="error-banner" style="background:#fff8e6;color:#8a6d12;border-color:#e3c659">
+      ${escHtml(disqualified.disqualifyMsg || 'Thanks! Based on your answers, we recommend an in-person consultation.')}</div>${book}`;
+    show(dq);
+    $('qualContinue').style.display = 'none';
+    return;
+  }
+  hide($('qualCard'));
   show($('shadeCard'));
   $('shadeCard').scrollIntoView({ behavior: 'smooth', block: 'center' });
 });
 
 /* ── Shade selection → triggers generation ──────────────────────── */
 async function startGeneration() {
+  hide($('shadeError'));
   hide($('shadeCard'));
   show($('progressCard'));
   $('progressCard').scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -2993,14 +3131,19 @@ async function startGeneration() {
     hide($('progressCard'));
     show($('resultsCard'));
     syncBookBtn();
+    initSlider();   // size the after-image to the slider and center the handle
     $('resultsCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
     shareResult(imgDataUrl, afterWm);
   } catch (err) {
     stopProgress();
     hide($('progressCard'));
     show($('shadeCard'));
-    $('formError').textContent = `Error: ${err.message}`;
-    show($('formError'));
+    $('shadeCard').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    // Surface the error on the VISIBLE shade card (the old #formError banner
+    // lives inside the hidden lead-form card, so the patient never saw it).
+    const eb = $('shadeError');
+    eb.textContent = `We couldn't generate your smile: ${err.message}. Please try again or use a clearer, well-lit photo.`;
+    show(eb);
     console.error(err);
   }
 }
@@ -3014,26 +3157,109 @@ $('shadeHollywood').addEventListener('click', () => {
   startGeneration();
 });
 
-/* ── Before/After (side-by-side — no toggle needed) ────────────── */
-function showBefore() { /* no-op, kept for reset compatibility */ }
-function showAfter()  { /* no-op, kept for reset compatibility */ }
+/* ── Before/After interactive slider ───────────────────────────── */
+let sliderPos = 50;   // percent revealed of the "after" image
+function sizeAfterImage() {
+  const slider = $('baSlider');
+  const after = $('afterImg');
+  if (slider && after && slider.clientWidth) after.style.width = slider.clientWidth + 'px';
+}
+function setSliderPos(pct) {
+  sliderPos = Math.max(0, Math.min(100, pct));
+  $('baAfterClip').style.width = sliderPos + '%';
+  $('baHandle').style.left = sliderPos + '%';
+  $('baHandle').setAttribute('aria-valuenow', Math.round(sliderPos));
+}
+function initSlider() {
+  sizeAfterImage();
+  setSliderPos(50);
+}
+function showBefore() { setSliderPos(50); }   // reset helper (used by "Try Another")
+function showAfter()  { setSliderPos(50); }
+(function wireSlider() {
+  const slider = $('baSlider');
+  if (!slider) return;
+  let dragging = false;
+  const posFromEvent = e => {
+    const rect = slider.getBoundingClientRect();
+    const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+    return (x / rect.width) * 100;
+  };
+  const start = e => { dragging = true; setSliderPos(posFromEvent(e)); e.preventDefault(); };
+  const move  = e => { if (dragging) setSliderPos(posFromEvent(e)); };
+  const end   = () => { dragging = false; };
+  slider.addEventListener('pointerdown', start);
+  window.addEventListener('pointermove', move);
+  window.addEventListener('pointerup', end);
+  $('baHandle').addEventListener('keydown', e => {
+    if (e.key === 'ArrowLeft')  { setSliderPos(sliderPos - 4); e.preventDefault(); }
+    if (e.key === 'ArrowRight') { setSliderPos(sliderPos + 4); e.preventDefault(); }
+  });
+  $('afterImg').addEventListener('load', sizeAfterImage);
+  window.addEventListener('resize', sizeAfterImage);
+})();
 
 /* ── Results actions ───────────────────────────────────────────── */
 $('bookBtn').addEventListener('click', () => {
   if (currentLeadId) markCTA(currentLeadId);
 });
 
+function practiceSlugName() {
+  return (PRACTICE.name || 'smile').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'smile';
+}
 $('downloadBtn').addEventListener('click', async () => {
   const url = $('afterImg').src;
   try {
     const blob = await fetch(url).then(r => r.blob());
     const a = Object.assign(document.createElement('a'), {
       href:     URL.createObjectURL(blob),
-      download: 'hallmark-dental-smile.jpg',
+      download: `${practiceSlugName()}-smile.jpg`,
     });
     document.body.appendChild(a); a.click();
     document.body.removeChild(a); URL.revokeObjectURL(a.href);
   } catch { window.open(url, '_blank'); }
+});
+
+/* ── PDF export (jsPDF) — before/after handout for the chair ────── */
+function loadImg(src) {
+  return new Promise((res, rej) => {
+    const im = new Image(); im.crossOrigin = 'anonymous';
+    im.onload = () => res(im); im.onerror = rej; im.src = src;
+  });
+}
+$('downloadPdfBtn').addEventListener('click', async () => {
+  const jspdf = window.jspdf;
+  if (!jspdf || !jspdf.jsPDF) { alert('PDF export is still loading — please try again in a moment.'); return; }
+  const btn = $('downloadPdfBtn'); const label = btn.textContent; btn.disabled = true; btn.textContent = 'Building PDF…';
+  try {
+    const [before, after] = await Promise.all([loadImg($('beforeImg').src), loadImg($('afterImg').src)]);
+    const doc = new jspdf.jsPDF({ unit: 'pt', format: 'letter' });
+    const W = doc.internal.pageSize.getWidth();
+    // Header
+    doc.setFont('helvetica', 'bold'); doc.setFontSize(20); doc.setTextColor(27, 58, 92);
+    doc.text(PRACTICE.name || 'Your Smile Preview', W / 2, 54, { align: 'center' });
+    doc.setFont('helvetica', 'normal'); doc.setFontSize(12); doc.setTextColor(120, 130, 145);
+    doc.text('AI Smile Visualization', W / 2, 74, { align: 'center' });
+    // Two images side by side
+    const pad = 40, gap = 16, colW = (W - pad * 2 - gap) / 2;
+    const ar = im => im.height / im.width;
+    const h1 = colW * ar(before), h2 = colW * ar(after), rowH = Math.max(h1, h2);
+    const y = 100;
+    doc.addImage(before, 'JPEG', pad, y, colW, h1);
+    doc.addImage(after,  'JPEG', pad + colW + gap, y, colW, h2);
+    doc.setFontSize(11); doc.setTextColor(90, 100, 115);
+    doc.text('BEFORE', pad + colW / 2, y + rowH + 18, { align: 'center' });
+    doc.text('AFTER (AI simulation)', pad + colW + gap + colW / 2, y + rowH + 18, { align: 'center' });
+    // Disclaimer
+    doc.setFontSize(9); doc.setTextColor(140, 149, 160);
+    const disc = 'This AI visualization is for cosmetic education only and is not a medical diagnosis, treatment plan, or guarantee. Individual results depend on evaluation by a licensed dentist.';
+    doc.text(doc.splitTextToSize(disc, W - pad * 2), pad, y + rowH + 48);
+    doc.save(`${practiceSlugName()}-smile.pdf`);
+  } catch {
+    alert('Could not build the PDF from these images. You can still download the photo.');
+  } finally {
+    btn.disabled = false; btn.textContent = label;
+  }
 });
 
 $('tryAnotherBtn').addEventListener('click', () => {
@@ -3106,7 +3332,7 @@ async function runVideoGeneration(afterSrc, onProgress = () => {}) {
   const startRes = await fetch(`${PROXY_URL}/api/kling/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ image: croppedImage, tenant: TENANT }),
+    body: JSON.stringify({ image: croppedImage, tenant: TENANT, style: (($('videoStyle') || {}).value || 'laugh') }),
   });
   const startData = await startRes.json();
   if (!startRes.ok || !startData.request_id) {
@@ -3212,84 +3438,139 @@ function setVideoProgress(pct, label) {
   $('videoProgressLabel').textContent = label;
 }
 
-/* ── Admin panel ───────────────────────────────────────────────── */
-document.addEventListener('keydown', e => {
-  if (e.ctrlKey && e.shiftKey && e.key === 'A') { e.preventDefault(); openAdmin(); }
-});
-
-function openAdmin()  { renderAdmin(); $('adminPanel').classList.add('open'); }
-function closeAdmin() { $('adminPanel').classList.remove('open'); }
-$('adminClose').addEventListener('click', closeAdmin);
-
-function esc(s) {
-  const d = document.createElement('div');
-  d.appendChild(document.createTextNode(String(s || '')));
-  return d.innerHTML;
+/* ── White-label config loader ─────────────────────────────────── */
+// camelCase config color keys → CSS custom properties on :root.
+const COLOR_VAR = {
+  navy: '--navy', navyDark: '--navy-dark', navyMid: '--navy-mid', navyLight: '--navy-light',
+  gold: '--gold', goldLight: '--gold-light', goldDark: '--gold-dark', goldGlow: '--gold-glow',
+  goldRgb: '--gold-rgb', offWhite: '--off-white', lightGrey: '--light-grey',
+};
+function hexToRgbTriplet(hex) {
+  const m = /^#?([0-9a-f]{6})$/i.exec(String(hex || '').trim());
+  if (!m) return null;
+  const n = parseInt(m[1], 16);
+  return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`;
 }
-function fmtDate(iso) {
-  try { return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }); }
-  catch { return iso; }
-}
-
-function renderAdmin() {
-  const leads = getLeads();
-  const cta   = leads.filter(l => l.ctaClicked).length;
-  $('adminStats').innerHTML = `
-    <div class="stat-card"><div class="stat-num">${leads.length}</div><div class="stat-lbl">Total Leads</div></div>
-    <div class="stat-card"><div class="stat-num">${cta}</div><div class="stat-lbl">Booked Consult</div></div>
-    <div class="stat-card"><div class="stat-num">${leads.length ? Math.round(cta/leads.length*100) : 0}%</div><div class="stat-lbl">CTA Rate</div></div>`;
-
-  if (!leads.length) {
-    $('leadsTable').innerHTML = '<div class="no-leads">No leads yet. Start generating smile transformations!</div>';
-    return;
+function applyConfig(cfg) {
+  if (!cfg) return;
+  const b = cfg.branding || {};
+  // Colors — config wins over the referrer/param theme applied at <head>.
+  const colors = b.colors || {};
+  for (const [k, v] of Object.entries(colors)) {
+    if (!v || !COLOR_VAR[k]) continue;
+    document.documentElement.style.setProperty(COLOR_VAR[k], v);
   }
-  const rows = leads.map(l => `<tr>
-    <td>${esc(l.firstName)} ${esc(l.lastName)}</td>
-    <td>${esc(l.email)}</td>
-    <td>${esc(l.phone) || '—'}</td>
-    <td>${esc(l.interest)}</td>
-    <td>${fmtDate(l.date)}</td>
-    <td><span class="${l.ctaClicked ? 'badge-y' : 'badge-n'}">${l.ctaClicked ? 'Yes' : 'No'}</span></td>
-  </tr>`).join('');
-  $('leadsTable').innerHTML = `<table>
-    <thead><tr><th>Name</th><th>Email</th><th>Phone</th><th>Interest</th><th>Date</th><th>Booked?</th></tr></thead>
-    <tbody>${rows}</tbody></table>`;
+  // Derive --gold-rgb from the accent hex if the practice set a gold but no triplet.
+  if (colors.gold && !colors.goldRgb) {
+    const trip = hexToRgbTriplet(colors.gold);
+    if (trip) document.documentElement.style.setProperty('--gold-rgb', trip);
+  }
+  // Header
+  if (b.name) { $('headerPracticeName').textContent = b.name; PRACTICE.name = b.name; }
+  if (b.tagline) $('headerTagline').textContent = b.tagline;
+  const badge = $('headerBadge');
+  if (badge) {
+    if (b.poweredByLabel) { badge.textContent = b.poweredByLabel; badge.style.display = ''; }
+    else { badge.style.display = 'none'; }
+  }
+  const logo = $('headerLogo');
+  if (logo && b.logoUrl) { logo.src = b.logoUrl; logo.alt = (b.name || '') + ' logo'; logo.style.display = ''; }
+
+  // Booking / CTA
+  const bk = cfg.booking || {};
+  if (bk.url) PRACTICE.bookingUrl = bk.url;
+  if (bk.ctaLabel) PRACTICE.ctaLabel = bk.ctaLabel;
+  if (bk.ctaFallback) PRACTICE.ctaFallback = bk.ctaFallback;
+
+  // Lead routing
+  const emails = (cfg.leads && cfg.leads.notifyEmails) || [];
+  if (emails.length) PRACTICE.notifyEmail = emails[0];
+
+  // Treatments → interest dropdown
+  if (Array.isArray(cfg.treatments) && cfg.treatments.length) {
+    const sel = $('fInterest');
+    const enabled = cfg.treatments.filter(t => t.enabled !== false);
+    if (sel && enabled.length) {
+      sel.innerHTML = '<option value="">— Select an option —</option>' +
+        enabled.map(t => `<option value="${escAttr(t.label)}">${escHtml(t.label)}</option>`).join('');
+    }
+  }
+
+  // Shades → relabel the two shade buttons. The AI pipeline only distinguishes
+  // 'natural' vs 'hollywood', so these are display labels; the first maps to
+  // natural, the second to hollywood.
+  if (Array.isArray(cfg.shades) && cfg.shades.length) {
+    const s0 = cfg.shades[0], s1 = cfg.shades[1];
+    if (s0) { $('shadeNatural').querySelector('.shade-name').textContent = s0.label;
+              if (s0.desc) $('shadeNatural').querySelector('.shade-desc').textContent = s0.desc; }
+    if (s1) { $('shadeHollywood').querySelector('.shade-name').textContent = s1.label;
+              if (s1.desc) $('shadeHollywood').querySelector('.shade-desc').textContent = s1.desc; }
+  }
+
+  // Legal / locale / qualification
+  const lg = cfg.legal || {};
+  if (lg.legalBaseUrl) PRACTICE.legalBaseUrl = lg.legalBaseUrl.replace(/\/$/, '');
+  if (lg.companyName) PRACTICE.companyName = lg.companyName;
+  PRACTICE.locale = cfg.locale || 'en';
+  PRACTICE.qualification = Array.isArray(cfg.qualification) ? cfg.qualification : [];
+
+  applyLegalLinks();
+  buildQualification();
+  applyLocale(PRACTICE.locale);
+  syncBookBtn();
 }
 
-$('exportBtn').addEventListener('click', () => {
-  const leads = getLeads();
-  if (!leads.length) { alert('No leads to export.'); return; }
-  const hdr  = ['First Name','Last Name','Email','Phone','Interest','Date','Booked Consultation'];
-  const rows = leads.map(l => [
-    l.firstName, l.lastName, l.email, l.phone, l.interest,
-    new Date(l.date).toLocaleString(), l.ctaClicked ? 'Yes' : 'No',
-  ].map(v => `"${String(v).replace(/"/g,'""')}"`).join(','));
-  const csv  = [hdr.join(','), ...rows].join('\n');
-  const a    = Object.assign(document.createElement('a'), {
-    href:     URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' })),
-    download: `hallmark-dental-leads-${new Date().toISOString().slice(0,10)}.csv`,
+// Retarget the local legal links to the practice's own legal base, if set.
+function applyLegalLinks() {
+  if (!PRACTICE.legalBaseUrl) return;
+  const map = { 'legal/privacy.html': '/privacy.html', 'legal/terms.html': '/terms.html', 'legal/disclaimer.html': '/disclaimer.html' };
+  document.querySelectorAll('a[href^="legal/"]').forEach(a => {
+    const key = a.getAttribute('href');
+    if (map[key]) a.href = PRACTICE.legalBaseUrl + map[key];
   });
-  document.body.appendChild(a); a.click(); document.body.removeChild(a);
-});
+}
 
-$('clearBtn').addEventListener('click', () => {
-  $('confirmInput').value = '';
-  $('confirmDelete').disabled = true;
-  $('confirmModal').classList.add('open');
-  $('confirmInput').focus();
-});
-$('confirmInput').addEventListener('input', () => {
-  $('confirmDelete').disabled = $('confirmInput').value.trim().toUpperCase() !== 'CONFIRM';
-});
-$('confirmCancel').addEventListener('click', () => $('confirmModal').classList.remove('open'));
-$('confirmDelete').addEventListener('click', () => {
-  localStorage.removeItem(LS_LEADS);
-  $('confirmModal').classList.remove('open');
-  renderAdmin();
-});
+/* ── Localization (EN default, FR/ES) ──────────────────────────── */
+// Curated translations for the patient flow. Keyed by a CSS selector (first
+// match) → { fr, es }. English is the markup default, so 'en' is a no-op.
+const I18N = {
+  '.hero-title':            { fr: 'Découvrez votre <span class="gold">plus beau sourire</span><br>avant de vous engager', es: 'Vea la <span class="gold">sonrisa de sus sueños</span><br>antes de decidir' },
+  '.hero-sub':              { fr: "Téléchargez une photo et notre IA vous montre instantanément à quoi votre sourire pourrait ressembler — sans engagement.", es: 'Suba una foto y nuestra IA le mostrará al instante cómo podría lucir su sonrisa — sin compromiso.' },
+  '#uploadCard .card-title':{ fr: '<span class="step-badge">1</span> Téléchargez votre photo', es: '<span class="step-badge">1</span> Suba su foto de sonrisa' },
+  '#formCard .card-title':  { fr: '<span class="step-badge">2</span> Parlez-nous de vous', es: '<span class="step-badge">2</span> Cuéntenos sobre usted' },
+  '#shadeCard .card-title': { fr: '<span class="step-badge">3</span> Choisissez votre teinte', es: '<span class="step-badge">3</span> Elija su tono' },
+  '.shade-subtitle':        { fr: 'Quelle brillance souhaitez-vous pour votre nouveau sourire ?', es: '¿Qué tan brillante desea su nueva sonrisa?' },
+  '#generateBtn':           { fr: 'Générer ma transformation', es: 'Generar mi transformación' },
+  '#tryAnotherBtn':         { fr: 'Essayer une autre photo', es: 'Probar otra foto' },
+  '#downloadBtn':           { fr: 'Télécharger la photo', es: 'Descargar foto' },
+  '#createVideoBtn':        { fr: 'Créer une vidéo à partager', es: 'Crear video para compartir' },
+};
+function applyLocale(loc) {
+  document.documentElement.lang = loc || 'en';
+  if (!loc || loc === 'en') return;
+  for (const [sel, t] of Object.entries(I18N)) {
+    const el = document.querySelector(sel);
+    const val = t[loc];
+    if (el && val) el.innerHTML = val;
+  }
+}
+
+async function loadPracticeConfig() {
+  if (!TENANT || TENANT === 'unknown') { applyLegalLinks(); buildQualification(); return; }
+  try {
+    const r = await fetch(`${PROXY_URL}/api/config?tenant=${encodeURIComponent(TENANT)}`);
+    if (!r.ok) return;
+    const data = await r.json();
+    if (data && data.config) applyConfig(data.config);
+  } catch { /* keep defaults */ }
+}
+
+function escHtml(s){ const d=document.createElement('div'); d.textContent=String(s==null?'':s); return d.innerHTML; }
+function escAttr(s){ return String(s==null?'':s).replace(/"/g,'&quot;'); }
 
 /* ── Init ──────────────────────────────────────────────────────── */
 syncBookBtn();
+loadPracticeConfig();
 </script>
 </body>
 </html>

@@ -120,13 +120,28 @@ async function handleKlingStart(request, env, origin) {
   // Video line is configurable per request (?videoLine=); defaults to "this is amazing".
   // Short phrases read clearer on the lips since Seedance is visual-only (no audio).
   const line = (body.videoLine || 'this is amazing').replace(/["\\]/g, '');
-  const prompt =
-    'The person turns their head slightly to show off their new smile, then faces the camera. ' +
-    `Looking at the camera with a delighted, surprised expression, they clearly mouth the words "${line}" ` +
-    'with deliberate, natural lip and jaw movement, then break into a big warm genuine laugh — ' +
-    'head tilting back a little, cheeks lifting, eyes crinkling with joy, shoulders relaxing. ' +
-    'Broad bright smile showing their new teeth the whole time. Joyful, confident, celebratory energy, ' +
-    'natural blinking, photorealistic human face, soft studio lighting, camera static.';
+  // Style presets — the patient can pick the vibe of the shareable clip.
+  const STYLE_PROMPTS = {
+    laugh:
+      'The person turns their head slightly to show off their new smile, then faces the camera. ' +
+      `Looking at the camera with a delighted, surprised expression, they clearly mouth the words "${line}" ` +
+      'with deliberate, natural lip and jaw movement, then break into a big warm genuine laugh — ' +
+      'head tilting back a little, cheeks lifting, eyes crinkling with joy, shoulders relaxing. ' +
+      'Broad bright smile showing their new teeth the whole time. Joyful, confident, celebratory energy, ' +
+      'natural blinking, photorealistic human face, soft studio lighting, camera static.',
+    reveal:
+      'The person looks down briefly, then lifts their head to face the camera and slowly breaks into a ' +
+      'confident, radiant closed-then-open smile, showing off their new teeth. Subtle, elegant, self-assured — ' +
+      'a gentle head tilt, calm steady eye contact, a small satisfied nod. Photorealistic human face, ' +
+      'soft flattering studio lighting, minimal head movement, camera static.',
+    talk:
+      'The person faces the camera and speaks naturally as if telling a friend about their new smile, ' +
+      `warmly mouthing the words "${line}" with clear, relaxed lip and jaw movement and expressive eyebrows, ` +
+      'finishing with a bright confident smile showing their new teeth. Friendly, conversational, genuine energy, ' +
+      'natural blinking and small head movements, photorealistic human face, soft studio lighting, camera static.',
+  };
+  const style = STYLE_PROMPTS[body.style] ? body.style : 'laugh';
+  const prompt = STYLE_PROMPTS[style];
 
   let fal;
   try {
@@ -654,6 +669,140 @@ async function tenantCaps(env, slug) {
   const rec = await registryGet(env, slug);
   return rec ? { sims: rec.sims || 500, videos: rec.videos || 25 } : TENANTS.unknown;
 }
+
+// ── White-label config ──────────────────────────────────────────
+// Per-practice config lives on the registry record (rec.config). The
+// simulator fetches the public projection via GET /api/config; the dashboard
+// reads/writes the full object via /api/dashboard/settings. Every field here
+// is public-safe by design — no secrets (password/hash/email live as sibling
+// keys on the record and are never returned by /api/config).
+const KNOWN_TENANT_NAMES = {
+  hallmark: 'Hallmark Dental',
+  lucid: 'Lucid ROI',
+  sevenbridges: 'Seven Bridges Dental Studio',
+};
+function prettyTenant(slug) {
+  return KNOWN_TENANT_NAMES[slug] || (slug ? slug.charAt(0).toUpperCase() + slug.slice(1) : 'Your Practice');
+}
+function defaultConfig(rec = {}) {
+  const name = rec.name || prettyTenant(rec.slug || '');
+  return {
+    branding: {
+      name,
+      tagline: 'AI Smile Simulator',
+      logoUrl: '',
+      poweredByLabel: 'Powered by Lucid',
+      colors: {},   // empty → simulator uses its built-in default palette
+    },
+    booking: { url: '', ctaLabel: 'Book Your Free Consultation', ctaFallback: 'lead-capture' },
+    leads: { notifyEmails: rec.leadEmail ? [rec.leadEmail] : [] },
+    treatments: [
+      { id: 'veneers',   label: 'Veneers',              enabled: true },
+      { id: 'implants',  label: 'Dental Implants',      enabled: true },
+      { id: 'whitening', label: 'Teeth Whitening',      enabled: true },
+      { id: 'makeover',  label: 'Full Smile Makeover',  enabled: true },
+      { id: 'unsure',    label: 'Not Sure Yet',         enabled: true },
+    ],
+    shades: [
+      { id: 'natural',   label: 'Natural White',    desc: 'Subtle, realistic enhancement that looks naturally beautiful' },
+      { id: 'hollywood', label: 'Hollywood Bright', desc: 'Brilliant, ultra-white smile for maximum impact' },
+    ],
+    qualification: [],   // [{ q, options:[...], disqualifyValues:[...], disqualifyMsg, bookUrl }]
+    legal: { companyName: 'Lucid ROI', supportEmail: 'support@lucidroi.com', legalBaseUrl: '' },
+    locale: 'en',
+    video: { styles: ['laugh'] },
+    // Future monetization (option 3) slots in here without a schema change.
+    plan: { type: 'caps', simsCap: rec.sims || 1000, videosCap: rec.videos || 50 },
+  };
+}
+// Clamp incoming config to the known shape/sizes so a compromised or buggy
+// client cannot bloat the record. Unknown top-level keys are dropped.
+function sanitizeConfig(input, rec = {}) {
+  const d = defaultConfig(rec);
+  const c = (input && typeof input === 'object') ? input : {};
+  const str = (v, max, fb) => (typeof v === 'string' ? v.slice(0, max) : fb);
+  const b = c.branding || {};
+  const colors = {};
+  if (b.colors && typeof b.colors === 'object') {
+    for (const k of Object.keys(d.branding.colors).concat(
+      ['navy','navyDark','navyMid','navyLight','gold','goldLight','goldDark','goldGlow','goldRgb','offWhite','lightGrey'])) {
+      if (typeof b.colors[k] === 'string') colors[k] = b.colors[k].slice(0, 40);
+    }
+  }
+  const bk = c.booking || {};
+  const lg = c.legal || {};
+  const leadEmails = Array.isArray(c.leads?.notifyEmails)
+    ? c.leads.notifyEmails.filter(e => typeof e === 'string' && e.includes('@')).slice(0, 10).map(e => e.slice(0, 120))
+    : d.leads.notifyEmails;
+  const treatments = Array.isArray(c.treatments)
+    ? c.treatments.slice(0, 12).map(t => ({ id: str(t.id, 24, 'opt'), label: str(t.label, 60, 'Option'), enabled: t.enabled !== false }))
+    : d.treatments;
+  const shades = Array.isArray(c.shades)
+    ? c.shades.slice(0, 6).map(s => ({ id: str(s.id, 24, 'shade'), label: str(s.label, 60, 'Shade'), desc: str(s.desc, 160, '') }))
+    : d.shades;
+  const qualification = Array.isArray(c.qualification)
+    ? c.qualification.slice(0, 6).map(q => ({
+        q: str(q.q, 200, ''),
+        options: Array.isArray(q.options) ? q.options.slice(0, 8).map(o => str(o, 80, '')) : [],
+        disqualifyValues: Array.isArray(q.disqualifyValues) ? q.disqualifyValues.slice(0, 8).map(o => str(o, 80, '')) : [],
+        disqualifyMsg: str(q.disqualifyMsg, 300, ''),
+        bookUrl: str(q.bookUrl, 300, ''),
+      })).filter(q => q.q)
+    : [];
+  const styles = Array.isArray(c.video?.styles) ? c.video.styles.slice(0, 6).map(s => str(s, 24, 'laugh')) : d.video.styles;
+  return {
+    branding: {
+      name: str(b.name, 80, d.branding.name),
+      tagline: str(b.tagline, 80, d.branding.tagline),
+      logoUrl: str(b.logoUrl, 300, ''),
+      poweredByLabel: str(b.poweredByLabel, 60, d.branding.poweredByLabel),
+      colors,
+    },
+    booking: {
+      url: str(bk.url, 400, ''),
+      ctaLabel: str(bk.ctaLabel, 60, d.booking.ctaLabel),
+      ctaFallback: (bk.ctaFallback === 'hidden') ? 'hidden' : 'lead-capture',
+    },
+    leads: { notifyEmails: leadEmails },
+    treatments,
+    shades,
+    qualification,
+    legal: {
+      companyName: str(lg.companyName, 80, d.legal.companyName),
+      supportEmail: str(lg.supportEmail, 120, d.legal.supportEmail),
+      legalBaseUrl: str(lg.legalBaseUrl, 200, ''),
+    },
+    locale: (['en','fr','es'].includes(c.locale) ? c.locale : 'en'),
+    video: { styles },
+    plan: d.plan,
+  };
+}
+function publicConfig(env, slug, rec) {
+  const name = rec?.name || prettyTenant(slug);
+  const config = (rec && rec.config) ? rec.config : defaultConfig(rec || { slug, name });
+  return { slug, name, config };
+}
+
+// ── Password hashing (PBKDF2-SHA256, salted) ────────────────────
+// Replaces the legacy plaintext registry password. Login migrates legacy
+// records transparently on first successful sign-in.
+function _hex(buf) { return [...new Uint8Array(buf)].map(x => x.toString(16).padStart(2, '0')).join(''); }
+function _unhex(h) { return Uint8Array.from(h.match(/../g).map(x => parseInt(x, 16))); }
+async function hashPassword(password, saltHex) {
+  const salt = saltHex ? _unhex(saltHex) : crypto.getRandomValues(new Uint8Array(16));
+  const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(password), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: 100000, hash: 'SHA-256' }, km, 256);
+  return { hash: _hex(bits), salt: _hex(salt) };
+}
+async function verifyPassword(password, saltHex, hashHex) {
+  if (!saltHex || !hashHex || typeof password !== 'string') return false;
+  const { hash } = await hashPassword(password, saltHex);
+  if (hash.length !== hashHex.length) return false;
+  let diff = 0;
+  for (let i = 0; i < hash.length; i++) diff |= hash.charCodeAt(i) ^ hashHex.charCodeAt(i);
+  return diff === 0;
+}
+function emailKey(email) { return String(email || '').toLowerCase().trim().replace(/[^a-z0-9]/g, '_'); }
 async function usageRead(env, key) {
   try {
     const o = await env.TEMP_IMAGES.get(key);
@@ -691,14 +840,16 @@ async function meter(env, request, tenant, kind, origin) {
 async function handleUsage(request, env, origin) {
   const url = new URL(request.url);
   const tenant = (url.searchParams.get('tenant') || '').toLowerCase();
-  if (!TENANTS[tenant]) {
+  const isRegistered = TENANTS[tenant] || await registryGet(env, tenant);
+  if (!tenant || !isRegistered) {
     return new Response(JSON.stringify({ error: 'Unknown tenant', tenants: Object.keys(TENANTS) }), {
       status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
   }
+  const caps = await tenantCaps(env, tenant);
   const month = new Date().toISOString().slice(0, 7);
   const use = await usageRead(env, `usage/${tenant}/${month}.json`);
-  return new Response(JSON.stringify({ tenant, month, used: use, caps: TENANTS[tenant] }), {
+  return new Response(JSON.stringify({ tenant, month, used: use, caps }), {
     headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
   });
 }
@@ -1013,7 +1164,10 @@ async function handleShare(request, env, origin) {
     await updateLead(env, tenantOf(body), body.leadId, { beforeUrl, afterUrl, videoUrl: videoUrl || null }).catch(() => {});
   }
 
-  const LEGAL = 'https://app.lucidroi.com/legal';
+  // Per-practice legal branding (falls back to the Lucid operator defaults).
+  const rec = await registryGet(env, tenantOf(body));
+  const legalCfg = (rec && rec.config && rec.config.legal) || {};
+  const LEGAL = (legalCfg.legalBaseUrl || 'https://app.lucidroi.com/legal').replace(/\/$/, '');
   const label = `<div style="margin:14px 0 4px;font:600 12px sans-serif;letter-spacing:.04em;color:#8a6d12;background:#fff8e6;border:1px solid #e3c659;border-radius:6px;padding:8px 11px;display:inline-block">AI SIMULATION &mdash; NOT A CLINICAL OUTCOME</div>`;
   const baBlock = `
     <table style="border-collapse:collapse"><tr>
@@ -1107,30 +1261,302 @@ function bearer(request) {
   const h = request.headers.get('Authorization') || '';
   return h.startsWith('Bearer ') ? h.slice(7) : null;
 }
-// Single-password login: the password identifies the tenant (env.DASH_PASSWORDS
-// is a JSON map slug→password). The "admin" slug grants all-tenant access ('*').
+// Login: resolves a tenant, then verifies the password against a salted PBKDF2
+// hash on the registry record. Legacy plaintext records are migrated on first
+// successful sign-in. env.DASH_PASSWORDS (JSON map slug→password) still backs
+// the "admin" all-tenant login and any static tenants without a registry hash.
+// Accepts { password, tenant? , email? } — tenant OR email resolves the record.
 async function handleDashLogin(request, env, origin) {
   let body; try { body = await request.json(); } catch { body = {}; }
-  let pwmap = {}; try { pwmap = JSON.parse(env.DASH_PASSWORDS || '{}'); } catch {}
-  let matched = null;
-  for (const [slug, pw] of Object.entries(pwmap)) {
-    if (pw && typeof body.password === 'string' && body.password === pw) { matched = slug; break; }
-  }
-  // Dynamic tenants: if body.tenant is provided and not found in DASH_PASSWORDS, check registry
-  if (!matched && body.tenant && typeof body.password === 'string') {
-    const rec = await registryGet(env, body.tenant.toLowerCase());
-    if (rec && rec.password && body.password === rec.password) matched = rec.slug;
-  }
-  if (!matched) {
-    return new Response(JSON.stringify({ error: 'Incorrect password' }), {
-      status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  const password = typeof body.password === 'string' ? body.password : '';
+  const j401 = () => new Response(JSON.stringify({ error: 'Incorrect email or password' }), {
+    status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+  // Fail loudly if the signing secret is missing. Without it dashSign issues a
+  // token the same worker can't verify, so every authenticated call 401s and
+  // the dashboard bounces straight back to login — indistinguishable from a
+  // wrong password. A clear 503 makes that misconfiguration debuggable.
+  if (!env.DASH_SECRET) {
+    return new Response(JSON.stringify({ error: 'Dashboard auth is not configured (DASH_SECRET missing). Set it with: wrangler secret put DASH_SECRET' }), {
+      status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
   }
-  const t = matched === 'admin' ? '*' : matched;
-  const token = await dashSign(env, { t, exp: Date.now() + 12 * 3600_000 });
-  return new Response(JSON.stringify({ token, scope: t }), {
+
+  // 1) Static/admin logins from the env password map (exact match).
+  //    - 'admin'  → super-admin, scope '*' (all practices, token management)
+  //    - 'ritesh' → admin, scope '*' (all practices, token management)
+  //    - any other slug → that practice's client login
+  let pwmap = {}; try { pwmap = JSON.parse(env.DASH_PASSWORDS || '{}'); } catch {}
+  for (const [slug, pw] of Object.entries(pwmap)) {
+    if (pw && password && password === pw) {
+      const isSuper = slug === 'admin';
+      const isAdmin = isSuper || slug === 'ritesh';
+      const t = isAdmin ? '*' : slug;
+      const role = isSuper ? 'superadmin' : (isAdmin ? 'admin' : 'client');
+      const token = await dashSign(env, { t, role, exp: Date.now() + 12 * 3600_000 });
+      return new Response(JSON.stringify({ token, scope: t, role }), {
+        headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+      });
+    }
+  }
+
+  // 2) Resolve a registry tenant by explicit slug, or by email index.
+  let slug = (body.tenant || '').toLowerCase();
+  if (!slug && body.email) {
+    try {
+      const idx = await env.TEMP_IMAGES.get(`emailidx/${emailKey(body.email)}.json`);
+      if (idx) slug = (await idx.json()).slug;
+    } catch { /* no index */ }
+  }
+  if (!slug || !password) return j401();
+
+  const rec = await registryGet(env, slug);
+  if (!rec) return j401();
+
+  let ok = false;
+  if (rec.passwordHash) {
+    ok = await verifyPassword(password, rec.passwordSalt, rec.passwordHash);
+  } else if (rec.password) {
+    // Legacy plaintext record — verify then migrate to a salted hash and
+    // backfill the email index so email-based login works afterward.
+    ok = (password === rec.password);
+    if (ok) {
+      const { hash, salt } = await hashPassword(password);
+      rec.passwordHash = hash; rec.passwordSalt = salt; delete rec.password;
+      if (!rec.email && rec.leadEmail) rec.email = String(rec.leadEmail).toLowerCase().trim();
+      await env.TEMP_IMAGES.put(`registry/${slug}.json`, JSON.stringify(rec),
+        { httpMetadata: { contentType: 'application/json' } }).catch(() => {});
+      if (rec.email) {
+        await env.TEMP_IMAGES.put(`emailidx/${emailKey(rec.email)}.json`, JSON.stringify({ slug }),
+          { httpMetadata: { contentType: 'application/json' } }).catch(() => {});
+      }
+    }
+  }
+  if (!ok) return j401();
+
+  // role: 'client' scopes to this practice only. Admin/super-admin roles are
+  // issued by the DASH_PASSWORDS path above ('admin'/'ritesh') with scope '*'.
+  const token = await dashSign(env, { t: slug, role: 'client', exp: Date.now() + 12 * 3600_000 });
+  return new Response(JSON.stringify({ token, scope: slug, role: 'client' }), {
     headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
   });
+}
+
+// Resolve the tenant a dashboard token may act on. Admin scope ('*') must name
+// a tenant explicitly (query ?tenant= or body.tenant); others are pinned.
+function scopeTenant(payload, request, body) {
+  if (payload.t !== '*') return payload.t;
+  const fromBody = body && typeof body.tenant === 'string' ? body.tenant : '';
+  const fromQuery = new URL(request.url).searchParams.get('tenant') || '';
+  return (fromBody || fromQuery).toLowerCase();
+}
+// Role helpers. Legacy tokens (issued before roles) have no `role`: infer from
+// scope so existing sessions keep working — '*' ⇒ admin-class, else client.
+function roleOf(payload) {
+  if (payload && payload.role) return payload.role;
+  return (payload && payload.t === '*') ? 'admin' : 'client';
+}
+function isAdmin(payload) { const r = roleOf(payload); return r === 'admin' || r === 'superadmin'; }
+function isSuperAdmin(payload) { return roleOf(payload) === 'superadmin'; }
+
+// GET /api/dashboard/practices — admin+ only. Lists every registered practice
+// (slug, name, email, caps) so admins can manage ANY practice, not just those
+// that already have leads.
+async function handleDashPractices(request, env, origin) {
+  const payload = await dashVerify(env, bearer(request));
+  const json = (obj, status = 200) => new Response(JSON.stringify(obj), {
+    status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+  if (!payload) return json({ error: 'Unauthorized' }, 401);
+  if (!isAdmin(payload)) return json({ error: 'Forbidden' }, 403);
+  const out = [];
+  // Static tenants that may not have a registry record yet.
+  for (const slug of Object.keys(TENANTS)) {
+    if (slug === 'unknown') continue;
+    out.push({ slug, name: prettyTenant(slug), caps: TENANTS[slug], static: true });
+  }
+  try {
+    const list = await env.TEMP_IMAGES.list({ prefix: 'registry/', limit: 1000 });
+    const recs = await Promise.all(list.objects.map(o =>
+      env.TEMP_IMAGES.get(o.key).then(r => r && r.json()).catch(() => null)));
+    for (const rec of recs.filter(Boolean)) {
+      const i = out.findIndex(p => p.slug === rec.slug);
+      const entry = { slug: rec.slug, name: rec.name || prettyTenant(rec.slug), email: rec.email || rec.leadEmail || null,
+        caps: { sims: rec.sims || 1000, videos: rec.videos || 50 }, static: false };
+      if (i >= 0) out[i] = entry; else out.push(entry);
+    }
+  } catch { /* return what we have */ }
+  out.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+  return json({ practices: out });
+}
+
+// POST /api/dashboard/practice/delete — SUPER-ADMIN only (destructive).
+// Removes a practice's registry record + its email index. Leads/media are left
+// under retention. Ritesh-tier admins are intentionally blocked here.
+async function handleDashPracticeDelete(request, env, origin) {
+  const payload = await dashVerify(env, bearer(request));
+  const json = (obj, status = 200) => new Response(JSON.stringify(obj), {
+    status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+  if (!payload) return json({ error: 'Unauthorized' }, 401);
+  if (!isSuperAdmin(payload)) return json({ error: 'Only the super-admin can delete practices' }, 403);
+  let body; try { body = await request.json(); } catch { body = {}; }
+  const slug = (body.tenant || '').toLowerCase();
+  if (!slug || TENANTS[slug]) return json({ error: 'Cannot delete this tenant' }, 400);
+  const rec = await registryGet(env, slug);
+  if (rec && rec.email) await env.TEMP_IMAGES.delete(`emailidx/${emailKey(rec.email)}.json`).catch(() => {});
+  await env.TEMP_IMAGES.delete(`registry/${slug}.json`).catch(() => {});
+  return json({ ok: true });
+}
+
+// POST /api/dashboard/practice/reset-password — SUPER-ADMIN only.
+// Sets a new dashboard password for a client practice (auto-generated unless a
+// custom one is supplied). Stores only the salted hash, refreshes the email
+// index, and emails the practice the new credentials. Returns the plaintext
+// once so the super-admin can relay it too.
+async function handleDashResetPassword(request, env, origin) {
+  const payload = await dashVerify(env, bearer(request));
+  const json = (obj, status = 200) => new Response(JSON.stringify(obj), {
+    status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+  if (!payload) return json({ error: 'Unauthorized' }, 401);
+  if (!isSuperAdmin(payload)) return json({ error: 'Only the super-admin can reset passwords' }, 403);
+  let body; try { body = await request.json(); } catch { body = {}; }
+  const slug = (body.tenant || '').toLowerCase();
+  if (!slug || TENANTS[slug]) return json({ error: 'Pick a practice account (built-in tenants use DASH_PASSWORDS)' }, 400);
+  const rec = await registryGet(env, slug);
+  if (!rec) return json({ error: 'Practice not found' }, 404);
+
+  // Custom password (min 8 chars) or auto-generate a 12-char one.
+  let password = (typeof body.newPassword === 'string' && body.newPassword.trim().length >= 8)
+    ? body.newPassword.trim() : null;
+  if (!password) {
+    const b = crypto.getRandomValues(new Uint8Array(9));
+    password = Array.from(b, x => x.toString(36).padStart(2, '0')).join('').slice(0, 12);
+  }
+  const { hash, salt } = await hashPassword(password);
+  rec.passwordHash = hash; rec.passwordSalt = salt; delete rec.password;
+  if (!rec.email && rec.leadEmail) rec.email = String(rec.leadEmail).toLowerCase().trim();
+  await env.TEMP_IMAGES.put(`registry/${slug}.json`, JSON.stringify(rec),
+    { httpMetadata: { contentType: 'application/json' } });
+  if (rec.email) {
+    await env.TEMP_IMAGES.put(`emailidx/${emailKey(rec.email)}.json`, JSON.stringify({ slug }),
+      { httpMetadata: { contentType: 'application/json' } }).catch(() => {});
+  }
+
+  let emailed = false;
+  if (env.RESEND_API_KEY && rec.email) {
+    try {
+      const dashUrl = `https://drdonelson.github.io/hallmark-smile/dashboard.html?t=${slug}&email=${encodeURIComponent(rec.email)}`;
+      const res = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          from: 'Lucid ROI <onboarding@lucidroi.com>', to: [rec.email],
+          subject: `Your dashboard password was reset — ${rec.name || slug}`,
+          html: `<div style="font-family:sans-serif;color:#0A1628">
+            <p>Your Smile Simulator dashboard password has been reset.</p>
+            <p><strong>Sign in with</strong><br>Email: <code>${rec.email}</code><br>New password: <code>${password}</code></p>
+            <p><a href="${dashUrl}" style="color:#2D6FFF">${dashUrl}</a></p></div>`,
+        }),
+      });
+      emailed = res.ok;
+    } catch { /* best-effort */ }
+  }
+  return json({ ok: true, password, email: rec.email || null, emailed });
+}
+
+// GET/POST /api/dashboard/settings — read or write a practice's white-label
+// config. Authenticated. Upserts a registry record for static tenants that
+// have none yet (so hallmark/lucid/etc. can be customized too).
+async function handleDashSettings(request, env, origin) {
+  const payload = await dashVerify(env, bearer(request));
+  if (!payload) return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+    status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+  const json = (obj, status = 200) => new Response(JSON.stringify(obj), {
+    status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+
+  const admin = isAdmin(payload);
+
+  if (request.method === 'GET') {
+    const t = scopeTenant(payload, request, null);
+    if (!t) return json({ error: 'Missing tenant' }, 400);
+    const rec = await registryGet(env, t);
+    const config = (rec && rec.config) ? rec.config : defaultConfig(rec || { slug: t });
+    const caps = await tenantCaps(env, t);
+    // caps are surfaced to everyone (read-only for clients) but only admins may write them.
+    return json({ slug: t, name: rec?.name || prettyTenant(t), config, caps, role: roleOf(payload), canEditCaps: admin });
+  }
+
+  // POST — write.
+  let body; try { body = await request.json(); } catch { body = {}; }
+  const t = scopeTenant(payload, request, body);
+  if (!t) return json({ error: 'Missing tenant' }, 400);
+  const rec = (await registryGet(env, t)) || { slug: t, name: prettyTenant(t), createdAt: new Date().toISOString() };
+  rec.config = sanitizeConfig(body.config, rec);
+  // Keep top-level name in sync with branding for onboard emails / listings.
+  if (rec.config.branding?.name) rec.name = rec.config.branding.name;
+  // Token management: usage caps (sims/videos) are ADMIN-ONLY. A client posting
+  // caps is ignored, not rejected, so their branding save still succeeds.
+  if (admin && body.caps && typeof body.caps === 'object') {
+    const n = (v, fb) => (Number.isFinite(+v) && +v >= 0 ? Math.min(1_000_000, Math.round(+v)) : fb);
+    rec.sims   = n(body.caps.sims,   rec.sims   || 1000);
+    rec.videos = n(body.caps.videos, rec.videos || 50);
+    // Mirror into config.plan for the future credit system.
+    if (rec.config.plan) { rec.config.plan.simsCap = rec.sims; rec.config.plan.videosCap = rec.videos; }
+  }
+  await env.TEMP_IMAGES.put(`registry/${t}.json`, JSON.stringify(rec),
+    { httpMetadata: { contentType: 'application/json' } });
+  return json({ ok: true, config: rec.config, caps: { sims: rec.sims, videos: rec.videos } });
+}
+
+// POST /api/dashboard/logo — store a practice logo persistently (~10y) and
+// return its hosted URL. The dashboard then saves it into config.branding.logoUrl.
+async function handleDashLogo(request, env, origin) {
+  const payload = await dashVerify(env, bearer(request));
+  if (!payload) return new Response(JSON.stringify({ error: 'Unauthorized' }), {
+    status: 401, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+  let body; try { body = await request.json(); } catch { body = {}; }
+  const t = scopeTenant(payload, request, body);
+  const dataUrl = body.dataUrl || '';
+  if (!t || !/^data:image\//.test(dataUrl)) {
+    return new Response(JSON.stringify({ error: 'Missing tenant or image' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  if (dataUrl.length > 1_200_000) {
+    return new Response(JSON.stringify({ error: 'Logo too large (max ~800KB). Please upload a smaller image.' }), {
+      status: 413, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  try {
+    const media = await storeMedia(env, dataUrl, 3650);   // ~10 years (effectively persistent)
+    return new Response(JSON.stringify({ ok: true, url: media.url }), {
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  } catch (e) {
+    return new Response(JSON.stringify({ error: 'Storage failed: ' + e.message }), {
+      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+}
+
+// GET /api/config?tenant= — PUBLIC white-label config for the simulator/widgets.
+// Public-safe fields only (no password/email). Permissive CORS + short cache.
+async function handleConfig(request, env) {
+  const url = new URL(request.url);
+  const t = (url.searchParams.get('tenant') || '').toLowerCase();
+  const headers = {
+    'Content-Type': 'application/json',
+    'Access-Control-Allow-Origin': '*',
+    'Cache-Control': 'public, max-age=60',
+  };
+  if (!t) return new Response(JSON.stringify({ error: 'tenant required' }), { status: 400, headers });
+  const rec = await registryGet(env, t);
+  return new Response(JSON.stringify(publicConfig(env, t, rec)), { headers });
 }
 async function handleDashLeads(request, env, origin) {
   const payload = await dashVerify(env, bearer(request));
@@ -1196,6 +1622,9 @@ async function handleOnboard(request, env) {
   if (!practiceName || !leadEmail) {
     return new Response(JSON.stringify({ error: 'practiceName and leadEmail are required' }), { status: 400, headers: json() });
   }
+  // Login email — where the dashboard password is sent and how the practice
+  // signs in. Defaults to the lead-notification email.
+  const loginEmail = (body.email || leadEmail).toLowerCase().trim();
 
   // Derive slug: lowercase alphanum only, max 24 chars
   const slug = (body.slug || practiceName).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24);
@@ -1205,17 +1634,28 @@ async function handleOnboard(request, env) {
   const existing = await env.TEMP_IMAGES.get(`registry/${slug}.json`);
   if (existing) return new Response(JSON.stringify({ error: `Tenant '${slug}' already exists — use a different slug` }), { status: 409, headers: json() });
 
-  // Random 12-char password (base36, URL-safe)
+  // Random 12-char password (base36, URL-safe). Emailed once; only the salted
+  // hash is persisted — no plaintext at rest.
   const pwBytes = crypto.getRandomValues(new Uint8Array(9));
   const password = Array.from(pwBytes, b => b.toString(36).padStart(2, '0')).join('').slice(0, 12);
+  const { hash: passwordHash, salt: passwordSalt } = await hashPassword(password);
 
   const sims   = body.simsPerMonth   || 1000;
   const videos = body.videosPerMonth || 50;
   const createdAt = new Date().toISOString();
 
-  // Persist registry entry
-  const record = { slug, name: practiceName, leadEmail, website: website || null, sims, videos, password, createdAt };
+  // Persist registry entry (with seeded white-label config, no plaintext password)
+  const record = {
+    slug, name: practiceName, email: loginEmail, leadEmail,
+    website: website || null, sims, videos, passwordHash, passwordSalt, createdAt,
+    config: defaultConfig({ slug, name: practiceName, leadEmail, sims, videos }),
+  };
+  if (body.bookingUrl) record.config.booking.url = String(body.bookingUrl).slice(0, 400);
   await env.TEMP_IMAGES.put(`registry/${slug}.json`, JSON.stringify(record), { httpMetadata: { contentType: 'application/json' } });
+
+  // Email → tenant index so the practice can log in with email + password.
+  await env.TEMP_IMAGES.put(`emailidx/${emailKey(loginEmail)}.json`, JSON.stringify({ slug }),
+    { httpMetadata: { contentType: 'application/json' } }).catch(() => {});
 
   // Index website domain(s) for dynamic CORS lookup
   if (website) {
@@ -1231,7 +1671,7 @@ async function handleOnboard(request, env) {
   // Build deliverables
   const base    = 'https://drdonelson.github.io/hallmark-smile';
   const simUrl  = `${base}/smile-simulator.html?leadEmail=${encodeURIComponent(leadEmail)}&practice=${encodeURIComponent(practiceName)}&tenant=${slug}`;
-  const dashUrl = `${base}/dashboard.html?t=${slug}`;
+  const dashUrl = `${base}/dashboard.html?t=${slug}&email=${encodeURIComponent(loginEmail)}`;
   const embedCode = `<iframe\n  src="${simUrl}"\n  width="100%" height="900"\n  allow="camera"\n  style="border:none;display:block"\n></iframe>`;
 
   // Welcome email to practice
@@ -1245,9 +1685,13 @@ async function handleOnboard(request, env) {
   <p><a href="${simUrl}" style="color:#2D6FFF">${simUrl}</a></p>
   <h3>Website embed code</h3>
   <pre style="background:#f5f7ff;padding:14px;border-radius:8px;font-size:12px;overflow:auto">${embedCode.replace(/</g,'&lt;')}</pre>
-  <h3>Lead dashboard</h3>
+  <h3>Dashboard &amp; customization</h3>
+  <p>Manage leads and customize your simulator's branding, booking link, and treatments here:</p>
   <p><a href="${dashUrl}" style="color:#2D6FFF">${dashUrl}</a></p>
-  <p><strong>Password:</strong> <code style="background:#f0f0f0;padding:2px 6px;border-radius:4px">${password}</code></p>
+  <p><strong>Sign in with</strong><br>
+     Email: <code style="background:#f0f0f0;padding:2px 6px;border-radius:4px">${loginEmail}</code><br>
+     Password: <code style="background:#f0f0f0;padding:2px 6px;border-radius:4px">${password}</code></p>
+  <p style="color:#888;font-size:12px">For your security this password isn't stored anywhere in plain text — keep this email or reset it later.</p>
   <p style="color:#888;font-size:13px;margin-top:32px">Questions? Reply to this email or contact your Lucid ROI account manager.</p>
 </div>`;
     await Promise.all([
@@ -1372,6 +1816,12 @@ export default {
       return handleOnboard(request, env);
     }
 
+    // Public white-label config — the simulator/widgets fetch this from any
+    // embedding origin, so it runs before the origin gate with permissive CORS.
+    if (url.pathname === '/api/config' && request.method === 'GET') {
+      return handleConfig(request, env);
+    }
+
     const origin = await getAllowedOrigin(request, env);
 
     // Reject requests from disallowed origins
@@ -1398,6 +1848,21 @@ export default {
     }
     if (url.pathname === '/api/dashboard/delete' && request.method === 'POST') {
       return handleDashDelete(request, env, origin);
+    }
+    if (url.pathname === '/api/dashboard/settings' && (request.method === 'GET' || request.method === 'POST')) {
+      return handleDashSettings(request, env, origin);
+    }
+    if (url.pathname === '/api/dashboard/logo' && request.method === 'POST') {
+      return handleDashLogo(request, env, origin);
+    }
+    if (url.pathname === '/api/dashboard/practices' && request.method === 'GET') {
+      return handleDashPractices(request, env, origin);
+    }
+    if (url.pathname === '/api/dashboard/practice/delete' && request.method === 'POST') {
+      return handleDashPracticeDelete(request, env, origin);
+    }
+    if (url.pathname === '/api/dashboard/practice/reset-password' && request.method === 'POST') {
+      return handleDashResetPassword(request, env, origin);
     }
     if (url.pathname === '/api/consent' && request.method === 'POST') {
       return handleConsent(request, env, origin);

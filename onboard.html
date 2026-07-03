@@ -79,6 +79,14 @@
     <input type="email" id="leadEmail" placeholder="doctor@practice.com">
     <div class="hint">Where patient leads will be emailed. Welcome email also goes here.</div>
 
+    <label for="loginEmail">Dashboard login email <span style="font-weight:400;color:var(--dim)">(optional — defaults to lead email)</span></label>
+    <input type="email" id="loginEmail" placeholder="doctor@practice.com">
+    <div class="hint">The practice signs in to the dashboard with this email + the generated password.</div>
+
+    <label for="bookingUrl">Booking URL <span style="font-weight:400;color:var(--dim)">(optional)</span></label>
+    <input type="url" id="bookingUrl" placeholder="https://practice.com/book">
+    <div class="hint">Powers the "Book Consultation" button. The practice can change it later in the dashboard.</div>
+
     <label for="website">Practice website <span style="font-weight:400;color:var(--dim)">(optional — enables iframe embed from their site)</span></label>
     <input type="url" id="website" placeholder="https://sevenbridgesdentalstudio.com">
 
@@ -127,6 +135,8 @@ $('submitBtn').addEventListener('click', async () => {
   const adminKey     = $('adminKey').value.trim();
   const practiceName = $('practiceName').value.trim();
   const leadEmail    = $('leadEmail').value.trim();
+  const email        = $('loginEmail').value.trim();
+  const bookingUrl   = $('bookingUrl').value.trim();
   const website      = $('website').value.trim();
   const simsPerMonth = parseInt($('simsPerMonth').value) || 1000;
   const videosPerMonth = parseInt($('videosPerMonth').value) || 50;
@@ -150,6 +160,8 @@ $('submitBtn').addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         adminKey, practiceName, leadEmail,
+        ...(email && { email }),
+        ...(bookingUrl && { bookingUrl }),
         ...(website && { website }),
         simsPerMonth, videosPerMonth,
         ...(slug && { slug }),
@@ -160,8 +172,10 @@ $('submitBtn').addEventListener('click', async () => {
 
     $('resultBody').innerHTML = `
       <div class="rrow">
-        <div class="rlabel">Dashboard password</div>
+        <div class="rlabel">Dashboard login</div>
+        <div class="rval" style="margin-bottom:8px">Email: <strong>${data.leadEmail || email || leadEmail}</strong></div>
         <div class="pw-box"><span class="pw-val">${data.password}</span></div>
+        <div class="hint" style="margin-top:8px">Password shown once — it's stored only as a salted hash. It's also in the welcome email.</div>
       </div>
       <div class="rrow">
         <div class="rlabel">Dashboard URL</div>

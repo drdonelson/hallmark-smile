@@ -31,7 +31,23 @@
     delay:     parseInt(script.getAttribute('data-delay') || ext.delay || '3000', 10),
     theme:     script.getAttribute('data-theme')      || ext.theme     || 'hallmark',
     openMode:  script.getAttribute('data-open')       || ext.openMode  || 'tab', // 'tab' | 'modal'
+    tenant:    script.getAttribute('data-tenant')     || ext.tenant    || '',
+    practice:  script.getAttribute('data-practice')   || ext.practice  || '',
+    leadEmail: script.getAttribute('data-lead-email') || ext.leadEmail || '',
   };
+
+  // Thread tenant/practice/leadEmail into the simulator URL so leads route to
+  // the right practice and the simulator loads that practice's white-label
+  // config. Params already present in data-sim-url are preserved.
+  (function () {
+    try {
+      var u = new URL(cfg.simUrl, location.href);
+      if (cfg.tenant    && !u.searchParams.get('tenant'))    u.searchParams.set('tenant', cfg.tenant);
+      if (cfg.practice  && !u.searchParams.get('practice'))  u.searchParams.set('practice', cfg.practice);
+      if (cfg.leadEmail && !u.searchParams.get('leadEmail')) u.searchParams.set('leadEmail', cfg.leadEmail);
+      cfg.simUrl = u.toString();
+    } catch (e) { /* leave simUrl as-is on parse failure */ }
+  })();
 
   // ── Themes ───────────────────────────────────────────────────────────────
   var THEMES = {
