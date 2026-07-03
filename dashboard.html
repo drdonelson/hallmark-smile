@@ -141,6 +141,14 @@
   /* lightbox + toast */
   .lb{position:fixed;inset:0;background:rgba(0,0,0,.88);display:none;align-items:center;justify-content:center;z-index:50;padding:20px}
   .lb.open{display:flex} .lb img{max-width:92vw;max-height:88vh;border-radius:10px}
+  .np-btn{padding:8px 13px;border:1px solid var(--blue);border-radius:9px;background:rgba(100,130,255,.12);color:#cdd8ff;font-weight:700;font-size:13px;cursor:pointer}
+  .np-btn:hover{background:rgba(100,130,255,.22)}
+  .np-modal{background:#0E1120;border:1px solid rgba(255,255,255,.1);border-radius:16px;width:100%;max-width:520px;max-height:88vh;overflow:auto;padding:22px 24px}
+  .np-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+  .np-head h3{margin:0;color:var(--text);font-size:1.1rem}
+  .np-head .lb-close{position:static;cursor:pointer;font-size:22px;color:var(--muted);line-height:1}
+  .np-result{border-top:1px solid rgba(255,255,255,.08);margin-top:16px;padding-top:16px;font-size:.86rem;color:var(--body);word-break:break-all}
+  .np-result code{background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;color:var(--text)}
   .lb-close{position:absolute;top:18px;right:24px;color:#fff;font-size:30px;cursor:pointer;line-height:1}
   .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#0E1120;border:1px solid rgba(255,255,255,.12);color:#fff;padding:10px 18px;border-radius:10px;font-size:.85rem;opacity:0;transition:.2s;pointer-events:none;z-index:60}
   .toast.show{opacity:1}
@@ -218,6 +226,7 @@
       <button class="tab" data-tab="embed" type="button">Embed</button>
       <button class="tab" data-tab="usage" type="button">Usage</button>
       <div class="tab-ctx">
+        <button class="np-btn admin-only hidden" id="newPracticeBtn" type="button">+ New practice</button>
         <select id="settingsTenant" class="hidden" title="Practice to manage"></select>
       </div>
     </nav>
@@ -397,6 +406,28 @@
         </div>
       </div>
     </section>
+  </div>
+</div>
+
+<!-- New practice modal (admin+) -->
+<div class="lb" id="newPracticeModal">
+  <div class="np-modal">
+    <div class="np-head"><h3>Create a practice</h3><span class="lb-close" id="npClose">&times;</span></div>
+    <div class="np-body" id="npForm">
+      <div class="field"><label for="np-name">Practice name *</label><input type="text" id="np-name" placeholder="Bright Smiles Dental"></div>
+      <div class="field"><label for="np-email">Email * <span class="hint" style="display:inline;text-transform:none;font-weight:400">(lead notifications + dashboard login)</span></label><input type="email" id="np-email" placeholder="doctor@practice.com" autocomplete="off"></div>
+      <div class="cap-row">
+        <div class="field"><label for="np-booking">Booking URL</label><input type="url" id="np-booking" placeholder="https://practice.com/book"></div>
+        <div class="field"><label for="np-website">Website</label><input type="url" id="np-website" placeholder="https://practice.com"></div>
+      </div>
+      <div class="cap-row">
+        <div class="field"><label for="np-slug">Slug (optional)</label><input type="text" id="np-slug" placeholder="auto from name" style="text-transform:lowercase"></div>
+        <div class="field"><label for="np-sims">Sims / mo</label><input type="number" id="np-sims" min="0" step="50" placeholder="1000"></div>
+        <div class="field"><label for="np-videos">Videos / mo</label><input type="number" id="np-videos" min="0" step="10" placeholder="50"></div>
+      </div>
+      <button class="btn btn-save" id="npCreate" type="button">Create practice</button>
+    </div>
+    <div class="np-result" id="npResult" style="display:none"></div>
   </div>
 </div>
 
@@ -855,6 +886,45 @@ async function saveCaps(btn){
   finally{ btn.disabled=false; btn.textContent=orig; }
 }
 if($('saveCaps')) $('saveCaps').addEventListener('click',()=>saveCaps($('saveCaps')));
+
+/* ── Create practice (admin+; no admin key needed — session-authorized) ── */
+function openNewPractice(){
+  ['np-name','np-email','np-booking','np-website','np-slug','np-sims','np-videos'].forEach(id=>{ if($(id)) $(id).value=''; });
+  $('npResult').style.display='none'; $('npResult').innerHTML='';
+  $('npForm').style.display='';
+  $('newPracticeModal').classList.add('open');
+}
+function closeNewPractice(){ $('newPracticeModal').classList.remove('open'); }
+if($('newPracticeBtn')) $('newPracticeBtn').addEventListener('click',openNewPractice);
+if($('npClose')) $('npClose').addEventListener('click',closeNewPractice);
+if($('newPracticeModal')) $('newPracticeModal').addEventListener('click',e=>{ if(e.target.id==='newPracticeModal') closeNewPractice(); });
+if($('npCreate')) $('npCreate').addEventListener('click',async()=>{
+  if(!isAdminRole()) return;
+  const name=$('np-name').value.trim(), email=$('np-email').value.trim();
+  if(!name || !email){ toast('Practice name and email are required'); return; }
+  const btn=$('npCreate'); btn.disabled=true; const o=btn.textContent; btn.textContent='Creating…';
+  try{
+    const payload={ practiceName:name, leadEmail:email, email,
+      ...($('np-booking').value.trim() && {bookingUrl:$('np-booking').value.trim()}),
+      ...($('np-website').value.trim() && {website:$('np-website').value.trim()}),
+      ...($('np-slug').value.trim() && {slug:$('np-slug').value.trim().toLowerCase()}),
+      ...($('np-sims').value && {simsPerMonth:+$('np-sims').value}),
+      ...($('np-videos').value && {videosPerMonth:+$('np-videos').value}) };
+    const r=await api('/api/dashboard/practice/create',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    if(r.status===401) return logout();
+    const d=await r.json();
+    if(!r.ok) throw new Error(d.error||'Create failed');
+    $('npForm').style.display='none';
+    const res=$('npResult'); res.style.display='block';
+    res.innerHTML = `<p style="color:var(--text);font-weight:700;margin:0 0 10px">✓ ${esc(name)} created</p>
+      <p>Sign-in email: <code>${esc(d.loginEmail||email)}</code><br>Temporary password: <code>${esc(d.password)}</code></p>
+      <p style="color:var(--muted);font-size:.8rem">Emailed to the practice. They sign in at <code>dashboard.html?t=${esc(d.slug)}</code>. You can reset this password later from the Usage tab.</p>
+      <button class="btn btn-save" id="npDone" type="button" style="margin-top:8px">Done</button>`;
+    $('npDone').addEventListener('click',async()=>{ closeNewPractice(); await loadPractices(); });
+    toast('Practice created');
+  }catch(err){ toast(err.message||'Create failed'); }
+  finally{ btn.disabled=false; btn.textContent=o; }
+});
 
 /* ── Reset client password (super-admin only) ── */
 if($('resetPwBtn')) $('resetPwBtn').addEventListener('click',async()=>{

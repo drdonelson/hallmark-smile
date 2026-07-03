@@ -1609,35 +1609,22 @@ async function handleDashDelete(request, env, origin) {
   });
 }
 
-// --- Practice onboarding (admin-key gated, no origin check) ---
-// POST { adminKey, practiceName, leadEmail, website?, simsPerMonth?, videosPerMonth? }
-// Creates R2 registry entry + origins index, sends welcome email, returns all links.
-async function handleOnboard(request, env) {
-  const json = h => ({ 'Content-Type': 'application/json', ...h });
-  let body; try { body = await request.json(); } catch {
-    return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: json() });
-  }
-  if (!env.ONBOARD_ADMIN_KEY || body.adminKey !== env.ONBOARD_ADMIN_KEY) {
-    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: json() });
-  }
+// Shared onboarding core. Creates the registry account (hashed password),
+// email + origin indexes, and welcome emails. Returns a plain result object
+// ({ error, status } on failure) so both the admin-key page (/api/onboard) and
+// the session-authorized dashboard (/api/dashboard/practice/create) can call it.
+async function createPractice(env, body) {
   const { practiceName, leadEmail, website } = body;
-  if (!practiceName || !leadEmail) {
-    return new Response(JSON.stringify({ error: 'practiceName and leadEmail are required' }), { status: 400, headers: json() });
-  }
-  // Login email — where the dashboard password is sent and how the practice
-  // signs in. Defaults to the lead-notification email.
+  if (!practiceName || !leadEmail) return { error: 'practiceName and leadEmail are required', status: 400 };
   const loginEmail = (body.email || leadEmail).toLowerCase().trim();
 
-  // Derive slug: lowercase alphanum only, max 24 chars
   const slug = (body.slug || practiceName).toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 24);
-  if (!slug) return new Response(JSON.stringify({ error: 'Cannot derive slug from practiceName' }), { status: 400, headers: json() });
+  if (!slug) return { error: 'Cannot derive slug from practiceName', status: 400 };
 
-  // Prevent duplicate slugs
   const existing = await env.TEMP_IMAGES.get(`registry/${slug}.json`);
-  if (existing) return new Response(JSON.stringify({ error: `Tenant '${slug}' already exists — use a different slug` }), { status: 409, headers: json() });
+  if (existing) return { error: `Tenant '${slug}' already exists — use a different slug`, status: 409 };
 
-  // Random 12-char password (base36, URL-safe). Emailed once; only the salted
-  // hash is persisted — no plaintext at rest.
+  // Random 12-char password. Emailed once; only the salted hash is persisted.
   const pwBytes = crypto.getRandomValues(new Uint8Array(9));
   const password = Array.from(pwBytes, b => b.toString(36).padStart(2, '0')).join('').slice(0, 12);
   const { hash: passwordHash, salt: passwordSalt } = await hashPassword(password);
@@ -1646,7 +1633,6 @@ async function handleOnboard(request, env) {
   const videos = body.videosPerMonth || 50;
   const createdAt = new Date().toISOString();
 
-  // Persist registry entry (with seeded white-label config, no plaintext password)
   const record = {
     slug, name: practiceName, email: loginEmail, leadEmail,
     website: website || null, sims, videos, passwordHash, passwordSalt, createdAt,
@@ -1655,11 +1641,9 @@ async function handleOnboard(request, env) {
   if (body.bookingUrl) record.config.booking.url = String(body.bookingUrl).slice(0, 400);
   await env.TEMP_IMAGES.put(`registry/${slug}.json`, JSON.stringify(record), { httpMetadata: { contentType: 'application/json' } });
 
-  // Email → tenant index so the practice can log in with email + password.
   await env.TEMP_IMAGES.put(`emailidx/${emailKey(loginEmail)}.json`, JSON.stringify({ slug }),
     { httpMetadata: { contentType: 'application/json' } }).catch(() => {});
 
-  // Index website domain(s) for dynamic CORS lookup
   if (website) {
     const domain = website.replace(/^https?:\/\/(www\.)?/, '').replace(/\/$/, '');
     const idx = JSON.stringify({ slug });
@@ -1670,13 +1654,11 @@ async function handleOnboard(request, env) {
     ]);
   }
 
-  // Build deliverables
   const base    = 'https://drdonelson.github.io/hallmark-smile';
   const simUrl  = `${base}/smile-simulator.html?leadEmail=${encodeURIComponent(leadEmail)}&practice=${encodeURIComponent(practiceName)}&tenant=${slug}`;
   const dashUrl = `${base}/dashboard.html?t=${slug}&email=${encodeURIComponent(loginEmail)}`;
   const embedCode = `<iframe\n  src="${simUrl}"\n  width="100%" height="900"\n  allow="camera"\n  style="border:none;display:block"\n></iframe>`;
 
-  // Welcome email to practice
   if (env.RESEND_API_KEY) {
     const welcomeHtml = `
 <div style="font-family:sans-serif;max-width:560px;color:#0A1628">
@@ -1700,7 +1682,7 @@ async function handleOnboard(request, env) {
       fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: 'Lucid ROI <onboarding@lucidroi.com>', to: [leadEmail], subject: `Your Smile Simulator is ready — ${practiceName}`, html: welcomeHtml }),
+        body: JSON.stringify({ from: 'Lucid ROI <onboarding@lucidroi.com>', to: [loginEmail], subject: `Your Smile Simulator is ready — ${practiceName}`, html: welcomeHtml }),
       }),
       fetch('https://api.resend.com/emails', {
         method: 'POST',
@@ -1710,9 +1692,36 @@ async function handleOnboard(request, env) {
     ]).catch(() => {});
   }
 
-  return new Response(JSON.stringify({ ok: true, slug, simUrl, dashUrl, embedCode, password, leadEmail }), {
-    headers: json(),
+  return { ok: true, slug, simUrl, dashUrl, embedCode, password, leadEmail, loginEmail };
+}
+
+// --- Practice onboarding (admin-key gated, no origin check) ---
+// POST { adminKey, practiceName, leadEmail, website?, bookingUrl?, slug?, simsPerMonth?, videosPerMonth? }
+async function handleOnboard(request, env) {
+  const json = h => ({ 'Content-Type': 'application/json', ...h });
+  let body; try { body = await request.json(); } catch {
+    return new Response(JSON.stringify({ error: 'Invalid JSON' }), { status: 400, headers: json() });
+  }
+  if (!env.ONBOARD_ADMIN_KEY || body.adminKey !== env.ONBOARD_ADMIN_KEY) {
+    return new Response(JSON.stringify({ error: 'Unauthorized' }), { status: 401, headers: json() });
+  }
+  const result = await createPractice(env, body);
+  return new Response(JSON.stringify(result), { status: result.error ? (result.status || 400) : 200, headers: json() });
+}
+
+// POST /api/dashboard/practice/create — session-authorized onboarding for
+// admins (you + Ritesh). No ONBOARD_ADMIN_KEY needed — the dashboard token's
+// role is the gate. Deleting practices stays super-admin-only.
+async function handleDashPracticeCreate(request, env, origin) {
+  const payload = await dashVerify(env, bearer(request));
+  const json = (obj, status = 200) => new Response(JSON.stringify(obj), {
+    status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
   });
+  if (!payload) return json({ error: 'Unauthorized' }, 401);
+  if (!isAdmin(payload)) return json({ error: 'Only admins can create practices' }, 403);
+  let body; try { body = await request.json(); } catch { body = {}; }
+  const result = await createPractice(env, body);
+  return json(result, result.error ? (result.status || 400) : 200);
 }
 
 // --- Lead email routing via Resend ---
@@ -1859,6 +1868,9 @@ export default {
     }
     if (url.pathname === '/api/dashboard/practices' && request.method === 'GET') {
       return handleDashPractices(request, env, origin);
+    }
+    if (url.pathname === '/api/dashboard/practice/create' && request.method === 'POST') {
+      return handleDashPracticeCreate(request, env, origin);
     }
     if (url.pathname === '/api/dashboard/practice/delete' && request.method === 'POST') {
       return handleDashPracticeDelete(request, env, origin);
