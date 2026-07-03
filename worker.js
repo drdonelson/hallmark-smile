@@ -638,10 +638,12 @@ const WORKER_HOST = 'quiet-forest-e1f8.david-d73.workers.dev';
 // the goal is cost protection and per-tenant accounting, not billing-
 // grade precision. 'sims' are counted in API CALLS — best-of-2 means
 // 2 calls per patient simulation, so caps are 2× the intended run count.
+// Built-in tenants (caps only; login via DASH_PASSWORDS). Onboarded practices
+// live in the R2 registry instead — email+password, self-serve settings, and
+// super-admin reset/delete. Seven Bridges was migrated to an onboarded account.
 const TENANTS = {
   hallmark:     { sims: 2000, videos: 100 },   // ≈1000 simulations/mo
   lucid:        { sims: 1000, videos: 50 },    // ≈500 simulations/mo
-  sevenbridges: { sims: 1000, videos: 50 },    // Lucid client — Dr. Fariha Qureshi, Seven Bridges Dental Studio
   unknown:      { sims: 200,  videos: 10 },    // direct opens / unrecognized embeds
 };
 const IP_DAILY = { sims: 30, videos: 6, shares: 12 };  // per-visitor abuse stop (≈15 sims/day)
