@@ -1809,6 +1809,34 @@ async function handleLead(request, env, origin) {
   }
 }
 
+// Metered GPT image-edit proxy — the primary generation path. Meters a 'sim'
+// per tenant (tenant via ?tenant=), then streams the multipart body to OpenAI
+// with the key injected. The multipart body isn't read here (meter uses only
+// headers/IP), so the stream reaches OpenAI intact.
+async function handleGptEdit(request, env, origin) {
+  const tenant = (new URL(request.url).searchParams.get('tenant') || 'unknown').toLowerCase();
+  const limited = await meter(env, request, tenant, 'sims', origin);
+  if (limited) return limited;
+  let res;
+  try {
+    res = await fetch(`${OPENAI_BASE}/v1/images/edits`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${env.OPENAI_API_KEY}`,
+        ...(request.headers.get('Content-Type') ? { 'Content-Type': request.headers.get('Content-Type') } : {}),
+      },
+      body: request.body,
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  const h = new Headers(res.headers);
+  Object.entries(corsHeaders(origin)).forEach(([k, v]) => h.set(k, v));
+  return new Response(res.body, { status: res.status, headers: h });
+}
+
 // --- Main handler ---
 export default {
   async fetch(request, env) {
@@ -1943,6 +1971,11 @@ export default {
     }
 
     // Kling / fal.ai video endpoints
+    // Metered GPT image edit (primary generation path). Counts a 'sim' against
+    // the tenant cap (the generic OpenAI proxy below is NOT metered).
+    if (url.pathname === '/api/gpt/edit' && request.method === 'POST') {
+      return handleGptEdit(request, env, origin);
+    }
     if (url.pathname === '/api/kling/start' && request.method === 'POST') {
       return handleKlingStart(request, env, origin);
     }

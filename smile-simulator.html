@@ -2673,6 +2673,125 @@ async function loraCompositeMakeover(resizedUrl, width, height, maskDataUrl, bou
 // Fallback 5: FLUX Pro Fill full image
 // Fallback 6: RunPod ComfyUI
 // Fallback 7: client-side HSL whitening
+/* ── Primary path: GPT full-image generate + tooth composite ─────
+   gpt-image-1 full-image gives the best teeth + lighting integration
+   (incl. severe missing/broken cases) but re-renders and beautifies the
+   whole face. We keep ONLY its mouth interior, aligned via MediaPipe inner-lip
+   landmarks and composited back onto the untouched original face — so the
+   patient's real identity is preserved and only the teeth change.
+   Proven in harness/gpt_composite.py across 11 real photos. */
+const GPT_LOCK_PROMPT =
+  'Retouch this exact photo. Change ONLY the teeth already visible between the lips: ' +
+  'make them straight, even, and bright natural white (shade BL1-BL2, not gray/blue/yellow), ' +
+  'individual teeth with natural inter-dental shadows and subtle incisal translucency, healthy ' +
+  'pink gums; repair chips, decay, gaps, and missing teeth into a complete healthy arch. ' +
+  'Keep it the SAME photograph of the SAME person: do not change the mouth shape, smile width, ' +
+  'lip position, amount of teeth showing, expression, skin texture, freckles, wrinkles, facial ' +
+  'hair, hair, eyes, age, head angle, framing, lighting, shadows, or background. Do not smooth ' +
+  'or beautify the skin. Only the teeth change. Photorealistic, identical lighting to the original.';
+
+// Least-squares 2D affine mapping src → dst point sets. Returns {a,b,c,d,tx,ty}
+// where x' = a·x + b·y + tx, y' = c·x + d·y + ty.
+function solveAffine(src, dst) {
+  let Sxx=0,Sxy=0,Sx=0,Syy=0,Sy=0,n=src.length;
+  let Sxxp=0,Syxp=0,Sxp=0, Sxyp=0,Syyp=0,Syp=0;
+  for (let i=0;i<n;i++){
+    const x=src[i].x,y=src[i].y,xp=dst[i].x,yp=dst[i].y;
+    Sxx+=x*x; Sxy+=x*y; Sx+=x; Syy+=y*y; Sy+=y;
+    Sxxp+=x*xp; Syxp+=y*xp; Sxp+=xp;
+    Sxyp+=x*yp; Syyp+=y*yp; Syp+=yp;
+  }
+  const M=[[Sxx,Sxy,Sx],[Sxy,Syy,Sy],[Sx,Sy,n]];
+  const det=(m)=>m[0][0]*(m[1][1]*m[2][2]-m[1][2]*m[2][1])
+                -m[0][1]*(m[1][0]*m[2][2]-m[1][2]*m[2][0])
+                +m[0][2]*(m[1][0]*m[2][1]-m[1][1]*m[2][0]);
+  const D=det(M); if(Math.abs(D)<1e-6) return {a:1,b:0,c:0,d:1,tx:0,ty:0};
+  const solve=(r0,r1,r2)=>{
+    const rep=(col,v)=>{const m=M.map(row=>row.slice()); m[0][col]=v[0];m[1][col]=v[1];m[2][col]=v[2]; return m;};
+    return [det(rep(0,[r0,r1,r2]))/D, det(rep(1,[r0,r1,r2]))/D, det(rep(2,[r0,r1,r2]))/D];
+  };
+  const [a,b,tx]=solve(Sxxp,Syxp,Sxp);
+  const [c,d,ty]=solve(Sxyp,Syyp,Syp);
+  return {a,b,c,d,tx,ty};
+}
+
+// Full-image GPT edit (no mask, medium quality — fits the Worker's 30s limit).
+async function gptFullImage(resizedUrl, width, height) {
+  const img = await loadImage(resizedUrl);
+  const c = document.createElement('canvas'); c.width = width; c.height = height;
+  c.getContext('2d').drawImage(img, 0, 0, width, height);
+  const blob = await new Promise(r => c.toBlob(r, 'image/png'));
+  const form = new FormData();
+  form.append('model', 'gpt-image-1');
+  form.append('image', new File([blob], 'face.png', { type: 'image/png' }));
+  form.append('prompt', GPT_LOCK_PROMPT);
+  form.append('n', '1'); form.append('size', 'auto'); form.append('quality', 'medium');
+  // Metered endpoint (counts a sim against the tenant cap), not the raw proxy.
+  // Abort at 40s so a Worker 30s-limit stall fails fast to the Ideogram fallback
+  // instead of leaving the patient waiting.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 40000);
+  let res;
+  try {
+    res = await fetch(`${PROXY_URL}/api/gpt/edit?tenant=${encodeURIComponent(TENANT)}`, { method: 'POST', body: form, signal: ctrl.signal });
+  } finally { clearTimeout(timer); }
+  if (!res.ok) { const t = await res.text().catch(()=> ''); throw new Error(`GPT ${res.status}: ${t.slice(0,150)}`); }
+  const data = await res.json();
+  const item = data.data?.[0]; if (!item) throw new Error('No image from GPT');
+  return item.b64_json ? `data:image/png;base64,${item.b64_json}` : item.url;
+}
+
+async function gptCompositeMakeover(resizedUrl, width, height, mpResult) {
+  const gptUrl = await gptFullImage(resizedUrl, width, height);
+  // Detect the mouth in the GPT result so we can register it to the original.
+  const gptMp = await buildMediaPipeMask(gptUrl, width, height);
+  if (!gptMp) throw new Error('No face detected in GPT result');
+
+  const src = INNER_LIP.map(i => ({ x: gptMp.landmarks[i].x * width, y: gptMp.landmarks[i].y * height }));
+  const dst = INNER_LIP.map(i => ({ x: mpResult.landmarks[i].x * width, y: mpResult.landmarks[i].y * height }));
+  const T = solveAffine(src, dst);
+  // Sanity guard: reject a wildly-off alignment (degenerate/extreme scale or a
+  // large mouth-center shift) and fall back to the proven Ideogram path rather
+  // than composite a misaligned smile.
+  const scale = Math.hypot(T.a, T.c);
+  const mapCx = T.a * (src.reduce((s,p)=>s+p.x,0)/src.length) + T.b * (src.reduce((s,p)=>s+p.y,0)/src.length) + T.tx;
+  const dstCx = dst.reduce((s,p)=>s+p.x,0)/dst.length;
+  if (scale < 0.55 || scale > 1.8 || Math.abs(mapCx - dstCx) > width * 0.12) {
+    throw new Error('GPT mouth alignment out of range');
+  }
+
+  // Warp the GPT image so its teeth line up with the original mouth.
+  const gptImg = await loadImage(gptUrl);
+  const warp = document.createElement('canvas'); warp.width = width; warp.height = height;
+  const wctx = warp.getContext('2d');
+  wctx.setTransform(T.a, T.c, T.b, T.d, T.tx, T.ty);
+  wctx.drawImage(gptImg, 0, 0, width, height);
+  wctx.setTransform(1, 0, 0, 1, 0, 0);
+
+  // Feathered inner-lip mask (original coords), slightly grown around centroid.
+  const cx = dst.reduce((s,p)=>s+p.x,0)/dst.length, cy = dst.reduce((s,p)=>s+p.y,0)/dst.length;
+  const mouthW = Math.max(...dst.map(p=>p.x)) - Math.min(...dst.map(p=>p.x));
+  const grow = 1.06, feather = Math.max(2, Math.round(mouthW * 0.07));
+  const mask = document.createElement('canvas'); mask.width = width; mask.height = height;
+  const mctx = mask.getContext('2d');
+  mctx.filter = `blur(${feather}px)`;
+  mctx.fillStyle = '#fff'; mctx.beginPath();
+  dst.forEach((p,i)=>{ const x=cx+(p.x-cx)*grow, y=cy+(p.y-cy)*grow; i?mctx.lineTo(x,y):mctx.moveTo(x,y); });
+  mctx.closePath(); mctx.fill();
+
+  // Clip the warped GPT to the feathered mouth mask.
+  wctx.globalCompositeOperation = 'destination-in';
+  wctx.drawImage(mask, 0, 0);
+  wctx.globalCompositeOperation = 'source-over';
+
+  // Composite the GPT teeth over the untouched original face.
+  const out = document.createElement('canvas'); out.width = width; out.height = height;
+  const octx = out.getContext('2d');
+  octx.drawImage(await loadImage(resizedUrl), 0, 0, width, height);
+  octx.drawImage(warp, 0, 0);
+  return out.toDataURL('image/jpeg', 0.94);
+}
+
 async function generateSmile(dataUrl) {
   updateProgress('Analyzing your smile…', 10);
   const { width, height, resized: resizedUrl } = await resizeForAPI(dataUrl);
@@ -2686,12 +2805,31 @@ async function generateSmile(dataUrl) {
     console.warn('MediaPipe failed:', e.message);
   }
 
-  // --- Primary: Ideogram v2 crop-zoom — 1024px tooth resolution, all cases ---
+  // --- Primary: GPT full-image + tooth composite ---
+  // Best teeth realism + lighting integration (incl. severe missing/broken
+  // cases). GPT re-renders/beautifies the whole face, so we keep only its mouth
+  // interior, landmark-aligned and composited onto the untouched original —
+  // identity preserved, only the teeth change. Medium quality fits the 30s limit.
+  if (mpResult) {
+    try {
+      updateProgress('Designing your new smile…', 25);
+      const gptComp = await gptCompositeMakeover(resizedUrl, width, height, mpResult);
+      if (gptComp) {
+        console.log('✅ Result from: GPT full-image + tooth composite');
+        return gptComp;
+      }
+    } catch(e) {
+      if (/limit reached/i.test(e.message)) throw e;
+      console.warn('GPT composite failed, trying Ideogram:', e.message);
+    }
+  }
+
+  // --- Fallback 1: Ideogram v2 crop-zoom — 1024px tooth resolution, all cases ---
   // Crop-zoom gives 5× more pixels than full-face. Blend mask follows the precise
   // MediaPipe tooth shape (not a bbox rect) so no rectangular seam composite.
   if (mpResult) {
     try {
-      updateProgress('Designing your smile…', 25);
+      updateProgress('Designing your smile…', 30);
       const ideoResult = await ideogramCropMakeover(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds, dataUrl);
       if (ideoResult) {
         console.log('✅ Result from: Ideogram v2 + MediaPipe crop-zoom');
