@@ -158,7 +158,7 @@ async function handleKlingStart(request, env, origin) {
       body: JSON.stringify({
         prompt,
         image_url:       image,
-        duration:        KLING_DURATION,
+        duration:        (body.duration === '10' ? '10' : KLING_DURATION),
         negative_prompt: 'blur, distortion, low quality, deformed or extra teeth, ' +
           'changing tooth color, morphing face, identity change, warping, flicker, artifacts',
         cfg_scale:       0.5,
