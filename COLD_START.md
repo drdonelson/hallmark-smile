@@ -1,11 +1,19 @@
 # Hallmark Smile Simulator — Agent Cold-Start Document
 
-**Version:** 3.0  
+**Version:** 4.0 (July 2026 — primary path is now GPT full-image + tooth composite)  
 **Classification:** Cold-Start Foundation Document  
 **Project:** Hallmark Dental Smile Simulator  
 **Authority:** Dr. David Donelson — Hallmark Dental, david@hallmarkdds.com  
-**Live URL:** https://drdonelson.github.io/hallmark-smile/smile-simulator.html  
+**Live URL:** https://app.lucidroi.com/smile-simulator.html (also drdonelson.github.io/hallmark-smile/smile-simulator.html — 301s to the custom domain)  
 **Full Developer Handoff:** `DEVELOPER_HANDOFF.md` in repo root — read this for the complete project arc  
+
+**v4.0 changes (read Section 3.13 first):** GPT `gpt-image-1` full-image + tooth
+composite is the new PRIMARY generation path (Ideogram demoted to Fallback 1).
+It solves the lighting-integration problem the crop-zoom never did and handles
+severe missing/broken-teeth cases. Video upgraded to Kling 2.5 Turbo Pro.
+Harness gained `gpt_fullface.py` + `gpt_composite.py`. The product also grew a
+self-serve white-label + 3-tier-role dashboard layer (out of scope for this
+pipeline doc; see the memory files / DEVELOPER_HANDOFF).
 
 ---
 
@@ -41,17 +49,24 @@ This document exists because this project has 100+ commits and hard-won knowledg
 ```
 Patient photo
     ↓
-MediaPipe 468-landmark face mesh → tooth bounds {xMin, xMax, yMin, yMax}
+MediaPipe 468-landmark face mesh → landmarks + inner/outer-lip polygons
     ↓
-[Primary]    Ideogram v2 crop-zoom via Replicate  → ideogramCropMakeover()
-[Fallback 1] ControlNet+LoRA inpaint via Modal    → loraCompositeMakeover()
-[Fallback 2] FLUX Pro Fill crop-zoom via fal.ai   → fluxCropMakeover()
-[Fallback 3] gpt-image-2 crop-zoom via OpenAI     → gptMaskWhiten()
-[Fallback 4] Dr. Apa SDXL LoRA full-face img2img  → Modal legacy
-[Fallback 5] FLUX Pro Fill full image             → full image inpainting
-[Fallback 6] RunPod ComfyUI                       → legacy
-[Fallback 7] Client-side HSL whitening            → last resort
+[PRIMARY]    GPT full-image + tooth composite     → gptCompositeMakeover()  (July 2026)
+[Fallback 1] Ideogram v2 crop-zoom via Replicate  → ideogramCropMakeover()
+[Fallback 2] ControlNet+LoRA inpaint via Modal    → loraCompositeMakeover()
+[Fallback 3] FLUX Pro Fill crop-zoom via fal.ai   → fluxCropMakeover()
+[Fallback 4] gpt-image-2 crop-zoom via OpenAI     → gptMaskWhiten()
+[Fallback 5] Dr. Apa SDXL LoRA full-face img2img  → Modal legacy
+[Fallback 6] FLUX Pro Fill full image             → full image inpainting
+[Fallback 7] RunPod ComfyUI                       → legacy
+[Fallback 8] Client-side HSL whitening            → last resort
 ```
+
+**Primary changed July 2026 (Section 3.13).** GPT full-image + tooth composite
+replaced Ideogram crop-zoom as primary: it fixes the lighting-integration gap
+(Section 3.9/3.10) and handles severe missing/broken-teeth cases the crop-zoom
+fails on (Section 3.12). Ideogram stays as Fallback 1 — proven and
+identity-perfect — so it catches GPT errors, 30s timeouts, or bad alignment.
 
 ### 2.3 The Crop-Zoom Pattern
 
@@ -264,6 +279,104 @@ preserve everywhere, else erase everywhere). Per-pixel preservation lets dark
 reddish decay survive as blotches; per-column flickers into stripes Ideogram
 hallucinates patterns from. Both observed.
 
+### 3.13 GPT Full-Image + Tooth Composite — PRIMARY PATH (SHIPPED July 2026)
+
+This is the current primary and the most important section in the doc. It came
+out of testing the "GPT milestone" a contractor (Carthago/Amor) quoted $1,200
+for. We reproduced and beat it ourselves for ~$1 of API. Files:
+`smile-simulator.html` `gptCompositeMakeover()` (production) and the harness
+tools `harness/gpt_fullface.py` + `harness/gpt_composite.py` (where all the
+iteration happened — free after one generation per photo).
+
+**The core discovery.** `gpt-image-1` run on the FULL face (not the mouth crop)
+produces the best teeth realism AND lighting integration we have ever gotten —
+including on SEVERE missing/broken/decayed cases that the crop-zoom pipeline
+fails on (Section 3.12). Full-image context is exactly what solves the
+lighting-integration problem that Sections 3.9/3.10 called the core unsolved
+gap. The contractor's hypothesis was right.
+
+**The catch — GPT is not an inpainter.** `gpt-image-1` re-renders the ENTIRE
+image, with or without a mask. A mask does NOT constrain it. So it beautifies
+and de-ages the whole face — mild on high-contrast male faces, SEVERE on women
+(smoother skin, brighter eyes, glamorized, younger). Shipping GPT whole-image
+would hand patients a photo of a different, prettier person. Unacceptable.
+
+**The architecture that works: generate with GPT, composite only the mouth.**
+1. Send the full resized face to `gpt-image-1` at `quality:medium` (see 30s
+   note below) with a hard identity-lock prompt (`GPT_LOCK_PROMPT`).
+2. Run MediaPipe on BOTH the original and the GPT result.
+3. Compute a least-squares **affine** from the GPT inner-lip landmarks → the
+   original inner-lip landmarks (`solveAffine`) and warp the GPT image so its
+   mouth registers onto the original mouth. (GPT shifts/widens the mouth; this
+   puts it back.)
+4. Composite ONLY the mouth region back onto the untouched original face, so
+   the patient's real skin/eyes/identity are preserved and only the smile
+   changes. Guard: reject out-of-range alignment (scale <0.55 or >1.8, or
+   mouth-center shift >12% width) → fall through to Ideogram.
+
+**THE MASK IS THE WHOLE GAME — use the OUTER lip, never the inner lip.**
+Dr. Donelson (a dentist) caught the failure that a non-dentist eye misses:
+if you mask the composite to the ORIGINAL inner-lip opening, you clip GPT's
+teeth. The original mouth aperture is smaller/differently-shaped than the new
+smile, so clipping to it slices off the **gingival emergence profile** (leaves
+a pink band above the teeth) and the **incisal edges** (cut off at the lower
+lip). GPT's raw smile is dentally correct; the tight mask destroys it.
+FIX: build the composite mask from the **outer-lip polygon**, grown ~16% and
+heavily feathered (~18% of mouth width), so GPT's WHOLE smile (lips + teeth,
+full emergence-to-incisal anatomy) transfers intact and the blend lands on
+perioral skin, not across the teeth. `OUTER_LIP` indices are in the code.
+Inner-lip landmarks are still used for the affine REGISTRATION (step 3); the
+MASK is outer-lip. Do not confuse the two.
+
+**Known residual trade-off:** the outer-lip mask brings a thin ring of GPT's
+slightly-smoothed perioral skin with it — a soft halo around the lips, not a
+seam. Acceptable; correct dental anatomy wins. If a dentist objects, tighten
+the mask on the skin side (asymmetric: hug the upper lip/philtrum where skin
+must stay original, stay generous at the incisal edge). Not yet done.
+
+**30s Cloudflare Worker limit (Section 3.7 bites here).** `gpt-image-1`
+`quality:high` routinely exceeds 30s and the Worker kills the subrequest
+(observed: a high-quality run timed out at exactly 300s client-side after the
+Worker stalled). Production uses `quality:medium` (finishes in time, still
+excellent) with a 40s client AbortController → Ideogram fallback. If you ever
+want `high` in production, move the GPT call to a longer-timeout backend
+(Modal / a Vercel function / OpenAI background mode). No local OpenAI key
+exists — all testing routes through the Worker proxy.
+
+**Metering.** GPT calls go through `POST /api/gpt/edit?tenant=<slug>` which
+meters a `sim` against the tenant cap. The generic `/v1/images/edits` OpenAI
+proxy passthrough is UNMETERED — never route production sims there or a tenant
+can burn spend past its cap.
+
+**Cost:** ~$0.04/sim at medium (comparable to Ideogram's ~$0.08). Validated on
+11 real office photos in the harness.
+
+### 3.14 Video — Kling 2.5 Turbo Pro (SHIPPED July 2026)
+
+`worker.js` `KLING_MODEL` was Seedance v1 lite (cheapest tier, weak motion).
+Upgraded to `fal-ai/kling-video/v2.5-turbo/pro/image-to-video` for best-in-class
+human-motion smile/laugh reveals (matching the bitebot Veo/Kling tier). Input
+schema: `{ prompt, image_url, duration:'5'|'10', negative_prompt, cfg_scale }`;
+aspect ratio is taken from the image (no aspect_ratio field); no audio field.
+Runs on fal's **queue** (`queue.fal.run`) — the start call submits and returns a
+`request_id` immediately, the client polls `/api/kling/status`, so generation
+time is a UX wait, NOT a Worker-timeout concern. `/api/kling/start` accepts a
+`duration` body param. Validated: natural reveal→laugh, identity preserved,
+teeth stable; 5s ~99s / 10s ~73s (queue variance), ~$0.35 for 5s (+$0.07/s).
+`handleKlingStart` also carries `STYLE_PROMPTS` (laugh/reveal/talk).
+
+### 3.15 GitHub Pages deploy hangs — force a rebuild
+
+GitHub Pages `build_type` is `legacy` (Jekyll). `.nojekyll` is committed (a
+Jekyll build failure once froze the live site several commits behind — always
+keep `.nojekyll`). Even so, the legacy auto-build intermittently hangs in
+`building` for 5+ min. Fix each time: `gh api --method POST
+repos/drdonelson/hallmark-smile/pages/builds` forces a fresh build that
+completes in ~40s. Happened 3× in one session. Durable fix (not yet done):
+switch Pages to an Actions-based deploy workflow. The `drdonelson.github.io`
+URL 301-redirects to the `app.lucidroi.com` custom domain (CNAME); curl without
+`-L` shows stale content — always follow redirects or hit the custom domain.
+
 ---
 
 ## 4. What Has Been Tried and Abandoned
@@ -308,6 +421,12 @@ Produced over-constrained, plastic-looking teeth. Reduced to 12.
 | **Deploying SDXL on Replicate** | Health checker disables within hours. Use Modal with persistent volume caching. |
 | **LoRA img2img at strength ≥ 0.70** | Plastic slab. No exceptions. |
 | **numpy<2 only in first pip_install** | opencv-python-headless upgrades numpy to 2.4.6 in its layer. Must pin `numpy<2` in SAME call as opencv. |
+| **Clipping GPT teeth to the INNER-lip mask** | Cuts off the gingival emergence profile (pink band above teeth) and the incisal edges (cut at the lower lip). GPT's smile is dentally correct; the tight mask destroys it. Composite with the OUTER-lip mask (grown + feathered), blend on skin (Section 3.13). A dentist WILL notice; a non-dentist eye will not. |
+| **Shipping GPT full-image whole (no composite)** | gpt-image-1 re-renders the whole face and beautifies/de-ages it (severe on women). Always composite only the mouth back onto the original face. |
+| **Masking gpt-image-1 to "constrain" it** | It is NOT an inpainter — a mask does not stop it re-rendering the whole image. Only compositing preserves identity. |
+| **Routing production GPT sims through `/v1/images/edits`** | That proxy is UNMETERED — burns spend past the tenant cap. Use `POST /api/gpt/edit?tenant=`. |
+| **gpt-image-1 `quality:high` through the Worker** | Exceeds the 30s subrequest limit → timeout. Use `quality:medium` + a longer-timeout backend if high is ever needed. |
+| **Assuming the live site is current after a push** | GitHub Pages legacy build hangs; force `gh api --method POST .../pages/builds`. Follow redirects (github.io 301s to app.lucidroi.com). |
 
 ---
 
@@ -347,23 +466,35 @@ Test with real patient photos from the office — they have dental bibs, office 
 ## 8. The Work That Remains
 
 ### Solved in Current Version
+- **Lighting integration (was THE hardest problem):** SOLVED July 2026 by the GPT
+  full-image + tooth composite primary (Section 3.13). Full-image `gpt-image-1`
+  sees the whole face, so teeth are lit to match the photo. The crop-zoom
+  architecture that caused the mismatch is now Fallback 1, not primary.
+- **Severe missing/broken/full-arch decay:** GPT full-image regenerates a
+  complete healthy arch cleanly — the case the hires-crop failed on (3.12).
+- **Clipped emergence profile / incisal edges:** outer-lip composite mask (3.13).
 - **Sloppy white slab** (existing teeth): tooth-erase step forces Ideogram to generate from scratch
 - **Rectangular seam artifact**: pixel-precise MediaPipe brightness→alpha blend mask
 - **Commissure artifact at mouth corners**: 10% commissure fade in blend mask
 - **ControlNet closed-mouth generation**: canny blanked inside mask
 - **Modal crash loop**: numpy<2 repeated in opencv pip_install layer
 
-### Still Unsolved
+### Still Unsolved / Open
 
-**Lighting integration (hardest problem):** Crop-zoom removes the face's lighting context. Generated teeth have different lighting than the original photo — the result looks assembled rather than photographed. This is the core gap between current output and bitebot.io quality.
-
-bitebot.io almost certainly uses a full-face model trained specifically on dental transformation pairs, not a crop-and-composite architecture.
-
-**Two approaches to test:**
-
-1. **LoRA composite at full face** — Run the Dr. Apa LoRA on the full face at strength ~0.40. The LoRA was trained on full-face photos so it naturally integrates with face lighting. Use MediaPipe to extract only the tooth pixels from the LoRA result and composite those — and only those — onto the original face. Discards LoRA's face changes, keeps its dental quality. Blocking question: strength 0.40 may be too subtle; 0.55–0.65 starts drifting the face. Needs experimentation. **Most promising path given existing assets.**
-
-2. **Full-face Ideogram** — Send the full resized face to Ideogram with the tooth mask. No crop-zoom. AI sees full lighting context. Gains integration but loses tooth pixel density (~200px vs 1024px).
+- **Perioral skin halo** from the GPT outer-lip composite — a soft ring of
+  GPT's slightly-smoothed skin around the lips. Soft, not a seam; acceptable
+  for now. Fix: asymmetric mask (tight on the upper-lip/philtrum skin side,
+  generous at the incisal edge). Iterate in `harness/gpt_composite.py`.
+- **`gpt-image-1` mouth drift** — GPT widens/shifts the smile; the affine
+  registration corrects most of it, but extreme cases hit the alignment guard
+  and fall back to Ideogram. A tighter registration (per-tooth or more
+  landmarks) could raise the GPT hit rate.
+- **30s Worker ceiling** blocks `quality:high` GPT in production. A
+  longer-timeout backend (Modal / Vercel fn / OpenAI background mode) would let
+  high quality ship. See 3.13.
+- **In-browser QA** of the GPT-composite path can't be done headless (MediaPipe
+  needs WebGL, Section 3.11) — iterate in the Python harness, then verify one
+  real simulation in a real browser after each change.
 
 ---
 
