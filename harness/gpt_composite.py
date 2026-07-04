@@ -25,9 +25,16 @@ from PIL import Image, ImageOps
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL = os.path.join(ROOT, 'harness', 'face_landmarker.task')
 
-# MediaPipe inner-lip loop (the mouth opening).
+# MediaPipe inner-lip loop (the mouth opening) — used to REGISTER GPT's mouth
+# to the original via the affine transform.
 INNER_LIP = [78, 95, 88, 178, 87, 14, 317, 402, 318, 324, 308,
              415, 310, 311, 312, 13, 82, 81, 80, 191]
+# Outer-lip loop — the composite MASK is built from this (dilated + feathered)
+# so GPT's WHOLE smile (lips + teeth, with correct gingival emergence and
+# incisal edges) transfers intact and the blend lands on perioral skin, not
+# across the teeth. Clipping to the inner lip cut off emergence + incisal edges.
+OUTER_LIP = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291,
+             409, 270, 269, 267, 0, 37, 39, 40, 185]
 
 
 def landmarks(img_path):
@@ -84,25 +91,17 @@ def main():
         M, _ = cv2.estimateAffinePartial2D(src, dst)
     gpt_aligned = cv2.warpAffine(gpt, M, (W, H), flags=cv2.INTER_LANCZOS4, borderMode=cv2.BORDER_REPLICATE)
 
-    # Mask = original inner-lip polygon, dilated a touch, feathered.
-    poly = dst.astype(np.int32)
+    # Mask = original OUTER-lip polygon, generously dilated so it covers the
+    # full smile (lips + teeth incl. gingival emergence and incisal edges),
+    # then heavily feathered so the blend falls on perioral skin, not the teeth.
+    outer = pts(lm_o, W, H, OUTER_LIP).astype(np.int32)
+    mouth_w = float(dst[:, 0].max() - dst[:, 0].min())
     mask = np.zeros((H, W), np.uint8)
-    cv2.fillConvexPoly(mask, cv2.convexHull(poly), 255)
-    mouth_w = dst[:, 0].max() - dst[:, 0].min()
-    k = max(3, int(mouth_w * 0.04) | 1)
+    cv2.fillConvexPoly(mask, cv2.convexHull(outer), 255)
+    k = max(3, int(mouth_w * 0.16) | 1)
     mask = cv2.dilate(mask, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (k, k)))
-    fr = max(3, int(mouth_w * args.feather) | 1)
+    fr = max(5, int(mouth_w * 0.20) | 1)
     maskf = cv2.GaussianBlur(mask, (fr, fr), 0).astype(np.float32) / 255.0
-
-    # Light color match: shift aligned-GPT mouth mean toward original mouth-region
-    # mean (keeps teeth luminance, avoids a bright graft seam).
-    m3 = (maskf > 0.2)
-    if m3.sum() > 50:
-        for c in range(3):
-            og = orig[:, :, c][m3].mean()
-            gg = gpt_aligned[:, :, c][m3].mean()
-            gpt_aligned[:, :, c] = np.clip(gpt_aligned[:, :, c].astype(np.float32)
-                                           + (og - gg) * 0.35, 0, 255).astype(np.uint8)
 
     m = maskf[:, :, None]
     comp = (orig.astype(np.float32) * (1 - m) + gpt_aligned.astype(np.float32) * m).astype(np.uint8)

@@ -1558,6 +1558,10 @@ let _faceLandmarker = null;
 // Inner lip contour indices in MediaPipe's 468-point face mesh.
 // Forms a polygon around the mouth opening — exactly where teeth are visible.
 const INNER_LIP = [78, 191, 80, 81, 82, 13, 312, 311, 310, 415, 308, 324, 318, 402, 317, 14, 87, 178, 88, 95];
+// Outer-lip loop — the GPT-composite MASK is built from this (grown + heavily
+// feathered) so GPT's whole smile (lips + teeth with correct gingival emergence
+// and incisal edges) transfers intact and the blend falls on perioral skin.
+const OUTER_LIP = [61, 146, 91, 181, 84, 17, 314, 405, 321, 375, 291, 409, 270, 269, 267, 0, 37, 39, 40, 185];
 
 async function initMediaPipe() {
   if (_faceLandmarker) return _faceLandmarker;
@@ -2768,15 +2772,19 @@ async function gptCompositeMakeover(resizedUrl, width, height, mpResult) {
   wctx.drawImage(gptImg, 0, 0, width, height);
   wctx.setTransform(1, 0, 0, 1, 0, 0);
 
-  // Feathered inner-lip mask (original coords), slightly grown around centroid.
-  const cx = dst.reduce((s,p)=>s+p.x,0)/dst.length, cy = dst.reduce((s,p)=>s+p.y,0)/dst.length;
+  // Composite mask = OUTER-lip polygon, grown generously and heavily feathered,
+  // so GPT's WHOLE smile (lips + teeth incl. gingival emergence and incisal
+  // edges) transfers and the blend lands on perioral skin — NOT clipped to the
+  // original mouth opening (which cut off emergence + incisal edges).
+  const outer = OUTER_LIP.map(i => ({ x: mpResult.landmarks[i].x * width, y: mpResult.landmarks[i].y * height }));
+  const cx = outer.reduce((s,p)=>s+p.x,0)/outer.length, cy = outer.reduce((s,p)=>s+p.y,0)/outer.length;
   const mouthW = Math.max(...dst.map(p=>p.x)) - Math.min(...dst.map(p=>p.x));
-  const grow = 1.06, feather = Math.max(2, Math.round(mouthW * 0.07));
+  const grow = 1.16, feather = Math.max(5, Math.round(mouthW * 0.18));
   const mask = document.createElement('canvas'); mask.width = width; mask.height = height;
   const mctx = mask.getContext('2d');
   mctx.filter = `blur(${feather}px)`;
   mctx.fillStyle = '#fff'; mctx.beginPath();
-  dst.forEach((p,i)=>{ const x=cx+(p.x-cx)*grow, y=cy+(p.y-cy)*grow; i?mctx.lineTo(x,y):mctx.moveTo(x,y); });
+  outer.forEach((p,i)=>{ const x=cx+(p.x-cx)*grow, y=cy+(p.y-cy)*grow; i?mctx.lineTo(x,y):mctx.moveTo(x,y); });
   mctx.closePath(); mctx.fill();
 
   // Clip the warped GPT to the feathered mouth mask.
