@@ -17,10 +17,14 @@ const OPENAI_BASE    = 'https://api.openai.com';
 const RUNWAY_BASE    = 'https://api.dev.runwayml.com/v1';
 const RUNWAY_VERSION = '2024-11-06';
 const FAL_BASE       = 'https://queue.fal.run';
-// Seedance v1 lite: 8s duration, 720p, strong prompt-driven human motion,
-// and FAST (~60-90s delivery — Kling v3 Pro took 3+ min, v1.6 standard
-// ignored motion direction entirely). No audio — visual mouthing only.
-const KLING_MODEL    = 'fal-ai/bytedance/seedance/v1/lite/image-to-video';
+// Kling 2.5 Turbo Pro: cinematic image-to-video with best-in-class human
+// motion fluidity (ideal for a natural smile/laugh reveal) — the quality tier
+// to match/beat competitors on Veo/Kling. Runs on fal's queue (submit returns
+// immediately, the client polls kling/status), so generation time is a UX wait,
+// not a Worker-timeout concern. Input aspect ratio is taken from the image.
+// Schema: { prompt, image_url, duration:'5'|'10', negative_prompt, cfg_scale }.
+const KLING_MODEL    = 'fal-ai/kling-video/v2.5-turbo/pro/image-to-video';
+const KLING_DURATION = '5';   // 5s = $0.35, +$0.07/s. 10s for a longer reveal.
 
 // CORS headers added to every response
 function corsHeaders(origin) {
@@ -153,10 +157,11 @@ async function handleKlingStart(request, env, origin) {
       },
       body: JSON.stringify({
         prompt,
-        image_url:    image,
-        duration:     '8',
-        resolution:   '720p',
-        camera_fixed: true,
+        image_url:       image,
+        duration:        KLING_DURATION,
+        negative_prompt: 'blur, distortion, low quality, deformed or extra teeth, ' +
+          'changing tooth color, morphing face, identity change, warping, flicker, artifacts',
+        cfg_scale:       0.5,
       }),
     });
   } catch (err) {
