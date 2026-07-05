@@ -1995,7 +1995,7 @@ function scoreToothGeneration(img, outW, outH, tb) {
 /* ── Path 1b: Ideogram v2 with zoomed mouth crop (primary) ─────── */
 // Same crop-zoom + bib desaturation as fluxCropMakeover, but uses Ideogram v2
 // inpainting via Replicate. Mask convention INVERTED vs FLUX: black=edit, white=keep.
-async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bounds, origFullUrl) {
+async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bounds, origFullUrl, landmarks = null) {
   const origImg = await loadImage(resizedUrl);
 
   // Collapsed (edentulous) opening: inner-lip bbox aspect < 0.18 — normal smiles
@@ -2009,6 +2009,25 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   // Live A/B toggle: ?smile=tooth forces the older tooth-confined (narrower but
   // sometimes more individually-defined) path so the same photo can be compared.
   const perioral = _lp.get('smile') !== 'tooth';
+
+  // Cant correction: measure interpupillary line tilt from eye corner landmarks.
+  // Ideogram follows whatever head tilt is in the crop → canted occlusal plane.
+  // Rotating the crop by -tiltAngle levels the face before Ideogram sees it,
+  // so the generated teeth land parallel to the interpupillary line.
+  // Eye corner indices (MediaPipe 468-pt mesh):
+  //   Left:  outer=33, inner=133   Right:  inner=362, outer=263
+  let tiltAngle = 0;
+  if (landmarks && landmarks.length > 362) {
+    const lx = (landmarks[33].x + landmarks[133].x) / 2;
+    const ly = (landmarks[33].y + landmarks[133].y) / 2;
+    const rx = (landmarks[362].x + landmarks[263].x) / 2;
+    const ry = (landmarks[362].y + landmarks[263].y) / 2;
+    const raw = Math.atan2(ry - ly, rx - lx);
+    tiltAngle = Math.abs(raw) < 0.009 ? 0 : raw;  // skip < ~0.5°
+    if (tiltAngle) console.log('cant correction:', (tiltAngle * 180 / Math.PI).toFixed(1) + '°');
+  }
+  const pivotOrigX = (bounds.xMin + bounds.xMax) / 2;
+  const pivotOrigY = (bounds.yMin + bounds.yMax) / 2;
   // TIGHT crop from the FULL-RESOLUTION photo (not the 1536 resize). This gives
   // Ideogram ~5x the tooth pixels of the old soft 2.0x/1.5x crop (~205px → ~500px),
   // which is the difference between soft/pasted-looking teeth and defined,
@@ -2033,9 +2052,23 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   const outW  = Math.round(cw * scale / 64) * 64;
   const outH  = Math.round(ch * scale / 64) * 64;
 
+  // Pivot in crop-canvas space (tooth bbox center), used for tilt rotation
+  const pivotCropX = (pivotOrigX - cx) / cw * outW;
+  const pivotCropY = (pivotOrigY - cy) / ch * outH;
+
   const imgC = document.createElement('canvas');
   imgC.width = outW; imgC.height = outH;
-  imgC.getContext('2d').drawImage(srcImg, cx * f, cy * f, cw * f, ch * f, 0, 0, outW, outH);
+  {
+    const dc = imgC.getContext('2d');
+    if (tiltAngle !== 0) {
+      dc.save();
+      dc.translate(pivotCropX, pivotCropY);
+      dc.rotate(-tiltAngle);
+      dc.translate(-pivotCropX, -pivotCropY);
+    }
+    dc.drawImage(srcImg, cx * f, cy * f, cw * f, ch * f, 0, 0, outW, outH);
+    if (tiltAngle !== 0) dc.restore();
+  }
 
   const cropScale = outW / cw;
   const tbX = Math.max(0, Math.round((bounds.xMin - cx) * cropScale) - 6);
@@ -2099,7 +2132,14 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   const teC = document.createElement('canvas');
   teC.width = outW; teC.height = outH;
   const teCtx = teC.getContext('2d');
+  if (tiltAngle !== 0) {
+    teCtx.save();
+    teCtx.translate(pivotCropX, pivotCropY);
+    teCtx.rotate(-tiltAngle);
+    teCtx.translate(-pivotCropX, -pivotCropY);
+  }
   teCtx.drawImage(mpMaskImg, cx, cy, cw, ch, 0, 0, outW, outH);
+  if (tiltAngle !== 0) teCtx.restore();
   const teMask = teCtx.getImageData(0, 0, outW, outH).data;
 
   // Detect severe damage: average brightness of original (pre-erase) tooth pixels.
@@ -2202,10 +2242,23 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
   const alphaMaskC = document.createElement('canvas');
   alphaMaskC.width = outW; alphaMaskC.height = outH;
   const amCtx = alphaMaskC.getContext('2d');
-  // Blend mask uses MP tooth pixels ONLY — NOT the gum-expanded zone.
-  // Ideogram's regenerated gum is darker than the face; compositing it back
-  // creates a visible dark band at the gumline. The original face gum shows naturally.
+  // Blend mask: MP tooth pixels (rotated to match de-tilted crop if needed).
+  // For perioral: expand upward 12% of tbH to composite Ideogram's generated
+  // gum margin — the ellipse edit zone means Ideogram regenerated clean pink gum
+  // tissue there, which is healthier-looking than the original darker tissue.
+  if (tiltAngle !== 0) {
+    amCtx.save();
+    amCtx.translate(pivotCropX, pivotCropY);
+    amCtx.rotate(-tiltAngle);
+    amCtx.translate(-pivotCropX, -pivotCropY);
+  }
   amCtx.drawImage(mpMaskImg, cx, cy, cw, ch, 0, 0, outW, outH);
+  if (tiltAngle !== 0) amCtx.restore();
+  if (perioral) {
+    const gumBlend = Math.round(tbH * 0.12);
+    amCtx.fillStyle = '#fff';
+    amCtx.fillRect(tbX, Math.max(0, tbY - gumBlend), tbW, gumBlend);
+  }
   const amData = amCtx.getImageData(0, 0, outW, outH);
   const am = amData.data;
   // toothA from original MP tooth pixels only — NOT the expanded gum zone.
@@ -2838,7 +2891,7 @@ async function generateSmile(dataUrl) {
   if (mpResult) {
     try {
       updateProgress('Designing your smile…', 30);
-      const ideoResult = await ideogramCropMakeover(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds, dataUrl);
+      const ideoResult = await ideogramCropMakeover(resizedUrl, width, height, mpResult.maskDataUrl, mpResult.bounds, dataUrl, mpResult.landmarks);
       if (ideoResult) {
         console.log('✅ Result from: Ideogram v2 + MediaPipe crop-zoom');
         return ideoResult;
