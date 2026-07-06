@@ -2877,7 +2877,7 @@ async function gptCompositeMakeover(resizedUrl, width, height, mpResult) {
 // PRIMARY (server-side): meter a sim, then call the Modal GPT-smile endpoint,
 // which does gpt-image-1 + the tooth composite in Python and returns the
 // finished image. No browser MediaPipe/canvas involved → no perioral band.
-async function gptModalMakeover(dataUrl) {
+async function gptModalMakeover(dataUrl, modalUrl) {
   const mr = await fetch(`${PROXY_URL}/api/meter?tenant=${encodeURIComponent(TENANT)}&kind=sims`, { method: 'POST' });
   if (mr.status === 429) { const d = await mr.json().catch(() => ({})); throw new Error(d.error || 'limit reached'); }
   const md = await mr.json().catch(() => ({}));
@@ -2885,9 +2885,9 @@ async function gptModalMakeover(dataUrl) {
   const timer = setTimeout(() => ctrl.abort(), 180000);   // 3 min — Modal has no 30s cap
   let res;
   try {
-    res = await fetch(MODAL_SMILE_URL, {
+    res = await fetch(modalUrl, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: dataUrl, quality: 'medium', token: md.token, tenant: TENANT }), signal: ctrl.signal,
+      body: JSON.stringify({ image: dataUrl, quality: 'high', token: md.token, tenant: TENANT }), signal: ctrl.signal,
     });
   } finally { clearTimeout(timer); }
   if (!res.ok) throw new Error(`Modal ${res.status}`);
@@ -2901,13 +2901,17 @@ async function generateSmile(dataUrl) {
   updateProgress('Analyzing your smile…', 10);
   const { width, height, resized: resizedUrl } = await resizeForAPI(dataUrl);
 
-  // --- PRIMARY: server-side GPT smile (Modal). Runs before browser MediaPipe
-  // so it works even if the browser's WebGL/MediaPipe is unavailable. Empty
-  // MODAL_SMILE_URL → skip straight to Ideogram (the safe default). ---
-  if (MODAL_SMILE_URL) {
+  // --- Server-side GPT smile (Modal). Runs when it's the default
+  // (MODAL_SMILE_URL set) OR opted-in per-URL via ?engine=gpt (staff evaluation:
+  // GPT is better on most photos but not yet reliable enough for the blind
+  // patient default — it can produce artifacts on hard cases like glossy lips).
+  // Runs before browser MediaPipe (works even without WebGL). ---
+  const gptOptIn = new URLSearchParams(location.search).get('engine') === 'gpt';
+  const modalUrl = MODAL_SMILE_URL || (gptOptIn ? (typeof MODAL_SMILE_URL_READY !== 'undefined' ? MODAL_SMILE_URL_READY : '') : '');
+  if (modalUrl) {
     try {
       updateProgress('Designing your new smile…', 25);
-      const modalResult = await gptModalMakeover(dataUrl);
+      const modalResult = await gptModalMakeover(dataUrl, modalUrl);
       if (modalResult) { console.log('✅ Result from: GPT-composite (Modal, server-side)'); return modalResult; }
     } catch(e) {
       if (/limit reached/i.test(e.message)) throw e;
