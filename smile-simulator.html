@@ -1189,7 +1189,13 @@ const PROXY_URL  = 'https://quiet-forest-e1f8.david-d73.workers.dev';
 // blend is clean and testable (the browser canvas composite banded). When this
 // is empty, the pipeline falls straight through to Ideogram (the safe default).
 // Set this to the Modal endpoint URL after `modal deploy modal-model/gpt_smile_app.py`.
-const MODAL_SMILE_URL = 'https://drdonelson--gpt-smile-gptsmile-compose.modal.run';
+const MODAL_SMILE_URL = '';   // temporarily disabled — Ideogram is the safe default (see note).
+// NOTE 2026-07-06: the Modal GPT engine is validated, but gpt-image-1 occasionally
+// returns a bad generation (dark/odd mouth) that composites poorly and — being a
+// valid 200 image — does NOT trigger the fallback, so it would ship to a patient.
+// Re-enable (set the URL below) only after the endpoint has a quality guard that
+// rejects bad generations so the browser falls back to Ideogram.
+const MODAL_SMILE_URL_READY = 'https://drdonelson--gpt-smile-gptsmile-compose.modal.run';
 
 // Tenant for usage metering — resolved like the theme: explicit ?tenant=
 // wins, then the embedding site's hostname, else 'unknown' (direct opens,
