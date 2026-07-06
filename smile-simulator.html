@@ -1184,6 +1184,13 @@ if (location.protocol === 'http:' && location.hostname !== 'localhost') {
 // REPLACE THIS WITH YOUR CLOUDFLARE WORKER URL BEFORE GOING LIVE
 const PROXY_URL  = 'https://quiet-forest-e1f8.david-d73.workers.dev';
 
+// Server-side GPT smile endpoint (Modal). This is the PRIMARY generation path
+// once set — it runs gpt-image-1 + the tooth composite in Python where the
+// blend is clean and testable (the browser canvas composite banded). When this
+// is empty, the pipeline falls straight through to Ideogram (the safe default).
+// Set this to the Modal endpoint URL after `modal deploy modal-model/gpt_smile_app.py`.
+const MODAL_SMILE_URL = '';
+
 // Tenant for usage metering — resolved like the theme: explicit ?tenant=
 // wins, then the embedding site's hostname, else 'unknown' (direct opens,
 // unrecognized embeds — these get the smallest quota).
@@ -2861,9 +2868,46 @@ async function gptCompositeMakeover(resizedUrl, width, height, mpResult) {
   return out.toDataURL('image/jpeg', 0.94);
 }
 
+// PRIMARY (server-side): meter a sim, then call the Modal GPT-smile endpoint,
+// which does gpt-image-1 + the tooth composite in Python and returns the
+// finished image. No browser MediaPipe/canvas involved → no perioral band.
+async function gptModalMakeover(dataUrl) {
+  const mr = await fetch(`${PROXY_URL}/api/meter?tenant=${encodeURIComponent(TENANT)}&kind=sims`, { method: 'POST' });
+  if (mr.status === 429) { const d = await mr.json().catch(() => ({})); throw new Error(d.error || 'limit reached'); }
+  const md = await mr.json().catch(() => ({}));
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 180000);   // 3 min — Modal has no 30s cap
+  let res;
+  try {
+    res = await fetch(MODAL_SMILE_URL, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: dataUrl, quality: 'medium', token: md.token, tenant: TENANT }), signal: ctrl.signal,
+    });
+  } finally { clearTimeout(timer); }
+  if (!res.ok) throw new Error(`Modal ${res.status}`);
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  if (!data.image) throw new Error('No image from Modal');
+  return data.image;
+}
+
 async function generateSmile(dataUrl) {
   updateProgress('Analyzing your smile…', 10);
   const { width, height, resized: resizedUrl } = await resizeForAPI(dataUrl);
+
+  // --- PRIMARY: server-side GPT smile (Modal). Runs before browser MediaPipe
+  // so it works even if the browser's WebGL/MediaPipe is unavailable. Empty
+  // MODAL_SMILE_URL → skip straight to Ideogram (the safe default). ---
+  if (MODAL_SMILE_URL) {
+    try {
+      updateProgress('Designing your new smile…', 25);
+      const modalResult = await gptModalMakeover(dataUrl);
+      if (modalResult) { console.log('✅ Result from: GPT-composite (Modal, server-side)'); return modalResult; }
+    } catch(e) {
+      if (/limit reached/i.test(e.message)) throw e;
+      console.warn('Modal GPT-smile failed, trying next path:', e.message);
+    }
+  }
 
   // Run MediaPipe once — result reused across all pipeline stages
   let mpResult = null;

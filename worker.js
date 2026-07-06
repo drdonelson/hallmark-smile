@@ -1831,6 +1831,34 @@ async function handleLead(request, env, origin) {
 // per tenant (tenant via ?tenant=), then streams the multipart body to OpenAI
 // with the key injected. The multipart body isn't read here (meter uses only
 // headers/IP), so the stream reaches OpenAI intact.
+// Short-lived HMAC token authorizing ONE Modal GPT-smile generation. Issued only
+// after a successful meter, so the (public-URL) Modal endpoint can't be abused to
+// burn OpenAI spend — Modal verifies this with the shared secret before running.
+function _b64url(str) { return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
+function _b64urlBytes(bytes) { let s = ''; for (const b of bytes) s += String.fromCharCode(b); return _b64url(s); }
+async function signMeterToken(env, tenant) {
+  const body = _b64url(JSON.stringify({ t: tenant, exp: Date.now() + 120000 }));  // 2 min TTL
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.DASH_SECRET || ''),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body));
+  return body + '.' + _b64urlBytes(new Uint8Array(sig));
+}
+
+// Meter a use (sim/video) without generating — the browser calls this before
+// hitting the Modal GPT-smile endpoint directly (Modal has no metering). Returns
+// 200 {ok:true, token} when allowed (and records the use) or the 429 from meter().
+async function handleMeter(request, env, origin) {
+  const url = new URL(request.url);
+  const tenant = (url.searchParams.get('tenant') || 'unknown').toLowerCase();
+  const kind = url.searchParams.get('kind') === 'videos' ? 'videos' : 'sims';
+  const limited = await meter(env, request, tenant, kind, origin);
+  if (limited) return limited;
+  const token = await signMeterToken(env, tenant);
+  return new Response(JSON.stringify({ ok: true, token }), {
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+}
+
 async function handleGptEdit(request, env, origin) {
   const tenant = (new URL(request.url).searchParams.get('tenant') || 'unknown').toLowerCase();
   const limited = await meter(env, request, tenant, 'sims', origin);
@@ -1993,6 +2021,11 @@ export default {
     // the tenant cap (the generic OpenAI proxy below is NOT metered).
     if (url.pathname === '/api/gpt/edit' && request.method === 'POST') {
       return handleGptEdit(request, env, origin);
+    }
+    // Meter a sim/video without generating — used before the browser calls the
+    // Modal GPT-smile endpoint directly (Modal has no metering). 200 ok / 429.
+    if (url.pathname === '/api/meter') {
+      return handleMeter(request, env, origin);
     }
     if (url.pathname === '/api/kling/start' && request.method === 'POST') {
       return handleKlingStart(request, env, origin);
