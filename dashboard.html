@@ -691,7 +691,11 @@ $('lbDl').addEventListener('click',async e=>{
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(()=>URL.revokeObjectURL(a.href),4000);
     toast('Downloaded');
-  }catch{ toast('Download failed'); }
+  }catch{
+    // Worker not yet serving CORS on media — open in a new tab as fallback.
+    window.open($('lbImg').src,'_blank','noopener');
+    toast('Opened in new tab — right-click to save');
+  }
 });
 
 /* ═══════════════ Settings suite ═══════════════ */

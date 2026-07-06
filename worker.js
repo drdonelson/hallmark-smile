@@ -1098,6 +1098,10 @@ async function handleStoredMedia(env, id) {
         'Content-Type': obj.httpMetadata?.contentType || 'image/jpeg',
         'Cache-Control': 'private, max-age=86400',
         'X-Robots-Tag': 'noindex',
+        // The opaque token is the access control; any origin can already
+        // render this via <img>. ACAO lets the dashboard fetch it as a blob
+        // for the download button.
+        'Access-Control-Allow-Origin': '*',
       },
     });
   } catch { return new Response('Error', { status: 500 }); }
