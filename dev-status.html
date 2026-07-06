@@ -313,10 +313,25 @@
   <h1>Hallmark Smile Simulator</h1>
   <p class="hero-sub">Technical status, iteration history, bitebot gap analysis, and roadmap</p>
   <div class="hero-links">
-    <a href="https://drdonelson.github.io/hallmark-smile/smile-simulator.html" target="_blank">Live Demo</a>
+    <a href="https://app.lucidroi.com/smile-simulator.html" target="_blank">Live Demo (default: Ideogram)</a>
+    <a href="https://app.lucidroi.com/smile-simulator.html?engine=gpt" target="_blank">Evaluate GPT engine</a>
     <a href="https://github.com/drdonelson/hallmark-smile" target="_blank">GitHub Repo</a>
-    <a href="https://sevenbridgesdentalstudio.com" target="_blank">First Client (Seven Bridges)</a>
     <a href="https://bitebot.io/smiledesign" target="_blank">Competitor: bitebot.io</a>
+  </div>
+</div>
+
+<div class="content">
+  <div class="section" style="border:1px solid #e3c659;background:#fffdf5">
+    <div class="section-label"><span class="dot" style="background:#c9a227"></span>Current Status — updated 2026-07-05 (read first)</div>
+    <h2 style="margin-top:4px">Where things stand today</h2>
+    <ul>
+      <li><strong>Live default engine: Ideogram crop-zoom.</strong> Proven, identity-perfect, reliable for patients. This is what every simulation uses right now.</li>
+      <li><strong>GPT full-image + tooth composite: gated behind <code>?engine=gpt</code></strong> (NOT the default). It produces the best teeth + lighting and uniquely handles severe missing/broken cases, but the browser composite intermittently shows a <strong>perioral band</strong> (a pale strip across the upper lip) on some live generations.</li>
+      <li><strong>The band is a browser-only bug, not the algorithm.</strong> The offline Python harness composites the exact same patient/input cleanly across many generations (no band). The browser JS port bands. It can't be reproduced offline and the browser path can't be headless-QA'd (its face detector needs a GPU/WebGL context that headless environments lack). This is the core blocker.</li>
+      <li><strong>Video:</strong> upgraded to Kling 2.5 Turbo Pro (natural laugh reveal) — live.</li>
+      <li><strong>Product layer:</strong> self-serve white-label + 3-tier role dashboard (super-admin / admin / client), in-dashboard practice onboarding, per-practice branding/booking/embed — live.</li>
+    </ul>
+    <p style="margin-top:10px"><strong>How to review the GPT engine:</strong> open the simulator with <code>?engine=gpt</code> appended to the URL and run a real photo. <strong>Where we need a second set of eyes:</strong> reproducing/fixing the JS composite band (leading theory: move the composite server-side to Python/OpenCV where gradient-domain blending + real QA are possible, instead of the browser canvas port).</p>
   </div>
 </div>
 
@@ -610,18 +625,18 @@ Email: before + after → patient + dentist (Resend API, hosted R2 URLs)</code><
       <div class="iter-card primary-card">
         <div class="iter-header">
           <span class="iter-num">15</span>
-          <h4>GPT full-image + tooth composite — CURRENT PRIMARY</h4>
-          <span class="status-tag status-primary">Primary (July 2026)</span>
+          <h4>GPT full-image + tooth composite — GATED for evaluation</h4>
+          <span class="status-tag status-fallback">Gated: ?engine=gpt</span>
         </div>
-        <p>The breakthrough that closed the bitebot quality gap on normal and severe cases. <strong>Core insight:</strong> <code>gpt-image-1</code> on the FULL face produces dramatically better teeth realism AND automatic lighting integration — full-face context gives GPT everything needed to generate teeth that belong to the face.</p>
+        <p>The most promising path on quality, but <strong>not the patient default</strong> yet (see Current Status at top). <strong>Core insight:</strong> <code>gpt-image-1</code> on the FULL face produces dramatically better teeth realism AND automatic lighting integration — full-face context gives GPT everything needed to generate teeth that belong to the face. Handles severe missing/broken cases the crop-zoom fails on.</p>
         <ul>
           <li><strong>The catch:</strong> GPT re-renders the entire image, beautifying/de-aging the whole face. Shipping GPT whole-image gives patients a photo of a younger, different person. Unacceptable.</li>
           <li><strong>The fix:</strong> Generate with GPT, composite only the mouth back onto the untouched original face. Affine warp corrects GPT's mouth drift before compositing.</li>
-          <li><strong>Mask is the whole game:</strong> Use the OUTER lip polygon (grown ~16% + feathered 18% of mouth width). The inner-lip mask clips GPT's gingival emergence and incisal edges — a dentist WILL catch this. The blend must land on perioral skin, not across the teeth.</li>
-          <li><strong>Cost:</strong> ~$0.04/sim at <code>quality:medium</code> — cheaper than Ideogram's $0.08.</li>
-          <li><strong>30s limit:</strong> <code>quality:high</code> exceeds the Cloudflare Worker 30s subrequest limit. Production uses medium + 40s AbortController → Ideogram fallback. High quality requires a longer-timeout backend.</li>
+          <li><strong>Mask lesson (Dr. Donelson caught it):</strong> Use the OUTER lip polygon, not the inner lip. The inner-lip mask clips GPT's gingival emergence (pink band above teeth) and incisal edges. The blend must land on perioral skin, not across the teeth.</li>
+          <li><strong>Open blocker — the "perioral band":</strong> in production the browser composite sometimes lightens a strip across the upper lip. The Python harness composites the SAME input cleanly across many generations, so it is a JS-port bug, not the algorithm. It can't be headless-QA'd (MediaPipe needs WebGL). Gated to <code>?engine=gpt</code> until fixed. Leading fix: move the composite to Python/OpenCV (server-side, gradient-domain blend + real QA) rather than the browser canvas.</li>
+          <li><strong>Cost:</strong> ~$0.04/sim at <code>quality:medium</code>. <strong>30s limit:</strong> <code>quality:high</code> exceeds the Cloudflare Worker subrequest cap; needs a longer-timeout backend.</li>
         </ul>
-        <p style="margin-top:10px">Validated on 11 real office photos. Shipped to production July 2026.</p>
+        <p style="margin-top:10px">Validated cleanly on 11 real office photos in the harness; the production/browser path is the outstanding work.</p>
       </div>
 
       <div class="iter-card">
@@ -643,31 +658,30 @@ Email: before + after → patient + dentist (Resend API, hosted R2 URLs)</code><
 
     <div class="roadmap-col">
       <div class="roadmap-box">
-        <h4 style="color:#68d391">Working well (July 2026)</h4>
+        <h4 style="color:#68d391">Working well / live (July 2026)</h4>
         <ul>
-          <li>Normal/mild discoloration — GPT primary delivers natural lighting integration</li>
-          <li>Severe missing/broken teeth — GPT full-image handles these; crop-zoom couldn't</li>
-          <li>Edentulous/collapsed cases</li>
-          <li>Canted occlusal plane (cant correction active in Ideogram fallback)</li>
-          <li>Gingival emergence (outer-lip mask in GPT; perioral expansion in fallback)</li>
-          <li>Video — Kling 2.5 Turbo Pro is bitebot-tier quality</li>
-          <li>Lead capture + email + multi-tenant SaaS infrastructure</li>
+          <li>Ideogram crop-zoom (the live default) — reliable, identity-perfect across normal, mild, edentulous/collapsed, and canted cases</li>
+          <li>Gingival emergence + cant correction in the Ideogram path</li>
+          <li>Video — Kling 2.5 Turbo Pro, bitebot-tier laugh reveal</li>
+          <li>Self-serve white-label + 3-tier dashboard, in-dashboard onboarding, per-practice branding</li>
+          <li>Lead capture + email + multi-tenant infrastructure</li>
+          <li>GPT engine (opt-in) — best teeth + severe-case handling when it renders cleanly</li>
         </ul>
       </div>
       <div class="roadmap-box">
-        <h4 style="color:#fc8181">Still short of bitebot</h4>
+        <h4 style="color:#fc8181">Open / not yet solved</h4>
         <ul>
-          <li>GPT mouth drift on edge cases → falls to Ideogram (lower quality)</li>
-          <li><code>quality:medium</code> ceiling (high quality blocked by 30s Worker limit)</li>
-          <li>Perioral skin halo — thin ring of GPT's smoother skin around lips (soft, acceptable)</li>
-          <li>Ideogram fallback run-to-run variance (~15% bad draws even with best-of-2)</li>
-          <li>Unknown if bitebot uses fine-tuned model — we can't see their stack</li>
+          <li><strong>GPT browser "perioral band"</strong> — the reason GPT is gated, not default. JS-port bug (harness is clean); can't be headless-QA'd. Top priority.</li>
+          <li>GPT mouth drift on edge cases → alignment guard → Ideogram fallback</li>
+          <li><code>quality:medium</code> ceiling (high blocked by the 30s Worker limit — needs a longer-timeout backend)</li>
+          <li>Ideogram run-to-run variance (~15% weaker draws even with best-of-2)</li>
+          <li>Unknown if bitebot uses a fine-tuned model — we can't see their stack</li>
         </ul>
       </div>
     </div>
 
     <h3>Honest Ceiling Assessment</h3>
-    <p>The GPT primary path is near bitebot quality on the majority of cases. The remaining gap is: (1) cases where GPT mouth drift triggers the alignment guard and we fall to Ideogram, (2) the anatomy detail improvement available from <code>quality:high</code>, and (3) whatever edge bitebot may have from a fine-tuned model. Without training data, we are at or very near the ceiling of zero-shot generation. The path to definitively beating bitebot on <em>all</em> cases is FLUX Kontext LoRA fine-tuning (see roadmap).</p>
+    <p>On the majority of cases, the GPT engine (when it renders cleanly) is at or near bitebot quality — that has been validated in the offline harness on real photos. The blocker to making it the default is reliability, not quality: the browser composite intermittently bands, and the browser path can't be automatically tested (its face detector needs WebGL). Until that is resolved, <strong>Ideogram remains the dependable default</strong>. The most durable fix is to move the GPT composite off the browser canvas and into a Python/OpenCV backend (Modal or a serverless function) where gradient-domain blending and real automated QA are possible. Separately, definitively beating bitebot on <em>all</em> cases likely needs FLUX Kontext LoRA fine-tuning (see roadmap).</p>
   </div>
 
   <!-- INFRA -->
