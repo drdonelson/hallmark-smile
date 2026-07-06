@@ -152,6 +152,9 @@
   .np-result{border-top:1px solid rgba(255,255,255,.08);margin-top:16px;padding-top:16px;font-size:.86rem;color:var(--body);word-break:break-all}
   .np-result code{background:rgba(255,255,255,.08);padding:2px 6px;border-radius:5px;color:var(--text)}
   .lb-close{position:absolute;top:18px;right:24px;color:#fff;font-size:30px;cursor:pointer;line-height:1}
+  .lb-dl{position:absolute;top:18px;right:72px;width:38px;height:38px;display:flex;align-items:center;justify-content:center;
+    background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.25);border-radius:10px;color:#fff;cursor:pointer;transition:.2s}
+  .lb-dl:hover{background:rgba(100,130,255,.35);border-color:var(--blue)}
   .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#0E1120;border:1px solid rgba(255,255,255,.12);color:#fff;padding:10px 18px;border-radius:10px;font-size:.85rem;opacity:0;transition:.2s;pointer-events:none;z-index:60}
   .toast.show{opacity:1}
   @media(max-width:820px){
@@ -448,7 +451,12 @@
   </div>
 </div>
 
-<div class="lb" id="lightbox"><span class="lb-close" id="lbClose">&times;</span><img id="lbImg" alt=""></div>
+<div class="lb" id="lightbox">
+  <button class="lb-dl" id="lbDl" title="Download image" aria-label="Download image">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+  </button>
+  <span class="lb-close" id="lbClose">&times;</span><img id="lbImg" alt="">
+</div>
 <div class="toast" id="toast"></div>
 
 <script>
@@ -639,7 +647,7 @@ function wire(){
   // delete
   document.querySelectorAll('.del').forEach(b=>b.addEventListener('click',e=>{ e.stopPropagation(); delLead(b.closest('.kcard').dataset.id); }));
   // thumbnails
-  document.querySelectorAll('.kc-ba img').forEach(img=>img.addEventListener('click',()=>openLb(img.src)));
+  document.querySelectorAll('.kc-ba img').forEach(img=>img.addEventListener('click',()=>openLb(img.src, img.alt)));
   // drag and drop
   let dragId=null;
   document.querySelectorAll('.kcard').forEach(card=>{
@@ -656,9 +664,24 @@ function wire(){
 ['search','practiceFilter'].forEach(id=>$(id).addEventListener('input',render));
 
 /* ── Lightbox ── */
-function openLb(src){ $('lbImg').src=src; $('lightbox').classList.add('open'); }
+let lbLabel='image';
+function openLb(src,label){ lbLabel=label||'image'; $('lbImg').src=src; $('lightbox').classList.add('open'); }
 $('lbClose').addEventListener('click',()=>$('lightbox').classList.remove('open'));
 $('lightbox').addEventListener('click',e=>{ if(e.target===$('lightbox')) $('lightbox').classList.remove('open'); });
+$('lbDl').addEventListener('click',async e=>{
+  e.stopPropagation();
+  try{
+    const r=await fetch($('lbImg').src);
+    const blob=await r.blob();
+    const ext=(blob.type.split('/')[1]||'jpg').replace('jpeg','jpg');
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob);
+    a.download=`smile-${lbLabel.toLowerCase()}-${new Date().toISOString().slice(0,10)}.${ext}`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href),4000);
+    toast('Downloaded');
+  }catch{ toast('Download failed'); }
+});
 
 /* ═══════════════ Settings suite ═══════════════ */
 const SIM_BASE = 'https://drdonelson.github.io/hallmark-smile/smile-simulator.html';
