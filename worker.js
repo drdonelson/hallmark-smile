@@ -1837,8 +1837,11 @@ async function handleLead(request, env, origin) {
 function _b64url(str) { return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
 function _b64urlBytes(bytes) { let s = ''; for (const b of bytes) s += String.fromCharCode(b); return _b64url(s); }
 async function signMeterToken(env, tenant) {
+  // Dedicated shared secret for the Modal endpoint (set MODAL_SHARED_SECRET to a
+  // fresh value on BOTH the worker and Modal). Falls back to DASH_SECRET if unset.
+  const secret = env.MODAL_SHARED_SECRET || env.DASH_SECRET || '';
   const body = _b64url(JSON.stringify({ t: tenant, exp: Date.now() + 120000 }));  // 2 min TTL
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.DASH_SECRET || ''),
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret),
     { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body));
   return body + '.' + _b64urlBytes(new Uint8Array(sig));
