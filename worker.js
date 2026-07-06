@@ -808,6 +808,156 @@ function publicConfig(env, slug, rec) {
   return { slug, name, config };
 }
 
+// ── Stripe billing ──────────────────────────────────────────────
+// Direct REST calls (no SDK — Workers-friendly). Plans defined here;
+// Checkout uses inline price_data so no pre-created Stripe Products needed.
+const STRIPE_API = 'https://api.stripe.com/v1';
+const AGREEMENT_VERSION = 'sa-v1-2026-07-06';
+const BILLING_PLANS = {
+  starter: { label: 'Lucid Smile Simulator — Starter', amount: 19700, sims: 500,  videos: 0  },
+  growth:  { label: 'Lucid Smile Simulator — Growth',  amount: 29700, sims: 1500, videos: 50 },
+};
+
+async function stripePost(env, path, params) {
+  const body = Object.entries(params)
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&');
+  const r = await fetch(`${STRIPE_API}/${path}`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${env.STRIPE_SECRET_KEY}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+    },
+    body,
+  });
+  const data = await r.json();
+  if (!r.ok) throw new Error(data.error?.message || `Stripe ${r.status}`);
+  return data;
+}
+
+// POST /api/billing/checkout  { tenant, plan, email }
+// Logs the click-accept agreement record, then returns a Checkout URL.
+async function handleBillingCheckout(request, env, origin) {
+  if (!env.STRIPE_SECRET_KEY) {
+    return new Response(JSON.stringify({ error: 'Billing not configured' }), {
+      status: 503, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  let body; try { body = await request.json(); } catch { body = {}; }
+  const slug = String(body.tenant || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
+  const plan = BILLING_PLANS[body.plan] ? body.plan : null;
+  const email = (typeof body.email === 'string' && body.email.includes('@')) ? body.email.slice(0, 120) : null;
+  if (!slug || !plan || !email) {
+    return new Response(JSON.stringify({ error: 'Missing tenant, plan, or email' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  const rec = await registryGet(env, slug);
+  if (!rec) {
+    return new Response(JSON.stringify({ error: 'Unknown practice — onboard first' }), {
+      status: 404, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+
+  // Click-accept record — the "signature". Kept permanently.
+  const acceptId = randomToken();
+  await env.TEMP_IMAGES.put(`agreements/${slug}/${acceptId}.json`, JSON.stringify({
+    tenant: slug, plan, email,
+    agreementVersion: AGREEMENT_VERSION,
+    ts: new Date().toISOString(),
+    ip: request.headers.get('CF-Connecting-IP') || '',
+    ua: request.headers.get('User-Agent') || '',
+  }), { httpMetadata: { contentType: 'application/json' } });
+
+  const P = BILLING_PLANS[plan];
+  let session;
+  try {
+    session = await stripePost(env, 'checkout/sessions', {
+      mode: 'subscription',
+      customer_email: email,
+      'line_items[0][quantity]': 1,
+      'line_items[0][price_data][currency]': 'usd',
+      'line_items[0][price_data][unit_amount]': P.amount,
+      'line_items[0][price_data][recurring][interval]': 'month',
+      'line_items[0][price_data][product_data][name]': P.label,
+      'subscription_data[metadata][tenant]': slug,
+      'subscription_data[metadata][plan]': plan,
+      'subscription_data[metadata][agency]': rec.agency || '',
+      'metadata[tenant]': slug,
+      'metadata[plan]': plan,
+      'metadata[acceptId]': acceptId,
+      success_url: `https://app.lucidroi.com/activate.html?t=${slug}&done=1`,
+      cancel_url: `https://app.lucidroi.com/activate.html?t=${slug}&plan=${plan}`,
+    });
+  } catch (err) {
+    return new Response(JSON.stringify({ error: err.message }), {
+      status: 502, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+
+  return new Response(JSON.stringify({ url: session.url }), {
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+}
+
+// POST /api/billing/webhook — Stripe posts here (no Origin header; the
+// signature is the auth). Activates/deactivates the tenant registry.
+async function handleBillingWebhook(request, env) {
+  const secret = env.STRIPE_WEBHOOK_SECRET;
+  if (!secret) return new Response('Not configured', { status: 503 });
+  const payload = await request.text();
+  const sigHeader = request.headers.get('stripe-signature') || '';
+  const parts = Object.fromEntries(sigHeader.split(',').map(p => p.split('=')));
+  if (!parts.t || !parts.v1) return new Response('Bad signature', { status: 400 });
+  if (Math.abs(Date.now() / 1000 - Number(parts.t)) > 300) return new Response('Stale', { status: 400 });
+  const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const mac = await crypto.subtle.sign('HMAC', km, new TextEncoder().encode(`${parts.t}.${payload}`));
+  const expected = _hex(mac);
+  if (expected.length !== parts.v1.length) return new Response('Bad signature', { status: 400 });
+  let diff = 0;
+  for (let i = 0; i < expected.length; i++) diff |= expected.charCodeAt(i) ^ parts.v1.charCodeAt(i);
+  if (diff !== 0) return new Response('Bad signature', { status: 400 });
+
+  let event; try { event = JSON.parse(payload); } catch { return new Response('Bad JSON', { status: 400 }); }
+
+  if (event.type === 'checkout.session.completed') {
+    const s = event.data.object;
+    const slug = s.metadata?.tenant;
+    const plan = BILLING_PLANS[s.metadata?.plan] ? s.metadata.plan : null;
+    if (slug && plan) {
+      const rec = await registryGet(env, slug);
+      if (rec) {
+        const P = BILLING_PLANS[plan];
+        rec.plan = plan;
+        rec.sims = P.sims;
+        rec.videos = P.videos;
+        rec.active = true;
+        rec.stripeCustomerId = s.customer || '';
+        rec.stripeSubscriptionId = s.subscription || '';
+        rec.activatedAt = rec.activatedAt || new Date().toISOString();
+        await env.TEMP_IMAGES.put(`registry/${slug}.json`, JSON.stringify(rec),
+          { httpMetadata: { contentType: 'application/json' } });
+      }
+    }
+  }
+  if (event.type === 'customer.subscription.deleted') {
+    const sub = event.data.object;
+    const slug = sub.metadata?.tenant;
+    if (slug) {
+      const rec = await registryGet(env, slug);
+      if (rec) {
+        rec.active = false;
+        rec.deactivatedAt = new Date().toISOString();
+        await env.TEMP_IMAGES.put(`registry/${slug}.json`, JSON.stringify(rec),
+          { httpMetadata: { contentType: 'application/json' } });
+      }
+    }
+  }
+  return new Response(JSON.stringify({ received: true }), {
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
 // ── Password hashing (PBKDF2-SHA256, salted) ────────────────────
 // Replaces the legacy plaintext registry password. Login migrates legacy
 // records transparently on first successful sign-in.
@@ -1939,6 +2089,11 @@ export default {
       return handleConfig(request, env);
     }
 
+    // Stripe webhook — no Origin header; HMAC signature is the auth.
+    if (url.pathname === '/api/billing/webhook' && request.method === 'POST') {
+      return handleBillingWebhook(request, env);
+    }
+
     const origin = await getAllowedOrigin(request, env);
 
     // Reject requests from disallowed origins
@@ -1954,6 +2109,9 @@ export default {
       });
     }
 
+    if (url.pathname === '/api/billing/checkout' && request.method === 'POST') {
+      return handleBillingCheckout(request, env, origin);
+    }
     if (url.pathname === '/api/dashboard/login' && request.method === 'POST') {
       return handleDashLogin(request, env, origin);
     }
