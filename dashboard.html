@@ -95,6 +95,8 @@
   .field > label{display:block;font-size:.72rem;font-weight:700;color:var(--body);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em}
   .field input[type=text],.field input[type=email],.field input[type=url],.field input[type=number],.field textarea,.field select{width:100%;padding:10px 12px;border:1px solid rgba(255,255,255,.1);border-radius:9px;font-size:14px;background:rgba(255,255,255,.05);color:var(--text);font-family:inherit}
   .cap-row{display:flex;gap:14px}.cap-row .field{flex:1}
+  .chk{display:flex;align-items:center;gap:8px;margin-top:8px;font-size:.8rem;color:var(--body);text-transform:none;font-weight:500;letter-spacing:0;cursor:pointer}
+  .chk input{width:auto;margin:0}
   .field textarea{resize:vertical;min-height:56px}
   .field input:focus,.field textarea:focus,.field select:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(100,130,255,.15)}
   .field input::placeholder,.field textarea::placeholder{color:rgba(155,178,220,.4)}
@@ -249,8 +251,10 @@
           <div class="card2">
             <h3>Brand identity</h3>
             <p class="hint">Names and labels shown throughout the simulator.</p>
-            <div class="field"><label>Practice name</label><input type="text" id="b-name" placeholder="Your Practice"></div>
-            <div class="field"><label>Tagline</label><input type="text" id="b-tagline" placeholder="AI Smile Simulator"></div>
+            <div class="field"><label>Practice name</label><input type="text" id="b-name" placeholder="Your Practice">
+              <label class="chk"><input type="checkbox" id="b-showName" checked> Show practice name in header</label></div>
+            <div class="field"><label>Tagline</label><input type="text" id="b-tagline" placeholder="AI Smile Simulator">
+              <label class="chk"><input type="checkbox" id="b-showTagline" checked> Show tagline in header</label></div>
             <div class="field"><label>“Powered by” label</label><input type="text" id="b-powered" placeholder="Powered by Lucid"></div>
           </div>
           <div class="card2">
@@ -294,6 +298,19 @@
                 <option value="hidden">Hide button</option>
               </select>
             </div>
+            <div class="field"><label>Thank-you page URL <span class="hint" style="display:inline;text-transform:none;font-weight:400">(a “Continue →” button after the result sends the patient here)</span></label>
+              <input type="url" id="ty-url" placeholder="https://…/thank-you"></div>
+          </div>
+          <div class="card2">
+            <h3>Popup / website widget</h3>
+            <p class="hint">Customizes the floating popup from the Embed tab’s widget snippet.</p>
+            <div class="field"><label>Popup heading</label><input type="text" id="w-heading" placeholder="Ready for a New Smile?"></div>
+            <div class="field"><label>Popup subtext</label><input type="text" id="w-sub" placeholder="See your smile makeover in seconds — free."></div>
+            <div class="field"><label>Popup avatar image URL</label><input type="url" id="w-avatar" placeholder="https://…/avatar.png (blank = default)"></div>
+            <div class="field"><label>Popup theme</label>
+              <select id="w-theme"><option value="hallmark">Hallmark (navy/gold)</option><option value="lucid">Lucid (blue)</option></select></div>
+            <div class="field"><label>Popup link override <span class="hint" style="display:inline;text-transform:none;font-weight:400">(where the popup opens; blank = this practice’s simulator)</span></label>
+              <input type="url" id="w-cta" placeholder="https://… (blank = default)"></div>
           </div>
           <div class="card2">
             <h3>Legal &amp; locale</h3>
@@ -781,6 +798,7 @@ function populateSettings(d){
   config = d.config || {}; settingsSlug = d.slug || currentSettingsTenant(); settingsName = d.name || '';
   const b = config.branding || {};
   $('b-name').value = b.name||''; $('b-tagline').value = b.tagline||'';
+  $('b-showName').checked = b.showName !== false; $('b-showTagline').checked = b.showTagline !== false;
   $('b-powered').value = b.poweredByLabel||''; $('b-logoUrl').value = b.logoUrl||'';
   if(b.logoUrl){ $('logoImg').src=b.logoUrl; $('logoImg').style.display=''; } else { $('logoImg').style.display='none'; }
   pendingLogoDataUrl = null; $('logoFile').value='';
@@ -788,6 +806,10 @@ function populateSettings(d){
   const bk = config.booking || {};
   $('bk-url').value = bk.url||''; $('bk-cta').value = bk.ctaLabel||'';
   $('bk-fallback').value = bk.ctaFallback==='hidden' ? 'hidden' : 'lead-capture';
+  $('ty-url').value = config.thankYouUrl||'';
+  const w = config.widget || {};
+  $('w-heading').value = w.heading||''; $('w-sub').value = w.sub||'';
+  $('w-avatar').value = w.avatarUrl||''; $('w-theme').value = (w.theme==='lucid'?'lucid':'hallmark'); $('w-cta').value = w.ctaUrl||'';
   const lg = config.legal || {};
   $('lg-company').value = lg.companyName||''; $('lg-support').value = lg.supportEmail||''; $('lg-base').value = lg.legalBaseUrl||'';
   $('lc-locale').value = ['en','fr','es'].includes(config.locale) ? config.locale : 'en';
@@ -804,10 +826,14 @@ function gatherConfig(){
   c.branding = c.branding || {};
   c.branding.name = $('b-name').value.trim();
   c.branding.tagline = $('b-tagline').value.trim();
+  c.branding.showName = $('b-showName').checked;
+  c.branding.showTagline = $('b-showTagline').checked;
   c.branding.poweredByLabel = $('b-powered').value.trim();
   c.branding.logoUrl = $('b-logoUrl').value || '';
   c.branding.colors = gatherColors();
   c.booking = { url:$('bk-url').value.trim(), ctaLabel:$('bk-cta').value.trim(), ctaFallback:$('bk-fallback').value };
+  c.thankYouUrl = $('ty-url').value.trim();
+  c.widget = { heading:$('w-heading').value.trim(), sub:$('w-sub').value.trim(), avatarUrl:$('w-avatar').value.trim(), theme:$('w-theme').value, ctaUrl:$('w-cta').value.trim() };
   const g = gatherLists();
   c.leads = { notifyEmails:g.notifyEmails };
   c.treatments = g.treatments; c.shades = g.shades; c.qualification = g.qualification;
@@ -969,7 +995,17 @@ function updateEmbed(){
   const name = encodeURIComponent(settingsName || config?.branding?.name || '');
   const simUrl = `${SIM_BASE}?tenant=${slug}&practice=${name}`;
   $('snipIframe').textContent = `<iframe src="${simUrl}" width="100%" height="900" allow="camera" style="border:none;display:block"></iframe>`;
-  $('snipWidget').textContent = `<script src="${WIDGET_SRC}" data-sim-url="${simUrl}" data-heading="Ready for a New Smile?" async><\/script>`;
+  // Widget snippet carries the practice's popup customization (heading/sub/
+  // avatar/theme, and an optional link override).
+  const w = (config && config.widget) || {};
+  const esc = s => String(s||'').replace(/"/g,'&quot;');
+  const attr = (k,v)=> v ? ` ${k}="${esc(v)}"` : '';
+  const popupUrl = (w.ctaUrl||'').trim() || simUrl;
+  $('snipWidget').textContent =
+    `<script src="${WIDGET_SRC}" data-sim-url="${popupUrl}"` +
+    attr('data-heading', w.heading) + attr('data-sub', w.sub) +
+    attr('data-avatar-url', w.avatarUrl) + attr('data-theme', w.theme) +
+    ` async><\/script>`;
 }
 document.querySelectorAll('[data-copy]').forEach(b=>b.addEventListener('click',async()=>{
   try{ await navigator.clipboard.writeText($(b.dataset.copy).textContent); toast('Copied'); }

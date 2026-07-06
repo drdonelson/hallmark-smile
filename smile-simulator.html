@@ -1116,6 +1116,7 @@
       <a href="#" id="bookBtn" class="btn-gold" target="_blank" rel="noopener">
         Book Your Free Consultation
       </a>
+      <a href="#" id="thankYouBtn" class="btn-gold" style="display:none">Continue →</a>
       <!-- Video generator -->
       <div class="video-style-row" id="videoStyleRow">
         <label for="videoStyle">Video style</label>
@@ -1268,6 +1269,7 @@ const PRACTICE = {
   bookingUrl: BOOKING_URL || '',
   ctaLabel: 'Book Your Free Consultation',
   ctaFallback: 'lead-capture',       // 'lead-capture' | 'hidden'
+  thankYouUrl: '',                   // post-completion redirect (Continue button)
   notifyEmail: LEAD_EMAIL,
   legalBaseUrl: '',
   companyName: 'Lucid ROI',
@@ -1301,6 +1303,12 @@ function syncBookBtn() {
     btn.textContent = PRACTICE.ctaLabel && PRACTICE.ctaLabel !== 'Book Your Free Consultation'
       ? PRACTICE.ctaLabel : 'Request Your Consultation';
     btn.style.display = '';
+  }
+  // Post-completion "Continue →" to the practice's thank-you page, if set.
+  const ty = $('thankYouBtn');
+  if (ty) {
+    const t = (PRACTICE.thankYouUrl || '').trim();
+    if (t) { ty.href = t; ty.style.display = ''; } else { ty.removeAttribute('href'); ty.style.display = 'none'; }
   }
 }
 
@@ -3666,9 +3674,11 @@ function applyConfig(cfg) {
     const trip = hexToRgbTriplet(colors.gold);
     if (trip) document.documentElement.style.setProperty('--gold-rgb', trip);
   }
-  // Header
+  // Header — name + tagline with show/hide toggles
   if (b.name) { $('headerPracticeName').textContent = b.name; PRACTICE.name = b.name; }
   if (b.tagline) $('headerTagline').textContent = b.tagline;
+  $('headerPracticeName').style.display = (b.showName === false) ? 'none' : '';
+  $('headerTagline').style.display     = (b.showTagline === false) ? 'none' : '';
   const badge = $('headerBadge');
   if (badge) {
     if (b.poweredByLabel) { badge.textContent = b.poweredByLabel; badge.style.display = ''; }
@@ -3682,6 +3692,8 @@ function applyConfig(cfg) {
   if (bk.url) PRACTICE.bookingUrl = bk.url;
   if (bk.ctaLabel) PRACTICE.ctaLabel = bk.ctaLabel;
   if (bk.ctaFallback) PRACTICE.ctaFallback = bk.ctaFallback;
+  // Post-completion thank-you page redirect target.
+  if (cfg.thankYouUrl) PRACTICE.thankYouUrl = cfg.thankYouUrl;
 
   // Lead routing
   const emails = (cfg.leads && cfg.leads.notifyEmails) || [];

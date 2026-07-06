@@ -697,11 +697,18 @@ function defaultConfig(rec = {}) {
     branding: {
       name,
       tagline: 'AI Smile Simulator',
+      showName: true,       // header practice-name show/hide toggle
+      showTagline: true,    // header tagline show/hide toggle
       logoUrl: '',
       poweredByLabel: 'Powered by Lucid',
       colors: {},   // empty → simulator uses its built-in default palette
     },
     booking: { url: '', ctaLabel: 'Book Your Free Consultation', ctaFallback: 'lead-capture' },
+    // Where to send the patient after they finish (post-result). Blank = stay.
+    thankYouUrl: '',
+    // Floating popup / CTA widget (cta-widget.js) customization. ctaUrl overrides
+    // where the popup opens (blank = the practice's own simulator URL).
+    widget: { heading: 'Ready for a New Smile?', sub: 'See your smile makeover in seconds — free, no obligation.', avatarUrl: '', theme: 'hallmark', ctaUrl: '' },
     leads: { notifyEmails: rec.leadEmail ? [rec.leadEmail] : [] },
     treatments: [
       { id: 'veneers',   label: 'Veneers',              enabled: true },
@@ -757,10 +764,13 @@ function sanitizeConfig(input, rec = {}) {
       })).filter(q => q.q)
     : [];
   const styles = Array.isArray(c.video?.styles) ? c.video.styles.slice(0, 6).map(s => str(s, 24, 'laugh')) : d.video.styles;
+  const w = c.widget || {};
   return {
     branding: {
       name: str(b.name, 80, d.branding.name),
       tagline: str(b.tagline, 80, d.branding.tagline),
+      showName: b.showName !== false,
+      showTagline: b.showTagline !== false,
       logoUrl: str(b.logoUrl, 300, ''),
       poweredByLabel: str(b.poweredByLabel, 60, d.branding.poweredByLabel),
       colors,
@@ -769,6 +779,14 @@ function sanitizeConfig(input, rec = {}) {
       url: str(bk.url, 400, ''),
       ctaLabel: str(bk.ctaLabel, 60, d.booking.ctaLabel),
       ctaFallback: (bk.ctaFallback === 'hidden') ? 'hidden' : 'lead-capture',
+    },
+    thankYouUrl: str(c.thankYouUrl, 400, ''),
+    widget: {
+      heading:   str(w.heading, 80, d.widget.heading),
+      sub:       str(w.sub, 160, d.widget.sub),
+      avatarUrl: str(w.avatarUrl, 300, ''),
+      theme:     str(w.theme, 24, d.widget.theme),
+      ctaUrl:    str(w.ctaUrl, 400, ''),
     },
     leads: { notifyEmails: leadEmails },
     treatments,
