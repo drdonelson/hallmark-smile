@@ -2866,17 +2866,19 @@ async function generateSmile(dataUrl) {
     console.warn('MediaPipe failed:', e.message);
   }
 
-  // --- Primary: GPT full-image + tooth composite ---
-  // Best teeth realism + lighting integration (incl. severe missing/broken
-  // cases). GPT re-renders/beautifies the whole face, so we keep only its mouth
-  // interior, landmark-aligned and composited onto the untouched original —
-  // identity preserved, only the teeth change. Medium quality fits the 30s limit.
-  if (mpResult) {
+  // --- GPT full-image + tooth composite (OPT-IN via ?engine=gpt) ---
+  // Best teeth realism + lighting (incl. severe missing/broken cases), but the
+  // browser composite still surfaces edge-case artifacts (e.g. a perioral band
+  // on some generations) that can't be headless-QA'd — MediaPipe needs WebGL.
+  // Gated to ?engine=gpt for evaluation until it's hardened in the Python
+  // harness. Default = the proven, identity-perfect Ideogram path below.
+  const GPT_ENGINE = new URLSearchParams(location.search).get('engine') === 'gpt';
+  if (mpResult && GPT_ENGINE) {
     try {
       updateProgress('Designing your new smile…', 25);
       const gptComp = await gptCompositeMakeover(resizedUrl, width, height, mpResult);
       if (gptComp) {
-        console.log('✅ Result from: GPT full-image + tooth composite');
+        console.log('✅ Result from: GPT full-image + tooth composite (opt-in)');
         return gptComp;
       }
     } catch(e) {
