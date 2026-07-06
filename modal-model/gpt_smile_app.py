@@ -59,9 +59,15 @@ def _verify_meter_token(token, secret):
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
-    .pip_install("numpy<2")
+    # mediapipe pulls in the NON-headless opencv (opencv-contrib-python), whose
+    # cv2 needs libGL.so.1 + libglib — not present in debian_slim. Without these
+    # the container crash-loops on `ImportError: libGL.so.1`.
+    .apt_install("libgl1", "libglib2.0-0")
+    # numpy<2 pinned in the SAME call as mediapipe (mediapipe otherwise upgrades
+    # it to 2.x — the documented numpy-pin gotcha). mediapipe brings opencv +
+    # numpy, so we don't list opencv separately (avoids a double cv2 install).
     .pip_install(
-        "opencv-python-headless==4.10.0.84",
+        "numpy<2",
         "mediapipe==0.10.14",
         "pillow==10.4.0",
         "requests==2.32.3",
