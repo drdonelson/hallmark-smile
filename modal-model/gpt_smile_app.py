@@ -188,14 +188,19 @@ class GptSmile:
             raise RuntimeError(f"alignment out of range (scale {scale:.2f})")
         warp = cv2.warpAffine(gpt, M, (W, H), flags=cv2.INTER_LANCZOS4, borderMode=cv2.BORDER_REPLICATE)
 
-        outer = pts(lo, OUTER_LIP)
+        # Mask = INNER-lip polygon grown moderately (1.12 wide x 1.20 tall), NOT
+        # the outer lip. This keeps the patient's ORIGINAL lips, so GPT's lip
+        # rendering — which can go orange/muddy on glossy lips — is never used.
+        # The affine already scaled GPT's teeth into the original mouth opening,
+        # so full teeth (gingival emergence + incisal edges) still show, and the
+        # blend lands at the tooth/lip boundary inside the mouth, not on skin.
         dst = pts(lo, INNER_LIP)
         mw = float(dst[:, 0].max() - dst[:, 0].min())
-        cx, cy = outer[:, 0].mean(), outer[:, 1].mean()
-        poly = np.array([[cx + (p[0] - cx) * 1.10, cy + (p[1] - cy) * 1.10] for p in outer], np.int32)
+        cx, cy = dst[:, 0].mean(), dst[:, 1].mean()
+        poly = np.array([[cx + (p[0] - cx) * 1.12, cy + (p[1] - cy) * 1.20] for p in dst], np.int32)
         mask = np.zeros((H, W), np.uint8)
         cv2.fillConvexPoly(mask, cv2.convexHull(poly), 255)
-        fr = max(5, int(mw * 0.14) | 1)
+        fr = max(3, int(mw * 0.06) | 1)
         mf = (cv2.GaussianBlur(mask, (fr, fr), 0).astype(np.float32) / 255.0)[:, :, None]
         comp = (orig_bgr.astype(np.float32) * (1 - mf) + warp.astype(np.float32) * mf).astype(np.uint8)
 

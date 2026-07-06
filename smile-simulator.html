@@ -1109,6 +1109,16 @@
     <div class="disclaimer">
       This AI visualization is for cosmetic education only. Individual results vary based on treatment planning by a licensed dentist.
     </div>
+    <!-- Staff-only quality feedback (shown only on ?engine=gpt evaluation runs).
+         Feeds the labeled-data set used to build the GPT quality gate. -->
+    <div id="gptFeedbackRow" style="display:none;margin:10px 0;padding:10px 12px;border:1px dashed var(--gold,#c9a24b);border-radius:10px;text-align:center;">
+      <div style="font-size:0.78rem;color:var(--mid-grey,#888);margin-bottom:6px;">Staff review — is this result good enough to show a patient?</div>
+      <div style="display:flex;gap:10px;justify-content:center;">
+        <button type="button" id="gptGoodBtn" style="cursor:pointer;border:1px solid #2e7d32;background:#e8f5e9;color:#2e7d32;border-radius:8px;padding:6px 16px;font-weight:600;">👍 Good</button>
+        <button type="button" id="gptBadBtn" style="cursor:pointer;border:1px solid #c62828;background:#ffebee;color:#c62828;border-radius:8px;padding:6px 16px;font-weight:600;">👎 Bad</button>
+      </div>
+      <div id="gptFeedbackThanks" style="display:none;font-size:0.78rem;color:#2e7d32;margin-top:6px;">✓ Logged — thank you.</div>
+    </div>
     <div class="share-note" id="shareNote" style="display:none">
       ✓ We've emailed this preview to you and to the practice for review.
     </div>
@@ -1262,6 +1272,8 @@ const MSGS = [
 
 /* ── State ─────────────────────────────────────────────────────── */
 let imgDataUrl     = null;
+let usedGptEngine  = false;       // true when the server-side GPT/Modal path produced the result
+let beforeDataUrl  = null;        // original input, kept for feedback capture
 let selectedShade  = 'natural';   // 'natural' | 'hollywood'
 let currentLeadId  = null;
 let serverLeadId   = null;   // shared id tying the lead record to its media (dashboard)
@@ -2874,6 +2886,35 @@ async function gptCompositeMakeover(resizedUrl, width, height, mpResult) {
   return out.toDataURL('image/jpeg', 0.94);
 }
 
+// Staff quality-feedback capture. Only wired up on ?engine=gpt evaluation runs
+// (usedGptEngine). Thumbs up/down POSTs the before/after pair to the worker,
+// which stores it under gptdata/<good|bad>/ to build the labeled set that will
+// train the GPT quality gate. Patient-facing runs never see this row.
+function setupGptFeedback(beforeUrl, afterUrl) {
+  const row = $('gptFeedbackRow');
+  if (!row) return;
+  if (!usedGptEngine) { row.style.display = 'none'; return; }
+  row.style.display = '';
+  const thanks = $('gptFeedbackThanks');
+  if (thanks) thanks.style.display = 'none';
+  const send = async (verdict) => {
+    try {
+      await fetch(`${PROXY_URL}/api/gpt-feedback`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tenant: TENANT, verdict, beforeImage: beforeUrl, afterImage: afterUrl }),
+      });
+    } catch (e) { /* best-effort logging */ }
+    if (thanks) thanks.style.display = '';
+    const g = $('gptGoodBtn'), b = $('gptBadBtn');
+    if (g) g.disabled = true;
+    if (b) b.disabled = true;
+  };
+  const g = $('gptGoodBtn'), b = $('gptBadBtn');
+  if (g) { g.disabled = false; g.onclick = () => send('good'); }
+  if (b) { b.disabled = false; b.onclick = () => send('bad'); }
+}
+
 // PRIMARY (server-side): meter a sim, then call the Modal GPT-smile endpoint,
 // which does gpt-image-1 + the tooth composite in Python and returns the
 // finished image. No browser MediaPipe/canvas involved → no perioral band.
@@ -2912,7 +2953,7 @@ async function generateSmile(dataUrl) {
     try {
       updateProgress('Designing your new smile…', 25);
       const modalResult = await gptModalMakeover(dataUrl, modalUrl);
-      if (modalResult) { console.log('✅ Result from: GPT-composite (Modal, server-side)'); return modalResult; }
+      if (modalResult) { console.log('✅ Result from: GPT-composite (Modal, server-side)'); usedGptEngine = true; return modalResult; }
     } catch(e) {
       if (/limit reached/i.test(e.message)) throw e;
       console.warn('Modal GPT-smile failed, trying next path:', e.message);
@@ -3395,6 +3436,9 @@ async function startGeneration() {
     show($('resultsCard'));
     syncBookBtn();
     initSlider();   // size the after-image to the slider and center the handle
+    // Staff quality-feedback capture (only on ?engine=gpt evaluation runs)
+    beforeDataUrl = imgDataUrl;
+    setupGptFeedback(imgDataUrl, afterWm);
     $('resultsCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
     shareResult(imgDataUrl, afterWm);
   } catch (err) {

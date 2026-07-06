@@ -1866,6 +1866,26 @@ async function handleMeter(request, env, origin) {
   });
 }
 
+// GPT result feedback — staff mark a ?engine=gpt result good/bad. Stored
+// persistently as a LABELED training set for a future quality-gate classifier
+// (gptdata/<good|bad>/<id>.json + the after/before images). See COLD_START 3.13.
+async function handleGptFeedback(request, env, origin) {
+  let body; try { body = await request.json(); } catch { body = {}; }
+  const tenant = (body.tenant || 'unknown').toLowerCase();
+  const verdict = body.verdict === 'good' ? 'good' : 'bad';
+  const id = randomToken();
+  try {
+    const rec = { id, tenant, verdict, ts: new Date().toISOString() };
+    if (body.afterImage)  rec.afterUrl  = (await storeMedia(env, body.afterImage, 3650)).url;   // ~10y retention
+    if (body.beforeImage) rec.beforeUrl = (await storeMedia(env, body.beforeImage, 3650)).url;
+    await env.TEMP_IMAGES.put(`gptdata/${verdict}/${id}.json`, JSON.stringify(rec),
+      { customMetadata: { expires: String(Date.now() + 3650 * 86400_000) } });
+  } catch (e) { /* best-effort — never block the UI */ }
+  return new Response(JSON.stringify({ ok: true }), {
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+}
+
 async function handleGptEdit(request, env, origin) {
   const tenant = (new URL(request.url).searchParams.get('tenant') || 'unknown').toLowerCase();
   const limited = await meter(env, request, tenant, 'sims', origin);
@@ -2033,6 +2053,10 @@ export default {
     // Modal GPT-smile endpoint directly (Modal has no metering). 200 ok / 429.
     if (url.pathname === '/api/meter') {
       return handleMeter(request, env, origin);
+    }
+    // Staff good/bad label on a GPT result — builds the training set for the gate.
+    if (url.pathname === '/api/gpt-feedback' && request.method === 'POST') {
+      return handleGptFeedback(request, env, origin);
     }
     if (url.pathname === '/api/kling/start' && request.method === 'POST') {
       return handleKlingStart(request, env, origin);
