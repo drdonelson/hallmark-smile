@@ -140,6 +140,20 @@
   .bar > span{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--blue),var(--booked));border-radius:99px;transition:width .5s}
   .coming{margin-top:22px;border:1px dashed var(--line);border-radius:12px;padding:22px;text-align:center;color:var(--muted);font-size:.85rem}
   .placeholder-msg{color:var(--muted);font-size:.9rem;padding:40px 6px;text-align:center}
+  /* GPT review queue */
+  .review-badge{display:inline-block;min-width:18px;padding:1px 6px;border-radius:9px;background:#c62828;color:#fff;font-size:11px;font-weight:800;line-height:16px;text-align:center;vertical-align:middle}
+  .review-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px;padding:6px 0}
+  .rev-card{border:1px solid var(--line,#28304a);border-radius:12px;overflow:hidden;background:var(--card,#141a2e)}
+  .rev-ba{display:grid;grid-template-columns:1fr 1fr;gap:2px;background:#000}
+  .rev-ba figure{margin:0;position:relative}
+  .rev-ba img{display:block;width:100%;height:150px;object-fit:cover;cursor:zoom-in}
+  .rev-ba figcaption{position:absolute;top:5px;left:5px;font-size:10px;font-weight:700;color:#fff;background:rgba(0,0,0,.55);padding:1px 6px;border-radius:6px}
+  .rev-meta{font-size:11px;color:var(--muted);padding:6px 10px 0}
+  .rev-actions{display:flex;gap:8px;padding:8px 10px 10px}
+  .rev-actions button{flex:1;cursor:pointer;border-radius:8px;padding:7px 0;font-weight:700;font-size:13px;border:1px solid transparent}
+  .rev-good{background:#e8f5e9;color:#1b5e20;border-color:#2e7d32}
+  .rev-bad{background:#ffebee;color:#b71c1c;border-color:#c62828}
+  .rev-actions button:disabled{opacity:.5;cursor:default}
   /* lightbox + toast */
   .lb{position:fixed;inset:0;background:rgba(0,0,0,.88);display:none;align-items:center;justify-content:center;z-index:50;padding:20px}
   .lb.open{display:flex} .lb img{max-width:92vw;max-height:88vh;border-radius:10px}
@@ -232,6 +246,7 @@
       <button class="tab" data-tab="branding" type="button">Branding</button>
       <button class="tab" data-tab="booking" type="button">Booking &amp; Treatments</button>
       <button class="tab" data-tab="embed" type="button">Embed</button>
+      <button class="tab admin-only hidden" data-tab="review" type="button">GPT Review <span id="reviewBadge" class="review-badge" style="display:none"></span></button>
       <button class="tab" data-tab="usage" type="button">Usage</button>
       <div class="tab-ctx">
         <button class="np-btn admin-only hidden" id="newPracticeBtn" type="button">+ New practice</button>
@@ -382,6 +397,23 @@
       </div>
     </section>
 
+    <!-- ── GPT Review (training-data labeling queue) ── -->
+    <section class="panel" id="panel-review">
+      <div class="toolbar">
+        <div style="flex:1;">
+          <strong>GPT smile results awaiting review</strong>
+          <div style="font-size:0.8rem;color:var(--mid,#888);">
+            Every patient sim also generates a GPT version in the background (the patient sees the standard result).
+            Flag each 👍 good / 👎 bad — these labels train the quality gate that will let us make GPT the default.
+          </div>
+        </div>
+        <span class="count" id="reviewCount"></span>
+        <button class="np-btn" id="reviewRefresh" type="button">Refresh</button>
+      </div>
+      <div id="reviewGrid" class="review-grid"></div>
+      <div id="reviewEmpty" class="placeholder-msg hidden">No GPT results waiting — the queue is clear. 🎉</div>
+    </section>
+
     <!-- ── Usage ── -->
     <section class="panel" id="panel-usage">
       <div class="no-tenant placeholder-msg hidden">Select a practice above to see its usage.</div>
@@ -528,6 +560,7 @@ async function showApp(){
   await loadLeads();
   if(isAdminRole()) await loadPractices();
   await refreshSettingsCtx();
+  refreshReviewBadge();
 }
 
 // Show/hide role-gated controls. Admin-only: token management (usage caps) +
@@ -747,7 +780,62 @@ $('settingsTenant').addEventListener('change', refreshSettingsCtx);
 document.querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{
   document.querySelectorAll('.tab').forEach(t=>t.classList.toggle('active', t===b));
   document.querySelectorAll('.panel').forEach(p=>p.classList.toggle('active', p.id==='panel-'+b.dataset.tab));
+  if(b.dataset.tab==='review') loadReview();
 }));
+
+/* ── GPT Review queue (training-data labeling) ── */
+function escAttr(s){ return String(s||'').replace(/"/g,'&quot;').replace(/</g,'&lt;'); }
+async function loadReview(){
+  const grid=$('reviewGrid'), empty=$('reviewEmpty'), count=$('reviewCount');
+  grid.innerHTML='<div class="placeholder-msg">Loading…</div>'; empty.classList.add('hidden');
+  let d={items:[]};
+  try{ const r=await api('/api/gpt-review'); d=await r.json(); }catch(e){}
+  const items=d.items||[];
+  count.textContent=items.length?`${items.length} to review`:'';
+  updateReviewBadge(items.length);
+  if(!items.length){ grid.innerHTML=''; empty.classList.remove('hidden'); return; }
+  grid.innerHTML=items.map(it=>`
+    <div class="rev-card" data-id="${escAttr(it.id)}">
+      <div class="rev-ba">
+        <figure><figcaption>Before</figcaption><img src="${escAttr(it.beforeUrl||'')}" alt="Before"></figure>
+        <figure><figcaption>GPT</figcaption><img src="${escAttr(it.afterUrl||'')}" alt="GPT result"></figure>
+      </div>
+      <div class="rev-meta">${escAttr(it.tenant||'')} · ${escAttr((it.ts||'').slice(0,10))} · ${escAttr(it.source||'')}</div>
+      <div class="rev-actions">
+        <button class="rev-good" type="button">👍 Good</button>
+        <button class="rev-bad" type="button">👎 Bad</button>
+      </div>
+    </div>`).join('');
+  grid.querySelectorAll('.rev-ba img').forEach(img=>img.addEventListener('click',()=>openLb(img.src,img.alt)));
+  grid.querySelectorAll('.rev-card').forEach(card=>{
+    const id=card.dataset.id;
+    card.querySelector('.rev-good').addEventListener('click',()=>labelReview(id,'good',card));
+    card.querySelector('.rev-bad').addEventListener('click',()=>labelReview(id,'bad',card));
+  });
+}
+async function labelReview(id,verdict,card){
+  card.querySelectorAll('button').forEach(b=>b.disabled=true);
+  try{
+    const r=await api('/api/gpt-review/label',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id,verdict})});
+    if(r.ok){
+      card.style.transition='opacity .25s'; card.style.opacity='0';
+      setTimeout(()=>{ card.remove();
+        const left=$('reviewGrid').querySelectorAll('.rev-card').length;
+        $('reviewCount').textContent=left?`${left} to review`:''; updateReviewBadge(left);
+        if(!left) $('reviewEmpty').classList.remove('hidden');
+      },250);
+    } else { card.querySelectorAll('button').forEach(b=>b.disabled=false); }
+  }catch(e){ card.querySelectorAll('button').forEach(b=>b.disabled=false); }
+}
+function updateReviewBadge(n){
+  const b=$('reviewBadge'); if(!b) return;
+  if(n>0){ b.textContent=n>99?'99+':n; b.style.display=''; } else { b.style.display='none'; }
+}
+async function refreshReviewBadge(){
+  if(!isAdminRole()) return;
+  try{ const r=await api('/api/gpt-review'); const d=await r.json(); updateReviewBadge((d.items||[]).length); }catch(e){}
+}
+if($('reviewRefresh')) $('reviewRefresh').addEventListener('click',loadReview);
 
 /* ── Color pickers ── */
 function renderColorPickers(){

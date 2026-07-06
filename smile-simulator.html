@@ -2938,6 +2938,43 @@ async function gptModalMakeover(dataUrl, modalUrl) {
   return data.image;
 }
 
+// Fraction of patient sims that ALSO get a background GPT gen for the training
+// queue (1.0 = every sim). Dial down here to cap the extra GPT/Modal cost.
+const GPT_SHADOW_RATE = 1.0;
+
+// Shadow-collect: on a normal patient sim (which showed the Ideogram result),
+// generate the GPT version in the background and file it UNLABELED in the
+// dashboard review queue. The patient never sees it. Fire-and-forget; any
+// failure is swallowed so it can never affect the patient's experience. Metered
+// under kind=shadow (uncapped — does not eat the practice's sims quota).
+async function shadowCollectGpt(beforeUrl) {
+  try {
+    const modalUrl = (typeof MODAL_SMILE_URL_READY !== 'undefined') ? MODAL_SMILE_URL_READY : '';
+    if (!modalUrl) return;
+    if (Math.random() > GPT_SHADOW_RATE) return;
+    const mr = await fetch(`${PROXY_URL}/api/meter?tenant=${encodeURIComponent(TENANT)}&kind=shadow`, { method: 'POST' });
+    if (!mr.ok) return;
+    const md = await mr.json().catch(() => ({}));
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 180000);
+    let res;
+    try {
+      res = await fetch(modalUrl, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: beforeUrl, quality: 'high', token: md.token, tenant: TENANT }), signal: ctrl.signal,
+      });
+    } finally { clearTimeout(timer); }
+    if (!res.ok) return;
+    const data = await res.json().catch(() => ({}));
+    if (!data.image) return;
+    await fetch(`${PROXY_URL}/api/gpt-shadow`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tenant: TENANT, beforeImage: beforeUrl, afterImage: data.image, engine: 'gpt' }),
+    });
+    console.log('🕵️ shadow GPT result filed for review');
+  } catch (e) { /* background only — never surfaces */ }
+}
+
 async function generateSmile(dataUrl) {
   updateProgress('Analyzing your smile…', 10);
   const { width, height, resized: resizedUrl } = await resizeForAPI(dataUrl);
@@ -3441,6 +3478,10 @@ async function startGeneration() {
     setupGptFeedback(imgDataUrl, afterWm);
     $('resultsCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
     shareResult(imgDataUrl, afterWm);
+    // If this was a normal patient sim (Ideogram shown, not the GPT engine),
+    // ALSO generate the GPT version in the background and file it for clinical
+    // review in the dashboard. Fire-and-forget — never blocks or affects the UI.
+    if (!usedGptEngine) shadowCollectGpt(imgDataUrl);
   } catch (err) {
     stopProgress();
     hide($('progressCard'));

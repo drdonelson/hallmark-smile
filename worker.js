@@ -2007,7 +2007,12 @@ async function signMeterToken(env, tenant) {
 async function handleMeter(request, env, origin) {
   const url = new URL(request.url);
   const tenant = (url.searchParams.get('tenant') || 'unknown').toLowerCase();
-  const kind = url.searchParams.get('kind') === 'videos' ? 'videos' : 'sims';
+  // 'shadow' = the background GPT gen we run alongside a patient's Ideogram sim
+  // to build the training set. It is metered under an UNCAPPED 'shadow' counter
+  // (visibility into cost) but never counts against the practice's sims cap or
+  // 429s a patient — the patient already got their real (Ideogram) result.
+  const k = url.searchParams.get('kind');
+  const kind = k === 'videos' ? 'videos' : k === 'shadow' ? 'shadow' : 'sims';
   const limited = await meter(env, request, tenant, kind, origin);
   if (limited) return limited;
   const token = await signMeterToken(env, tenant);
@@ -2016,16 +2021,32 @@ async function handleMeter(request, env, origin) {
   });
 }
 
-// GPT result feedback — staff mark a ?engine=gpt result good/bad. Stored
-// persistently as a LABELED training set for a future quality-gate classifier
-// (gptdata/<good|bad>/<id>.json + the after/before images). See COLD_START 3.13.
+// ---- GPT training-data provenance ------------------------------------------
+// Every GPT result is stamped with WHO produced it and HOW it was labeled, so
+// the training set for the quality gate is cleanly delineated:
+//   source: 'clinical'       — a clinician ran ?engine=gpt and judged it live
+//           'patient-shadow'  — generated in the background of a patient's
+//                               Ideogram sim; the patient never saw it. Unlabeled
+//                               until a clinician flags it in the dashboard queue.
+//   verdict: 'good' | 'bad' | null   (null = awaiting review)
+//   engine:  'gpt'
+//   staff:   the authenticated reviewer (superadmin/admin/client slug), or null
+// Storage: labeled → gptdata/<good|bad>/<id>.json ; unlabeled → gptdata/unlabeled/<id>.json
+
+// GPT result feedback — a clinician marks a ?engine=gpt result good/bad inline.
 async function handleGptFeedback(request, env, origin) {
   let body; try { body = await request.json(); } catch { body = {}; }
   const tenant = (body.tenant || 'unknown').toLowerCase();
   const verdict = body.verdict === 'good' ? 'good' : 'bad';
+  const auth = await dashVerify(env, bearer(request));
   const id = randomToken();
   try {
-    const rec = { id, tenant, verdict, ts: new Date().toISOString() };
+    const rec = {
+      id, tenant, verdict, engine: 'gpt',
+      source: 'clinical',
+      staff: auth ? (auth.t || roleOf(auth)) : null,
+      ts: new Date().toISOString(),
+    };
     if (body.afterImage)  rec.afterUrl  = (await storeMedia(env, body.afterImage, 3650)).url;   // ~10y retention
     if (body.beforeImage) rec.beforeUrl = (await storeMedia(env, body.beforeImage, 3650)).url;
     await env.TEMP_IMAGES.put(`gptdata/${verdict}/${id}.json`, JSON.stringify(rec),
@@ -2034,6 +2055,80 @@ async function handleGptFeedback(request, env, origin) {
   return new Response(JSON.stringify({ ok: true }), {
     headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
   });
+}
+
+// Store a background (shadow) GPT result the patient never saw. UNLABELED — it
+// lands in the dashboard review queue for a clinician to flag good/bad.
+async function handleGptShadow(request, env, origin) {
+  let body; try { body = await request.json(); } catch { body = {}; }
+  const tenant = (body.tenant || 'unknown').toLowerCase();
+  const id = randomToken();
+  try {
+    const rec = {
+      id, tenant, verdict: null, engine: 'gpt',
+      source: 'patient-shadow', staff: null,
+      ts: new Date().toISOString(),
+    };
+    if (body.afterImage)  rec.afterUrl  = (await storeMedia(env, body.afterImage, 3650)).url;
+    if (body.beforeImage) rec.beforeUrl = (await storeMedia(env, body.beforeImage, 3650)).url;
+    await env.TEMP_IMAGES.put(`gptdata/unlabeled/${id}.json`, JSON.stringify(rec),
+      { customMetadata: { expires: String(Date.now() + 3650 * 86400_000) } });
+  } catch (e) { /* best-effort — background task, never surfaces to the patient */ }
+  return new Response(JSON.stringify({ ok: true }), {
+    headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+}
+
+// GET /api/gpt-review — authenticated review queue. Lists unlabeled shadow GPT
+// results for a clinician to flag. Superadmin/admin see every tenant; a client
+// sees only its own tenant's queue.
+async function handleGptReviewList(request, env, origin) {
+  const auth = await dashVerify(env, bearer(request));
+  const json = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+  if (!auth) return json({ error: 'unauthorized' }, 401);
+  const scopeTenant = isAdmin(auth) ? null : (auth.t || '').toLowerCase();
+  try {
+    const listed = await env.TEMP_IMAGES.list({ prefix: 'gptdata/unlabeled/', limit: 200 });
+    const recs = [];
+    for (const obj of listed.objects) {
+      const r = await env.TEMP_IMAGES.get(obj.key);
+      if (!r) continue;
+      let rec; try { rec = JSON.parse(await r.text()); } catch { continue; }
+      if (scopeTenant && (rec.tenant || '') !== scopeTenant) continue;
+      recs.push(rec);
+    }
+    recs.sort((a, b) => (b.ts || '').localeCompare(a.ts || ''));
+    return json({ items: recs, total: recs.length });
+  } catch (e) {
+    return json({ items: [], total: 0, error: String(e && e.message || e) });
+  }
+}
+
+// POST /api/gpt-review/label — {id, verdict}. Moves an unlabeled record into the
+// labeled set, stamping the reviewing clinician.
+async function handleGptReviewLabel(request, env, origin) {
+  const auth = await dashVerify(env, bearer(request));
+  const json = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+  if (!auth) return json({ error: 'unauthorized' }, 401);
+  let body; try { body = await request.json(); } catch { body = {}; }
+  const id = String(body.id || '').replace(/[^a-zA-Z0-9_-]/g, '');
+  const verdict = body.verdict === 'good' ? 'good' : body.verdict === 'bad' ? 'bad' : null;
+  if (!id || !verdict) return json({ error: 'id and verdict required' }, 400);
+  try {
+    const src = await env.TEMP_IMAGES.get(`gptdata/unlabeled/${id}.json`);
+    if (!src) return json({ error: 'not found' }, 404);
+    const rec = JSON.parse(await src.text());
+    if (!isAdmin(auth) && (rec.tenant || '') !== (auth.t || '').toLowerCase()) return json({ error: 'forbidden' }, 403);
+    rec.verdict = verdict;
+    rec.labeledBy = auth.t || roleOf(auth);
+    rec.labeledAt = new Date().toISOString();
+    await env.TEMP_IMAGES.put(`gptdata/${verdict}/${id}.json`, JSON.stringify(rec),
+      { customMetadata: { expires: String(Date.now() + 3650 * 86400_000) } });
+    await env.TEMP_IMAGES.delete(`gptdata/unlabeled/${id}.json`);
+    return json({ ok: true });
+  } catch (e) {
+    return json({ error: String(e && e.message || e) }, 500);
+  }
 }
 
 async function handleGptEdit(request, env, origin) {
@@ -2215,6 +2310,17 @@ export default {
     // Staff good/bad label on a GPT result — builds the training set for the gate.
     if (url.pathname === '/api/gpt-feedback' && request.method === 'POST') {
       return handleGptFeedback(request, env, origin);
+    }
+    // Background (shadow) GPT result stored unlabeled for the dashboard queue.
+    if (url.pathname === '/api/gpt-shadow' && request.method === 'POST') {
+      return handleGptShadow(request, env, origin);
+    }
+    // Authenticated GPT review queue (list unlabeled + label good/bad).
+    if (url.pathname === '/api/gpt-review' && request.method === 'GET') {
+      return handleGptReviewList(request, env, origin);
+    }
+    if (url.pathname === '/api/gpt-review/label' && request.method === 'POST') {
+      return handleGptReviewLabel(request, env, origin);
     }
     if (url.pathname === '/api/kling/start' && request.method === 'POST') {
       return handleKlingStart(request, env, origin);
