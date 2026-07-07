@@ -226,3 +226,41 @@ class GptSmile:
             }
         except Exception as e:
             return {"error": str(e), "ms": int((time.time() - t0) * 1000)}
+
+    # ---- Shadow collection (detached background gen for the review queue) ----
+    @modal.method()
+    def run_shadow(self, image_data_url, tenant, worker_base):
+        """Generate the GPT smile and file it UNLABELED in the worker's review
+        queue. Runs DETACHED (spawned by the `shadow` endpoint) so it survives
+        the patient closing the browser tab — shadow collection must NOT depend
+        on the patient waiting ~40-90s for the generation to finish."""
+        import requests
+        try:
+            orig = self._decode(image_data_url)
+            gpt_png = self._gpt_edit(orig, "medium")
+            out_jpg = self._composite(orig, gpt_png)
+            after = "data:image/jpeg;base64," + base64.b64encode(out_jpg).decode()
+            resp = requests.post(
+                f"{worker_base}/api/gpt-shadow",
+                json={"tenant": tenant, "beforeImage": image_data_url,
+                      "afterImage": after, "engine": "gpt"},
+                timeout=60,
+            )
+            print(f"[shadow] stored tenant={tenant} worker={resp.status_code} {resp.text[:80]}")
+        except Exception as e:
+            print(f"[shadow] FAILED tenant={tenant}: {e}")
+
+    @modal.fastapi_endpoint(method="POST")
+    def shadow(self, body: dict):
+        """Fire-and-forget shadow collection. Verifies the meter token, spawns a
+        detached job (gen + store), returns immediately so the browser is held
+        for <1s instead of the full generation time."""
+        if not _verify_meter_token(body.get("token", ""), os.environ.get("SMILE_HMAC_SECRET", "")):
+            return {"error": "unauthorized (invalid or expired meter token)"}
+        worker_base = body.get("worker_base") or "https://quiet-forest-e1f8.david-d73.workers.dev"
+        tenant = body.get("tenant", "unknown")
+        try:
+            GptSmile().run_shadow.spawn(body["image"], tenant, worker_base)
+        except Exception as e:
+            return {"error": str(e)}
+        return {"ok": True, "queued": True}
