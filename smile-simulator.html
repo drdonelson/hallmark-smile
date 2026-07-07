@@ -1199,7 +1199,7 @@ const PROXY_URL  = 'https://quiet-forest-e1f8.david-d73.workers.dev';
 // blend is clean and testable (the browser canvas composite banded). When this
 // is empty, the pipeline falls straight through to Ideogram (the safe default).
 // Set this to the Modal endpoint URL after `modal deploy modal-model/gpt_smile_app.py`.
-const MODAL_SMILE_URL = '';   // temporarily disabled — Ideogram is the safe default (see note).
+const MODAL_SMILE_URL = 'https://drdonelson--gpt-smile-gptsmile-compose.modal.run';   // DEFAULT 2026-07-07: GPT (inner-lip keep-lips composite) is the patient default; Ideogram is the fallback. Flipped after Ideogram produced white-block/band artifacts on real practice photos while GPT rendered the same faces cleanly (see /tmp/gpt_vs_default.jpg).
 // NOTE 2026-07-06: the Modal GPT engine is validated, but gpt-image-1 occasionally
 // returns a bad generation (dark/odd mouth) that composites poorly and — being a
 // valid 200 image — does NOT trigger the fallback, so it would ship to a patient.
@@ -2886,14 +2886,15 @@ async function gptCompositeMakeover(resizedUrl, width, height, mpResult) {
   return out.toDataURL('image/jpeg', 0.94);
 }
 
-// Staff quality-feedback capture. Only wired up on ?engine=gpt evaluation runs
-// (usedGptEngine). Thumbs up/down POSTs the before/after pair to the worker,
-// which stores it under gptdata/<good|bad>/ to build the labeled set that will
-// train the GPT quality gate. Patient-facing runs never see this row.
+// Staff quality-feedback capture. Only shown on the explicit ?engine=gpt STAFF
+// evaluation link — NOT for patients (GPT is now the patient default, so gating
+// on usedGptEngine would show every patient this row). Thumbs up/down POSTs the
+// before/after pair to gptdata/<good|bad>/ for the quality-gate training set.
 function setupGptFeedback(beforeUrl, afterUrl) {
   const row = $('gptFeedbackRow');
   if (!row) return;
-  if (!usedGptEngine) { row.style.display = 'none'; return; }
+  const staffEval = new URLSearchParams(location.search).get('engine') === 'gpt';
+  if (!staffEval || !usedGptEngine) { row.style.display = 'none'; return; }
   row.style.display = '';
   const thanks = $('gptFeedbackThanks');
   if (thanks) thanks.style.display = 'none';
@@ -2949,6 +2950,9 @@ const GPT_SHADOW_RATE = 1.0;
 // under kind=shadow (uncapped — does not eat the practice's sims quota).
 async function shadowCollectGpt(beforeUrl) {
   try {
+    // No-op when GPT is already the patient default — the patient's own result
+    // IS the GPT result, so there's nothing to shadow-collect.
+    if (MODAL_SMILE_URL) return;
     const modalUrl = (typeof MODAL_SMILE_URL_READY !== 'undefined') ? MODAL_SMILE_URL_READY : '';
     if (!modalUrl) return;
     if (Math.random() > GPT_SHADOW_RATE) return;
