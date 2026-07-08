@@ -184,10 +184,46 @@ class GptSmile:
         M, _ = cv2.estimateAffine2D(pts(lg, INNER_LIP), pts(lo, INNER_LIP), method=cv2.LMEDS)
         if M is None:
             M, _ = cv2.estimateAffinePartial2D(pts(lg, INNER_LIP), pts(lo, INNER_LIP))
-        # sanity guard — reject wild alignment
-        scale = float(np.hypot(M[0, 0], M[1, 0]))
-        if not (0.55 < scale < 1.8):
-            raise RuntimeError(f"alignment out of range (scale {scale:.2f})")
+        # ---- QUALITY GATE (deterministic geometry, precision-first) ----------
+        # A reject raises → compose() returns {"error"} → the browser falls back
+        # to the Ideogram engine. Every threshold rejects only CLEARLY-broken
+        # registration (a false reject would send the patient to the weaker
+        # engine). Design: codex geometric-gate consult 2026-07-08.
+        src0 = pts(lg, INNER_LIP)     # GPT inner-lip
+        dst0 = pts(lo, INNER_LIP)     # original inner-lip
+        mw0 = float(dst0[:, 0].max() - dst0[:, 0].min())
+
+        # Check 1 — affine-fit residual: does M actually register the mouth, or
+        # is it a numerically-valid transform that doesn't line the teeth up?
+        src_w = cv2.transform(src0[None, :, :], M)[0]
+        err = np.linalg.norm(src_w - dst0, axis=1)
+        if float(np.median(err)) > max(4.0, 0.035 * mw0):
+            raise RuntimeError(f"gpt quality rejected: affine residual median {float(np.median(err)):.1f}px")
+        if float(np.percentile(err, 90)) > max(10.0, 0.08 * mw0):
+            raise RuntimeError(f"gpt quality rejected: affine residual p90 {float(np.percentile(err, 90)):.1f}px")
+
+        # Check 2 — transform-shape sanity ONLY (gross distortion). NOTE: we do
+        # NOT gate raw mouth displacement — gpt-image-1 re-renders the whole face
+        # and freely repositions the mouth (a good result can shift it ~100px);
+        # the affine exists precisely to correct that, and Checks 1 + 3 verify the
+        # registration position-independently. Bounds here are loose: full affine
+        # (estimateAffine2D) naturally produces mild anisotropy/shear on good fits.
+        a, b = float(M[0, 0]), float(M[0, 1])
+        c, d = float(M[1, 0]), float(M[1, 1])
+        sx, sy = np.hypot(a, c), np.hypot(b, d)
+        gscale = (sx + sy) / 2.0
+        rot_deg = abs(np.degrees(np.arctan2(c, a)))
+        anisotropy = max(sx / sy, sy / sx)
+        shear = abs((a * b + c * d) / max(1e-6, sx * sy))
+        if not (0.55 < gscale < 1.8):
+            raise RuntimeError(f"gpt quality rejected: scale {gscale:.2f}")
+        if rot_deg > 25:
+            raise RuntimeError(f"gpt quality rejected: rotation {rot_deg:.1f}deg")
+        if anisotropy > 1.5:
+            raise RuntimeError(f"gpt quality rejected: anisotropy {anisotropy:.2f}")
+        if shear > 0.4:
+            raise RuntimeError(f"gpt quality rejected: shear {shear:.2f}")
+
         warp = cv2.warpAffine(gpt, M, (W, H), flags=cv2.INTER_LANCZOS4, borderMode=cv2.BORDER_REPLICATE)
 
         # Mask = INNER-lip polygon grown moderately (1.12 wide x 1.20 tall), NOT
@@ -205,6 +241,20 @@ class GptSmile:
         fr = max(3, int(mw * 0.06) | 1)
         mf = (cv2.GaussianBlur(mask, (fr, fr), 0).astype(np.float32) / 255.0)[:, :, None]
         comp = (orig_bgr.astype(np.float32) * (1 - mf) + warp.astype(np.float32) * mf).astype(np.uint8)
+
+        # Check 3 — post-composite self-consistency: re-detect on the FINISHED
+        # image and confirm the mouth landed where the ORIGINAL mouth is. Catches
+        # anything (misregistration, deformation) that moved the visible mouth.
+        # If detection fails, SKIP rather than reject (a failed re-detect is not
+        # proof the result is bad — protect precision).
+        lc = self._landmarks_bgr(comp)
+        if lc is not None:
+            d3 = pts(lc, INNER_LIP) - dst0
+            center_shift = float(np.linalg.norm(np.median(d3, axis=0)))
+            dy = abs(float(np.median(d3[:, 1])))
+            p90 = float(np.percentile(np.linalg.norm(d3, axis=1), 90))
+            if dy > max(12.0, 0.06 * mw0) or center_shift > max(14.0, 0.075 * mw0) or p90 > max(18.0, 0.12 * mw0):
+                raise RuntimeError(f"gpt quality rejected: post-composite drift dy={dy:.1f} c={center_shift:.1f} p90={p90:.1f}")
 
         ok, jpg = cv2.imencode(".jpg", comp, [cv2.IMWRITE_JPEG_QUALITY, 94])
         return jpg.tobytes()
