@@ -555,8 +555,15 @@ async function handleIdeogramInpaint(request, env, origin) {
       status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
   }
-  const blocked = await meter(env, request, tenantOf(body), 'sims', origin);
-  if (blocked) return blocked;
+  // Skip metering when the sim was ALREADY counted upstream (GPT is the primary
+  // engine and meters once before calling Modal; when it fails we fall back to
+  // Ideogram here — re-metering would double-charge the patient's one attempt
+  // and could 429 the fallback right after GPT consumed the last sim).
+  const alreadyMetered = new URL(request.url).searchParams.get('metered') === '1';
+  if (!alreadyMetered) {
+    const blocked = await meter(env, request, tenantOf(body), 'sims', origin);
+    if (blocked) return blocked;
+  }
   let imageUrl, maskUrl;
   try {
     [imageUrl, maskUrl] = await Promise.all([r2Upload(env, image), r2Upload(env, mask)]);
@@ -2060,23 +2067,33 @@ async function handleGptFeedback(request, env, origin) {
 // Store a background (shadow) GPT result the patient never saw. UNLABELED — it
 // lands in the dashboard review queue for a clinician to flag good/bad.
 async function handleGptShadow(request, env, origin) {
+  const json = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+  // Locked down (was unauthenticated): only an authenticated dashboard session
+  // may write to the review queue. Previously anyone could POST arbitrary images
+  // straight into R2 with a 10-year TTL — an open storage-abuse vector. Shadow
+  // collection is dormant now (GPT is the patient default); if revived it will
+  // store via R2-direct, not this endpoint.
+  const auth = await dashVerify(env, bearer(request));
+  if (!auth) return json({ error: 'unauthorized' }, 401);
   let body; try { body = await request.json(); } catch { body = {}; }
   const tenant = (body.tenant || 'unknown').toLowerCase();
+  // Reject oversized / non-image payloads before touching R2.
+  const okImg = (s) => typeof s === 'string' && /^data:image\/(jpe?g|png|webp);base64,/.test(s) && s.length < 8_000_000;
+  if (body.afterImage && !okImg(body.afterImage))  return json({ error: 'bad afterImage' }, 400);
+  if (body.beforeImage && !okImg(body.beforeImage)) return json({ error: 'bad beforeImage' }, 400);
   const id = randomToken();
   try {
     const rec = {
       id, tenant, verdict: null, engine: 'gpt',
-      source: 'patient-shadow', staff: null,
+      source: 'patient-shadow', staff: auth.t || null,
       ts: new Date().toISOString(),
     };
     if (body.afterImage)  rec.afterUrl  = (await storeMedia(env, body.afterImage, 3650)).url;
     if (body.beforeImage) rec.beforeUrl = (await storeMedia(env, body.beforeImage, 3650)).url;
     await env.TEMP_IMAGES.put(`gptdata/unlabeled/${id}.json`, JSON.stringify(rec),
       { customMetadata: { expires: String(Date.now() + 3650 * 86400_000) } });
-  } catch (e) { /* best-effort — background task, never surfaces to the patient */ }
-  return new Response(JSON.stringify({ ok: true }), {
-    headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
-  });
+  } catch (e) { /* best-effort */ }
+  return json({ ok: true });
 }
 
 // GET /api/gpt-review — authenticated review queue. Lists unlabeled shadow GPT
@@ -2304,7 +2321,7 @@ export default {
     }
     // Meter a sim/video without generating — used before the browser calls the
     // Modal GPT-smile endpoint directly (Modal has no metering). 200 ok / 429.
-    if (url.pathname === '/api/meter') {
+    if (url.pathname === '/api/meter' && request.method === 'POST') {
       return handleMeter(request, env, origin);
     }
     // Staff good/bad label on a GPT result — builds the training set for the gate.

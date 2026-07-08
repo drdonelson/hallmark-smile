@@ -1273,6 +1273,7 @@ const MSGS = [
 /* ── State ─────────────────────────────────────────────────────── */
 let imgDataUrl     = null;
 let usedGptEngine  = false;       // true when the server-side GPT/Modal path produced the result
+let simMetered     = false;       // true once THIS attempt has counted a sim (prevents double-charge on GPT→Ideogram fallback)
 let beforeDataUrl  = null;        // original input, kept for feedback capture
 let selectedShade  = 'natural';   // 'natural' | 'hollywood'
 let currentLeadId  = null;
@@ -2231,7 +2232,7 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
 
   // Start one Ideogram prediction and poll it to completion; returns output URL.
   async function runIdeogram() {
-    const startRes = await fetch(`${PROXY_URL}/api/ideogram/inpaint`, {
+    const startRes = await fetch(`${PROXY_URL}/api/ideogram/inpaint${simMetered ? '?metered=1' : ''}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ image: cropImgUrl, mask: ideoMaskUrl, variant: perioral ? 'openSmile' : severeDamage ? 'fullArch' : 'normalSmile', shade: selectedShade, tenant: TENANT }),
@@ -2922,6 +2923,7 @@ function setupGptFeedback(beforeUrl, afterUrl) {
 async function gptModalMakeover(dataUrl, modalUrl) {
   const mr = await fetch(`${PROXY_URL}/api/meter?tenant=${encodeURIComponent(TENANT)}&kind=sims`, { method: 'POST' });
   if (mr.status === 429) { const d = await mr.json().catch(() => ({})); throw new Error(d.error || 'limit reached'); }
+  simMetered = true;   // this attempt's sim is now counted; the Ideogram fallback must not re-count it
   const md = await mr.json().catch(() => ({}));
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 180000);   // 3 min — Modal has no 30s cap
@@ -2980,6 +2982,7 @@ async function shadowCollectGpt(beforeUrl) {
 }
 
 async function generateSmile(dataUrl) {
+  simMetered = false;   // fresh attempt — no sim counted yet
   updateProgress('Analyzing your smile…', 10);
   const { width, height, resized: resizedUrl } = await resizeForAPI(dataUrl);
 

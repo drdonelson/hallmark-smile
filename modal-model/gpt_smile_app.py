@@ -44,7 +44,9 @@ def _verify_meter_token(token, secret):
     """Verify the worker-issued HMAC token (see signMeterToken in worker.js).
     Blocks abuse of this public-URL endpoint: only worker-metered requests run."""
     if not secret:
-        return True  # secret not configured → skip (dev)
+        # FAIL CLOSED: the Modal URL is public — a missing secret must NOT grant
+        # unrestricted OpenAI spend. Only bypass with an explicit dev opt-in.
+        return os.environ.get("ALLOW_UNAUTH_DEV") == "1"
     try:
         body, sig = token.split(".")
         expected = base64.urlsafe_b64encode(
