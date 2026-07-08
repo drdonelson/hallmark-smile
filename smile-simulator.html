@@ -2409,7 +2409,9 @@ async function gptMaskWhiten(resizedUrl, width, height, mpMaskDataUrl, bounds) {
   form.append('size',    'auto');
   form.append('quality', 'high');
 
-  const res = await fetch(`${PROXY_URL}/v1/images/edits`, { method: 'POST', body: form });
+  // Metered path (the generic /v1/images/edits proxy was removed as unmetered).
+  // metered=1 when this attempt already counted a sim upstream (GPT-Modal primary).
+  const res = await fetch(`${PROXY_URL}/api/gpt/edit?tenant=${encodeURIComponent(TENANT)}${simMetered ? '&metered=1' : ''}`, { method: 'POST', body: form });
   if (!res.ok) { const t = await res.text().catch(()=>''); throw new Error(`GPT ${res.status}: ${t.slice(0,200)}`); }
   const data = await res.json();
   if (!data.data?.length) throw new Error('No image from OpenAI');
@@ -2824,7 +2826,7 @@ async function gptFullImage(resizedUrl, width, height) {
   const timer = setTimeout(() => ctrl.abort(), 40000);
   let res;
   try {
-    res = await fetch(`${PROXY_URL}/api/gpt/edit?tenant=${encodeURIComponent(TENANT)}`, { method: 'POST', body: form, signal: ctrl.signal });
+    res = await fetch(`${PROXY_URL}/api/gpt/edit?tenant=${encodeURIComponent(TENANT)}${simMetered ? '&metered=1' : ''}`, { method: 'POST', body: form, signal: ctrl.signal });
   } finally { clearTimeout(timer); }
   if (!res.ok) { const t = await res.text().catch(()=> ''); throw new Error(`GPT ${res.status}: ${t.slice(0,150)}`); }
   const data = await res.json();
@@ -2920,8 +2922,15 @@ function setupGptFeedback(beforeUrl, afterUrl) {
 // PRIMARY (server-side): meter a sim, then call the Modal GPT-smile endpoint,
 // which does gpt-image-1 + the tooth composite in Python and returns the
 // finished image. No browser MediaPipe/canvas involved → no perioral band.
+async function sha256hex(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
 async function gptModalMakeover(dataUrl, modalUrl) {
-  const mr = await fetch(`${PROXY_URL}/api/meter?tenant=${encodeURIComponent(TENANT)}&kind=sims`, { method: 'POST' });
+  // Bind the meter token to this exact image (see signMeterToken) so a captured
+  // token can't be replayed against Modal with a different image.
+  const imgHash = await sha256hex(dataUrl);
+  const mr = await fetch(`${PROXY_URL}/api/meter?tenant=${encodeURIComponent(TENANT)}&kind=sims&h=${imgHash}`, { method: 'POST' });
   if (mr.status === 429) { const d = await mr.json().catch(() => ({})); throw new Error(d.error || 'limit reached'); }
   simMetered = true;   // this attempt's sim is now counted; the Ideogram fallback must not re-count it
   const md = await mr.json().catch(() => ({}));

@@ -42,22 +42,25 @@ import modal
 
 def _verify_meter_token(token, secret):
     """Verify the worker-issued HMAC token (see signMeterToken in worker.js).
-    Blocks abuse of this public-URL endpoint: only worker-metered requests run."""
+    Returns the decoded payload dict on success, or None. Blocks abuse of this
+    public-URL endpoint: only worker-metered requests run."""
     if not secret:
         # FAIL CLOSED: the Modal URL is public — a missing secret must NOT grant
         # unrestricted OpenAI spend. Only bypass with an explicit dev opt-in.
-        return os.environ.get("ALLOW_UNAUTH_DEV") == "1"
+        return {"dev": True} if os.environ.get("ALLOW_UNAUTH_DEV") == "1" else None
     try:
         body, sig = token.split(".")
         expected = base64.urlsafe_b64encode(
             hmac.new(secret.encode(), body.encode(), hashlib.sha256).digest()
         ).decode().rstrip("=")
         if not hmac.compare_digest(sig, expected):
-            return False
+            return None
         payload = json.loads(base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)))
-        return payload.get("exp", 0) > time.time() * 1000
+        if payload.get("exp", 0) <= time.time() * 1000:
+            return None
+        return payload
     except Exception:
-        return False
+        return None
 
 image = (
     modal.Image.debian_slim(python_version="3.11")
@@ -263,8 +266,16 @@ class GptSmile:
     def compose(self, body: dict):
         t0 = time.time()
         try:
-            if not _verify_meter_token(body.get("token", ""), os.environ.get("SMILE_HMAC_SECRET", "")):
+            payload = _verify_meter_token(body.get("token", ""), os.environ.get("SMILE_HMAC_SECRET", ""))
+            if not payload:
                 return {"error": "unauthorized (invalid or expired meter token)"}
+            # If the token is image-bound, the submitted image must match its hash
+            # (blocks replaying a captured token against a different image).
+            h = payload.get("h")
+            if h:
+                actual = hashlib.sha256(body.get("image", "").encode()).hexdigest()
+                if not hmac.compare_digest(h, actual):
+                    return {"error": "meter token does not match image"}
             quality = body.get("quality", "medium")
             if quality not in ("low", "medium", "high"):
                 quality = "medium"

@@ -1997,11 +1997,17 @@ async function handleLead(request, env, origin) {
 // burn OpenAI spend — Modal verifies this with the shared secret before running.
 function _b64url(str) { return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
 function _b64urlBytes(bytes) { let s = ''; for (const b of bytes) s += String.fromCharCode(b); return _b64url(s); }
-async function signMeterToken(env, tenant) {
+async function signMeterToken(env, tenant, imgHash) {
   // Dedicated shared secret for the Modal endpoint (set MODAL_SHARED_SECRET to a
   // fresh value on BOTH the worker and Modal). Falls back to DASH_SECRET if unset.
   const secret = env.MODAL_SHARED_SECRET || env.DASH_SECRET || '';
-  const body = _b64url(JSON.stringify({ t: tenant, exp: Date.now() + 120000 }));  // 2 min TTL
+  // Bind the token to the exact image (sha256 hex) so a captured token can't be
+  // replayed against Modal with a DIFFERENT image — replay is limited to the one
+  // image already paid for, which is worthless. TTL shortened to 90s. (jti/nonce
+  // one-use would need shared state Modal can't reach — BFM blocks Modal→worker.)
+  const payload = { t: tenant, exp: Date.now() + 90000 };
+  if (imgHash) payload.h = imgHash;
+  const body = _b64url(JSON.stringify(payload));
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret),
     { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(body));
@@ -2022,7 +2028,8 @@ async function handleMeter(request, env, origin) {
   const kind = k === 'videos' ? 'videos' : k === 'shadow' ? 'shadow' : 'sims';
   const limited = await meter(env, request, tenant, kind, origin);
   if (limited) return limited;
-  const token = await signMeterToken(env, tenant);
+  const imgHash = (url.searchParams.get('h') || '').replace(/[^a-f0-9]/g, '').slice(0, 64);
+  const token = await signMeterToken(env, tenant, imgHash);
   return new Response(JSON.stringify({ ok: true, token }), {
     headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
   });
@@ -2149,9 +2156,14 @@ async function handleGptReviewLabel(request, env, origin) {
 }
 
 async function handleGptEdit(request, env, origin) {
-  const tenant = (new URL(request.url).searchParams.get('tenant') || 'unknown').toLowerCase();
-  const limited = await meter(env, request, tenant, 'sims', origin);
-  if (limited) return limited;
+  const url = new URL(request.url);
+  const tenant = (url.searchParams.get('tenant') || 'unknown').toLowerCase();
+  // metered=1 means the sim was already counted upstream (GPT-Modal primary);
+  // this is a deep fallback for the SAME attempt — don't double-charge.
+  if (url.searchParams.get('metered') !== '1') {
+    const limited = await meter(env, request, tenant, 'sims', origin);
+    if (limited) return limited;
+  }
   let res;
   try {
     res = await fetch(`${OPENAI_BASE}/v1/images/edits`, {
@@ -2354,41 +2366,13 @@ export default {
       return handleVideoStatus(request, env, origin);
     }
 
-    // OpenAI proxy
-    if (request.method !== 'POST') {
-      return new Response(JSON.stringify({ error: 'Method Not Allowed', path: url.pathname, method: request.method }), {
-        status: 405,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
-      });
-    }
-
-    const upstream = `${OPENAI_BASE}${url.pathname}${url.search}`;
-
-    let upstreamResponse;
-    try {
-      upstreamResponse = await fetch(upstream, {
-        method:  'POST',
-        headers: {
-          'Authorization': `Bearer ${env.OPENAI_API_KEY}`,
-          ...(request.headers.get('Content-Type')
-            ? { 'Content-Type': request.headers.get('Content-Type') }
-            : {}),
-        },
-        body: request.body,
-      });
-    } catch (err) {
-      return new Response(JSON.stringify({ error: err.message }), {
-        status: 502,
-        headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
-      });
-    }
-
-    const responseHeaders = new Headers(upstreamResponse.headers);
-    Object.entries(corsHeaders(origin)).forEach(([k, v]) => responseHeaders.set(k, v));
-
-    return new Response(upstreamResponse.body, {
-      status:  upstreamResponse.status,
-      headers: responseHeaders,
+    // No route matched. The old generic OpenAI passthrough
+    // (POST /v1/... → api.openai.com with our key, UNMETERED) was removed — it
+    // let anyone past the Origin gate burn OPENAI_API_KEY with no quota. All
+    // OpenAI use now goes through the metered POST /api/gpt/edit endpoint.
+    return new Response(JSON.stringify({ error: 'Not found', path: url.pathname }), {
+      status: 404,
+      headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
   },
 };
