@@ -2026,8 +2026,12 @@ async function handleMeter(request, env, origin) {
   // 429s a patient — the patient already got their real (Ideogram) result.
   const k = url.searchParams.get('kind');
   const kind = k === 'videos' ? 'videos' : k === 'shadow' ? 'shadow' : 'sims';
-  const limited = await meter(env, request, tenant, kind, origin);
-  if (limited) return limited;
+  // metered=1 → this attempt was already counted upstream (e.g. Gemini primary);
+  // still issue the Modal token, just don't double-count the sim.
+  if (url.searchParams.get('metered') !== '1') {
+    const limited = await meter(env, request, tenant, kind, origin);
+    if (limited) return limited;
+  }
   const imgHash = (url.searchParams.get('h') || '').replace(/[^a-f0-9]/g, '').slice(0, 64);
   const token = await signMeterToken(env, tenant, imgHash);
   return new Response(JSON.stringify({ ok: true, token }), {
@@ -2184,6 +2188,60 @@ async function handleGptEdit(request, env, origin) {
   return new Response(res.body, { status: res.status, headers: h });
 }
 
+// Gemini in-place teeth edit — the PRIMARY engine (validated cleaner than GPT on
+// real photos, dentist-rated). Edits only the mouth and preserves the rest of
+// the image, so no MediaPipe/affine/composite/quality-gate is needed. ~18s fits
+// under the Worker's 30s subrequest limit, so it runs here (no Modal). The
+// Gemini key is a Worker secret (GEMINI_API_KEY) — never exposed to the browser.
+const GEMINI_MODEL = 'gemini-3-pro-image';
+const GEMINI_PROMPT =
+  'Edit this portrait photograph. Change ONLY the teeth visible in the mouth: make them straight, ' +
+  'even, and a natural bright white (dental shade BL1-BL2), individually defined with subtle ' +
+  'inter-dental shadows and natural incisal translucency, with healthy pink gums; repair any chips, ' +
+  'gaps, decay, or missing teeth into a complete healthy arch. Keep EVERYTHING else exactly the same ' +
+  'and pixel-identical: face, lip shape and position, skin texture, freckles, wrinkles, facial hair, ' +
+  'eyes, hair, head angle, framing, lighting, shadows, background. Do NOT beautify or smooth skin. Do ' +
+  'NOT change smile width or how open the mouth is. Photorealistic, the same photograph, only the ' +
+  'teeth improved.';
+async function handleGeminiEdit(request, env, origin) {
+  const url = new URL(request.url);
+  const tenant = (url.searchParams.get('tenant') || 'unknown').toLowerCase();
+  const j = (o, s = 200) => new Response(JSON.stringify(o), { status: s, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) } });
+  if (!env.GEMINI_API_KEY) return j({ error: 'GEMINI_API_KEY not configured' }, 503);
+  if (url.searchParams.get('metered') !== '1') {
+    const limited = await meter(env, request, tenant, 'sims', origin);
+    if (limited) return limited;
+  }
+  let body; try { body = await request.json(); } catch { body = {}; }
+  const m = /^data:(image\/[\w.+-]+);base64,(.+)$/s.exec(body.image || '');
+  if (!m) return j({ error: 'bad or missing image' }, 400);
+  const [, mime, b64] = m;
+  let gres;
+  try {
+    gres = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: GEMINI_PROMPT }, { inline_data: { mime_type: mime, data: b64 } }] }],
+        generationConfig: { responseModalities: ['IMAGE'] },
+      }),
+    });
+  } catch (err) {
+    return j({ error: 'gemini fetch failed: ' + err.message }, 502);
+  }
+  if (!gres.ok) {
+    const t = await gres.text().catch(() => '');
+    return j({ error: `gemini ${gres.status}: ${t.slice(0, 160)}` }, 502);
+  }
+  let data; try { data = await gres.json(); } catch { return j({ error: 'gemini bad json' }, 502); }
+  const parts = ((data.candidates || [])[0] || {}).content?.parts || [];
+  for (const p of parts) {
+    const d = p.inlineData || p.inline_data;
+    if (d && d.data) return j({ image: `data:${d.mimeType || d.mime_type || 'image/png'};base64,${d.data}`, engine: 'gemini' });
+  }
+  return j({ error: 'no image from gemini' }, 502);
+}
+
 // --- Main handler ---
 export default {
   async fetch(request, env) {
@@ -2330,6 +2388,10 @@ export default {
     // the tenant cap (the generic OpenAI proxy below is NOT metered).
     if (url.pathname === '/api/gpt/edit' && request.method === 'POST') {
       return handleGptEdit(request, env, origin);
+    }
+    // Metered Gemini in-place teeth edit — the PRIMARY engine. Fits in 30s, no Modal.
+    if (url.pathname === '/api/gemini/edit' && request.method === 'POST') {
+      return handleGeminiEdit(request, env, origin);
     }
     // Meter a sim/video without generating — used before the browser calls the
     // Modal GPT-smile endpoint directly (Modal has no metering). 200 ok / 429.

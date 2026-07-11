@@ -2922,6 +2922,31 @@ function setupGptFeedback(beforeUrl, afterUrl) {
 // PRIMARY (server-side): meter a sim, then call the Modal GPT-smile endpoint,
 // which does gpt-image-1 + the tooth composite in Python and returns the
 // finished image. No browser MediaPipe/canvas involved → no perioral band.
+// Gemini is the PRIMARY engine (validated cleaner than GPT on real photos,
+// dentist-rated). It edits only the mouth in place, so no composite/gate is
+// needed, and ~18s fits under the worker's 30s limit → no Modal. GPT-Modal +
+// Ideogram remain automatic fallbacks. Flip to false to fall back to the old
+// GPT-primary behavior.
+const GEMINI_PRIMARY = true;
+async function geminiMakeover(dataUrl) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 28000);   // under the worker's 30s ceiling
+  let res;
+  try {
+    res = await fetch(`${PROXY_URL}/api/gemini/edit?tenant=${encodeURIComponent(TENANT)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ image: dataUrl, tenant: TENANT }), signal: ctrl.signal,
+    });
+  } finally { clearTimeout(timer); }
+  if (res.status === 429) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'limit reached'); }
+  simMetered = true;   // the worker counted this attempt — fallbacks must not re-count
+  if (!res.ok) throw new Error(`Gemini ${res.status}`);
+  const data = await res.json();
+  if (data.error) throw new Error(data.error);
+  if (!data.image) throw new Error('No image from Gemini');
+  return data.image;
+}
+
 async function sha256hex(str) {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
   return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
@@ -2930,7 +2955,7 @@ async function gptModalMakeover(dataUrl, modalUrl) {
   // Bind the meter token to this exact image (see signMeterToken) so a captured
   // token can't be replayed against Modal with a different image.
   const imgHash = await sha256hex(dataUrl);
-  const mr = await fetch(`${PROXY_URL}/api/meter?tenant=${encodeURIComponent(TENANT)}&kind=sims&h=${imgHash}`, { method: 'POST' });
+  const mr = await fetch(`${PROXY_URL}/api/meter?tenant=${encodeURIComponent(TENANT)}&kind=sims&h=${imgHash}${simMetered ? '&metered=1' : ''}`, { method: 'POST' });
   if (mr.status === 429) { const d = await mr.json().catch(() => ({})); throw new Error(d.error || 'limit reached'); }
   simMetered = true;   // this attempt's sim is now counted; the Ideogram fallback must not re-count it
   const md = await mr.json().catch(() => ({}));
@@ -2994,6 +3019,20 @@ async function generateSmile(dataUrl) {
   simMetered = false;   // fresh attempt — no sim counted yet
   updateProgress('Analyzing your smile…', 10);
   const { width, height, resized: resizedUrl } = await resizeForAPI(dataUrl);
+
+  // --- PRIMARY: Gemini in-place teeth edit (dentist-rated cleaner than GPT;
+  // edits only the mouth so no composite/gate; ~18s via the metered worker
+  // endpoint, no Modal). GPT-Modal + Ideogram below are the automatic fallbacks. ---
+  if (GEMINI_PRIMARY) {
+    try {
+      updateProgress('Designing your new smile…', 30);
+      const g = await geminiMakeover(resizedUrl);
+      if (g) { console.log('✅ Result from: Gemini (in-place edit)'); return g; }
+    } catch (e) {
+      if (/limit reached/i.test(e.message)) throw e;
+      console.warn('Gemini failed, trying next path:', e.message);
+    }
+  }
 
   // --- Server-side GPT smile (Modal). Runs when it's the default
   // (MODAL_SMILE_URL set) OR opted-in per-URL via ?engine=gpt (staff evaluation:
