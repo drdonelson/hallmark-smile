@@ -1,19 +1,27 @@
 # Hallmark Smile Simulator — Agent Cold-Start Document
 
-**Version:** 4.0 (July 2026 — primary path is now GPT full-image + tooth composite)  
+**Version:** 5.0 (July 2026 — GPT is the blind PATIENT default, server-side on Modal, with a quality gate)  
 **Classification:** Cold-Start Foundation Document  
 **Project:** Hallmark Dental Smile Simulator  
 **Authority:** Dr. David Donelson — Hallmark Dental, david@hallmarkdds.com  
 **Live URL:** https://app.lucidroi.com/smile-simulator.html (also drdonelson.github.io/hallmark-smile/smile-simulator.html — 301s to the custom domain)  
 **Full Developer Handoff:** `DEVELOPER_HANDOFF.md` in repo root — read this for the complete project arc  
 
-**v4.0 changes (read Section 3.13 first):** GPT `gpt-image-1` full-image + tooth
-composite is the new PRIMARY generation path (Ideogram demoted to Fallback 1).
-It solves the lighting-integration problem the crop-zoom never did and handles
-severe missing/broken-teeth cases. Video upgraded to Kling 2.5 Turbo Pro.
-Harness gained `gpt_fullface.py` + `gpt_composite.py`. The product also grew a
-self-serve white-label + 3-tier-role dashboard layer (out of scope for this
-pipeline doc; see the memory files / DEVELOPER_HANDOFF).
+**v5.0 changes (read Section 3.16 — it supersedes 3.13 on several points):** GPT
+moved SERVER-SIDE to a Modal CPU app (`modal-model/gpt_smile_app.py`) and is now
+the blind PATIENT default (was staff-only `?engine=gpt`); Ideogram is the
+automatic fallback. The composite mask changed from outer-lip to INNER-lip
+(keeps the patient's original lips → kills the orange-lip failure). A
+DETERMINISTIC geometric quality gate rejects broken generations → fall back to
+Ideogram. Security hardening after a codex audit (metering, fail-closed auth,
+image-bound meter token, removed unmetered OpenAI proxy). Cost: the old GPU app
+`dental-lora` is STOPPED; per-sim cost is now ~$0.02–0.04 of OpenAI, Modal is
+pennies. See Section 3.16 for all of it.
+
+**v4.0 (superseded in part by 3.16):** GPT `gpt-image-1` full-image + tooth
+composite became the primary path; Ideogram demoted to Fallback 1. Video
+upgraded to Kling 2.5 Turbo Pro. Harness gained `gpt_fullface.py` +
+`gpt_composite.py`. Self-serve white-label + 3-tier-role dashboard layer added.
 
 ---
 
@@ -379,6 +387,103 @@ URL 301-redirects to the `app.lucidroi.com` custom domain (CNAME); curl without
 
 ---
 
+### 3.16 GPT is the SERVER-SIDE PATIENT DEFAULT + quality gate + security (SHIPPED July 8–10 2026)
+
+The big July 8–10 arc. This supersedes parts of 3.13 (GPT is no longer staff-only;
+the mask is inner-lip, not outer-lip; there is now a quality gate).
+
+**Server-side on Modal.** GPT-gen + composite moved OFF the browser into
+`modal-model/gpt_smile_app.py` (a CPU-only Modal app, `min_containers=0`,
+scales to zero). Endpoint `POST https://drdonelson--gpt-smile-gptsmile-compose.modal.run`.
+Browser flow: `POST /api/meter?tenant=&kind=sims&h=<sha256>` (meters + returns a
+2-min HMAC token bound to the image hash) → browser `POST` to the Modal URL with
+`{image, quality:'high', token, tenant}` → Modal verifies the token, runs
+gpt-image-1 + MediaPipe + affine + feather composite, returns the finished JPEG.
+Runs BEFORE browser MediaPipe (works without WebGL — that's why the old browser
+composite couldn't be headless-QA'd). `MODAL_SMILE_URL` in `smile-simulator.html`
+holds the endpoint; set = GPT is the blind patient default. Empty = Ideogram
+default + GPT only on `?engine=gpt`.
+
+**INNER-lip keep-lips mask (fixes orange lip).** The composite masks the
+INNER-lip polygon grown 1.12× wide / 1.20× tall, NOT the outer lip. This keeps
+the patient's ORIGINAL lips, so gpt-image-1's lip rendering — which went
+orange/muddy on glossy-lip photos — is never used. The affine already scales
+GPT's teeth into the original mouth opening, so full teeth (emergence + incisal)
+still show and the blend lands at the tooth/lip boundary inside the mouth. This
+replaced the 3.13 outer-lip mask. (3.13's outer-lip fix solved a *different*
+problem — clipping — but dragged in GPT's lips; inner-lip solves both.)
+
+**DETERMINISTIC quality gate (`_composite` raises → `compose` returns {error} →
+browser falls back to Ideogram).** Bad-but-valid GPT gens (HTTP 200, poor image)
+no longer ship blind. Three PRECISION-FIRST geometric checks:
+1. Affine-fit residual — transform GPT's inner-lip by M, compare to original
+   inner-lip; reject if median > 3.5% mouth-width or p90 > 8%.
+2. Transform-shape sanity — LOOSE scale/rotation/anisotropy/shear bounds
+   (full `estimateAffine2D` produces mild anisotropy on GOOD fits, so loose).
+3. Post-composite self-consistency — re-run MediaPipe on the FINISHED image,
+   confirm the mouth landed where the original mouth is (SKIP, don't reject, if
+   re-detection fails — protects precision).
+CRITICAL LESSON: do NOT gate raw mouth displacement. gpt-image-1 re-renders the
+whole face and freely repositions the mouth (a GOOD result shifted the inner-lip
+centroid ~99px); the affine EXISTS to correct that. Gating raw shift
+false-rejected 3/4 GOOD photos. Checks 1+3 are position-independent and catch
+true misregistration correctly. Validated 6/6 known-good photos pass → zero
+false rejects. Design came from a `/codex` consult; VALIDATION on real photos
+corrected it (codex can't see images). Caveat: no confirmed GPT-misregistration
+BAD sample exists yet (the philtrum-band failures David reported were IDEOGRAM,
+the old default) — the gate is sound-by-design + precision-verified, catch-side
+unproven on a real GPT failure.
+
+**Why GPT became the default:** David tested hallmarkdds.com (normal patient
+link) and got white-block teeth + a brown philtrum band — those were the DEFAULT
+IDEOGRAM engine failing on real photos. The same faces through GPT rendered
+clean (`/tmp/gpt_vs_default.jpg`). So Ideogram is the weak link on real photos;
+GPT-with-inner-lip-fix is better. Flipped `MODAL_SMILE_URL` → GPT default.
+
+**Security (codex audit, all fixed + verified):**
+- Double-metering: GPT meters a sim before Modal; the Ideogram/gpt-image-2
+  fallbacks now skip re-metering via `?metered=1` (worker) + a `simMetered`
+  browser flag. Prevents 2 sims/attempt + a cap-edge fallback-429.
+- Modal `_verify_meter_token` FAILS CLOSED when `SMILE_HMAC_SECRET` unset (was
+  `return True` → public-URL free OpenAI spend). Dev bypass `ALLOW_UNAUTH_DEV=1`.
+- Meter token is IMAGE-BOUND (`h`=sha256): a captured token can't be replayed
+  against Modal with a different image. True one-use nonce is unreachable (Modal→
+  worker is Cloudflare-Bot-Fight-blocked; worker-proxying breaks the 30s limit).
+- `/api/gpt-shadow` requires a dashboard bearer + rejects non-image / >8MB (was
+  an open R2 write with 10y TTL).
+- Removed the generic unmetered `/v1/... → api.openai.com` passthrough (returns
+  404); all OpenAI use goes through the metered `/api/gpt/edit`.
+
+**Data-collection infra (built, currently DORMANT).** `/api/gpt-shadow` +
+`/api/gpt-review` + `/api/gpt-review/label` + a dashboard "GPT Review" tab
+(admin-only 👍/👎 labeling) exist to build a labeled training set for a future
+learned quality gate. Provenance-stamped: `source` (clinical | patient-shadow),
+`verdict`, `engine`, `staff`. Dormant now because GPT is the patient default
+(no separate shadow to collect) AND Cloudflare Bot Fight Mode blocks the
+server-to-server write. To revive: store via R2-direct (bypasses Cloudflare).
+
+**Cost / Modal ops.** The OLD GPU app `dental-lora` (A10G, ~$1/hr) is STOPPED —
+it was the expensive one and is only a dead-deepest fallback (Fallback 4,
+`loraCompositeMakeover`). `gpt-smile` (CPU) is the only live Modal app; pennies,
+scales to zero. The REAL per-sim cost is OpenAI gpt-image-1 (~$0.02–0.04/image),
+billed by OpenAI separately, NOT Modal. Modal has a per-cycle SPEND LIMIT (a
+safety cap you set) that halts all apps at 100% — raise it in the Modal
+dashboard; it's a ceiling, not a balance. Cheap test-if-unblocked: POST the
+compose endpoint with a bogus token → fast "unauthorized" if Modal is running,
+platform error/timeout if capped (no gen runs either way).
+
+**Latency (open).** Cold Modal gen is ~70–90s, warm ~40s. `min_containers=1`
+(keep one CPU container warm) or `quality:'medium'` would cut it. Progress bar
+covers it for now.
+
+**`/codex` (OpenAI Codex CLI).** Installed `npm i -g @openai/codex` (v0.143.0);
+David authed via ChatGPT subscription (`codex login`). Great for design/security
+review; CANNOT see images or judge dental quality — pair it with harness
+validation. Gotcha: use unique temp paths (`/tmp/codex-*-$$-$RANDOM`), a stale
+mktemp target aborts the run.
+
+---
+
 ## 4. What Has Been Tried and Abandoned
 
 Do not revisit these unless the constraints have materially changed.
@@ -479,22 +584,35 @@ Test with real patient photos from the office — they have dental bibs, office 
 - **ControlNet closed-mouth generation**: canny blanked inside mask
 - **Modal crash loop**: numpy<2 repeated in opencv pip_install layer
 
-### Still Unsolved / Open
+### Still Unsolved / Open (updated July 2026 — see 3.16)
 
-- **Perioral skin halo** from the GPT outer-lip composite — a soft ring of
-  GPT's slightly-smoothed skin around the lips. Soft, not a seam; acceptable
-  for now. Fix: asymmetric mask (tight on the upper-lip/philtrum skin side,
-  generous at the incisal edge). Iterate in `harness/gpt_composite.py`.
-- **`gpt-image-1` mouth drift** — GPT widens/shifts the smile; the affine
-  registration corrects most of it, but extreme cases hit the alignment guard
-  and fall back to Ideogram. A tighter registration (per-tooth or more
-  landmarks) could raise the GPT hit rate.
-- **30s Worker ceiling** blocks `quality:high` GPT in production. A
-  longer-timeout backend (Modal / Vercel fn / OpenAI background mode) would let
-  high quality ship. See 3.13.
-- **In-browser QA** of the GPT-composite path can't be done headless (MediaPipe
-  needs WebGL, Section 3.11) — iterate in the Python harness, then verify one
-  real simulation in a real browser after each change.
+- **Predictability is UNMEASURED.** GPT looks clean on ~10 photos judged by an
+  agent's eye (not a dentist's). There is no measured success rate on a
+  representative batch. THE highest-value next step: run 30–50 real practice
+  photos through the live GPT path and have David rate each good/bad. Everything
+  else is guessing until this exists.
+- **The quality gate covers GEOMETRY, not AESTHETICS.** It catches a mouth
+  placed in the wrong spot; it does NOT catch a geometrically-valid but ugly
+  result (too white, odd gums, wrong shade). gpt-image-1 has inherent variance,
+  so an aesthetic miss can still ship. Fixes: (a) best-of-N (generate 2–3, keep
+  the one that passes / scores best — biggest lever against variance); (b) a
+  learned aesthetic gate trained on the review-queue labels (infra built,
+  dormant — see 3.16).
+- **GPT quality-gate catch-side unproven** — no confirmed GPT-misregistration
+  BAD sample yet. Gate is defensive + precision-verified only.
+- **Modal cold-start latency** ~70–90s (warm ~40s). `min_containers=1` or
+  `quality:'medium'` would cut it (3.16).
+- **Review queue is dormant** — Cloudflare Bot Fight Mode blocks the
+  server-to-server write; revive via R2-direct storage (3.16).
+- **In-browser QA** of the browser paths can't be done headless (MediaPipe needs
+  WebGL, 3.11). The server-side Modal path IS testable directly (Python harness
+  hits the endpoint) — that's a big win over the old browser composite.
+
+RESOLVED since v4.0: orange-lip on glossy lips (inner-lip keep-lips mask, 3.16);
+emergence/incisal clipping (the 3.13 outer-lip fix, then inner-lip); the 30s
+Worker ceiling for `quality:high` (Modal has no 30s cap — GPT high ships now);
+bad-but-valid gens shipping blind (deterministic quality gate, 3.16); several
+metering/security holes (codex audit, 3.16).
 
 ---
 
