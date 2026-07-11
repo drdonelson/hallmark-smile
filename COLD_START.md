@@ -1,6 +1,21 @@
 # Hallmark Smile Simulator — Agent Cold-Start Document
 
-**Version:** 5.0 (July 2026 — GPT is the blind PATIENT default, server-side on Modal, with a quality gate)  
+**Version:** 6.0 (July 2026 — GEMINI in-place teeth edit is the PRIMARY engine; GPT/Modal/gate demoted to fallback)  
+
+> **v6.0 (2026-07-11) — read this first.** The PRIMARY engine is now **Google
+> Gemini `gemini-3-pro-image`**, called from a metered worker endpoint
+> `POST /api/gemini/edit` (`handleGeminiEdit`; `GEMINI_API_KEY` is a Worker
+> secret). It edits ONLY the mouth **in place** — no whole-face re-render — so it
+> needs NONE of the GPT machinery (no MediaPipe/affine/composite/quality-gate)
+> and its ~18s fits under the Worker's 30s limit (no Modal). It beat GPT
+> clean-sweep in a dentist-rated comparison. Simulator: `geminiMakeover()` runs
+> first (`GEMINI_PRIMARY` flag); GPT-Modal → Ideogram are the fallbacks. Every
+> section below about GPT-as-primary, the Modal server-side path, and the
+> quality gate now describes the FALLBACK path, not the primary. Details:
+> memory `feedback_gpt_and_video_2026-07.md` (2026-07-11 entry). Open: severe
+> missing/broken-teeth case + a bigger batch not yet tested on Gemini.
+
+
 **Classification:** Cold-Start Foundation Document  
 **Project:** Hallmark Dental Smile Simulator  
 **Authority:** Dr. David Donelson — Hallmark Dental, david@hallmarkdds.com  
