@@ -1131,8 +1131,8 @@
       <div class="video-style-row" id="videoStyleRow">
         <label for="videoStyle">Video style</label>
         <select id="videoStyle">
+          <option value="talklaugh">Talk &amp; laugh</option>
           <option value="laugh">Joyful laugh</option>
-          <option value="reveal">Confident reveal</option>
           <option value="talk">Talking to camera</option>
         </select>
       </div>
@@ -3735,7 +3735,7 @@ async function runVideoGeneration(afterSrc, onProgress = () => {}) {
   const startRes = await fetch(`${PROXY_URL}/api/kling/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ image: croppedImage, tenant: TENANT, style: (($('videoStyle') || {}).value || 'laugh') }),
+    body: JSON.stringify({ image: croppedImage, tenant: TENANT, style: (($('videoStyle') || {}).value || 'talklaugh') }),
   });
   const startData = await startRes.json();
   if (!startRes.ok || !startData.request_id) {

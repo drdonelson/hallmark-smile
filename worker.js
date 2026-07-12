@@ -126,6 +126,15 @@ async function handleKlingStart(request, env, origin) {
   const line = (body.videoLine || 'this is amazing').replace(/["\\]/g, '');
   // Style presets — the patient can pick the vibe of the shareable clip.
   const STYLE_PROMPTS = {
+    // Default: talk-to-camera THEN break into a joyful laugh — combines the two
+    // styles patients liked best (dropped the disliked "confident reveal").
+    talklaugh:
+      'The person faces the camera and speaks naturally, as if excitedly telling a friend about their new smile, ' +
+      `warmly mouthing the words "${line}" with clear, relaxed lip and jaw movement and expressive eyebrows — ` +
+      'then breaks into a big warm genuine laugh: head tilting back a little, cheeks lifting, eyes crinkling with ' +
+      'joy, shoulders relaxing. Bright confident smile showing their new teeth the whole time. Friendly and ' +
+      'conversational turning joyful and celebratory, natural blinking and small head movements, photorealistic ' +
+      'human face, soft studio lighting, camera static.',
     laugh:
       'The person turns their head slightly to show off their new smile, then faces the camera. ' +
       `Looking at the camera with a delighted, surprised expression, they clearly mouth the words "${line}" ` +
@@ -133,18 +142,13 @@ async function handleKlingStart(request, env, origin) {
       'head tilting back a little, cheeks lifting, eyes crinkling with joy, shoulders relaxing. ' +
       'Broad bright smile showing their new teeth the whole time. Joyful, confident, celebratory energy, ' +
       'natural blinking, photorealistic human face, soft studio lighting, camera static.',
-    reveal:
-      'The person looks down briefly, then lifts their head to face the camera and slowly breaks into a ' +
-      'confident, radiant closed-then-open smile, showing off their new teeth. Subtle, elegant, self-assured — ' +
-      'a gentle head tilt, calm steady eye contact, a small satisfied nod. Photorealistic human face, ' +
-      'soft flattering studio lighting, minimal head movement, camera static.',
     talk:
       'The person faces the camera and speaks naturally as if telling a friend about their new smile, ' +
       `warmly mouthing the words "${line}" with clear, relaxed lip and jaw movement and expressive eyebrows, ` +
       'finishing with a bright confident smile showing their new teeth. Friendly, conversational, genuine energy, ' +
       'natural blinking and small head movements, photorealistic human face, soft studio lighting, camera static.',
   };
-  const style = STYLE_PROMPTS[body.style] ? body.style : 'laugh';
+  const style = STYLE_PROMPTS[body.style] ? body.style : 'talklaugh';
   const prompt = STYLE_PROMPTS[style];
 
   let fal;
