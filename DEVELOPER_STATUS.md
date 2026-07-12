@@ -1,5 +1,15 @@
 # Hallmark Smile Simulator — Developer Status Brief
-*For external developer onboarding — July 2026*
+*For external developer onboarding — updated 2026-07-11*
+
+---
+
+> ## ⚠️ CURRENT STATE (2026-07-11)
+> - **PRIMARY engine is Google Gemini** (`gemini-3-pro-image`, in-place teeth edit) via metered Worker endpoint **`POST /api/gemini/edit`** — dentist-rated cleaner than GPT, ~18s, no Modal. **GPT-Modal → Ideogram are fallbacks.**
+> - GPT server-side path (Modal inner-lip composite + deterministic geometric quality gate) is **fallback-only**.
+> - Security hardened (metering double-charge fix, fail-closed Modal auth, image-bound meter token, removed unmetered OpenAI proxy, locked `/api/gpt-shadow`).
+> - Cost: `dental-lora` GPU app STOPPED; real per-sim cost is the image API (~cents), not Modal.
+> - Video: Kling 2.5 Turbo Pro, default style **"Talk & laugh"**.
+> - Canonical detail: **`COLD_START.md` v6.0** + memory `feedback_gpt_and_video_2026-07.md`.
 
 ---
 

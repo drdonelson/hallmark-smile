@@ -3,8 +3,18 @@
 **Date:** May 2026  
 **Project:** Hallmark Dental Smile Simulator  
 **Owner:** Dr. David Donelson — david@hallmarkdds.com  
-**Live URL:** https://drdonelson.github.io/hallmark-smile/smile-simulator.html  
+**Live URL:** https://app.lucidroi.com/smile-simulator.html (github.io 301s here)  
 **Quality Target:** https://bitebot.io — open this in a tab before touching any code  
+
+---
+
+> ## ⚠️ CURRENT STATE (2026-07-11) — the doc below is the historical arc; read this box for what's live
+> - **PRIMARY engine is now Google Gemini** (`gemini-3-pro-image`, in-place teeth edit) via a metered Worker endpoint **`POST /api/gemini/edit`** — dentist-rated cleaner than GPT, ~18s, no Modal. **GPT-Modal → Ideogram are now fallbacks.** (`GEMINI_PRIMARY` flag in `smile-simulator.html`; `GEMINI_API_KEY` is a Worker secret.)
+> - The **GPT path** (server-side on Modal, inner-lip keep-lips composite, deterministic geometric quality gate) is **fallback-only** now — still in the code.
+> - **Security hardened** (2026-07-08/10): metering double-charge fix, Modal auth fails-closed, image-bound meter token, removed the unmetered OpenAI proxy, locked `/api/gpt-shadow`.
+> - **Cost:** old GPU app `dental-lora` is STOPPED. Real per-sim cost is the image API (OpenAI/Gemini, ~cents), NOT Modal.
+> - **Video:** Kling 2.5 Turbo Pro; default style **"Talk & laugh"** (`talklaugh`).
+> - Full detail: **`COLD_START.md` v6.0 + §3.16** and memory `feedback_gpt_and_video_2026-07.md`.
 
 ---
 

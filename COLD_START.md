@@ -386,7 +386,11 @@ Runs on fal's **queue** (`queue.fal.run`) — the start call submits and returns
 time is a UX wait, NOT a Worker-timeout concern. `/api/kling/start` accepts a
 `duration` body param. Validated: natural reveal→laugh, identity preserved,
 teeth stable; 5s ~99s / 10s ~73s (queue variance), ~$0.35 for 5s (+$0.07/s).
-`handleKlingStart` also carries `STYLE_PROMPTS` (laugh/reveal/talk).
+`handleKlingStart` carries `STYLE_PROMPTS`. As of 2026-07-11 the styles are
+**`talklaugh` (default) / `laugh` / `talk`** — `talklaugh` merges the two
+patients liked (conversational talk-to-camera THEN a genuine joyful laugh); the
+disliked `reveal` was removed. The picker default + the worker fallback both
+point at `talklaugh`.
 
 ### 3.15 GitHub Pages deploy hangs — force a rebuild
 

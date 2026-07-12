@@ -313,8 +313,8 @@
   <h1>Hallmark Smile Simulator</h1>
   <p class="hero-sub">Technical status, iteration history, bitebot gap analysis, and roadmap</p>
   <div class="hero-links">
-    <a href="https://app.lucidroi.com/smile-simulator.html" target="_blank">Live Demo (default: Ideogram)</a>
-    <a href="https://app.lucidroi.com/smile-simulator.html?engine=gpt" target="_blank">Evaluate GPT engine</a>
+    <a href="https://app.lucidroi.com/smile-simulator.html" target="_blank">Live Demo (default: Gemini)</a>
+    <a href="https://app.lucidroi.com/smile-simulator.html?engine=gpt" target="_blank">Evaluate GPT fallback</a>
     <a href="https://github.com/drdonelson/hallmark-smile" target="_blank">GitHub Repo</a>
     <a href="https://bitebot.io/smiledesign" target="_blank">Competitor: bitebot.io</a>
   </div>
@@ -322,16 +322,18 @@
 
 <div class="content">
   <div class="section" style="border:1px solid #e3c659;background:#fffdf5">
-    <div class="section-label"><span class="dot" style="background:#c9a227"></span>Current Status — updated 2026-07-05 (read first)</div>
+    <div class="section-label"><span class="dot" style="background:#c9a227"></span>Current Status — updated 2026-07-11 (read first)</div>
     <h2 style="margin-top:4px">Where things stand today</h2>
     <ul>
-      <li><strong>Live default engine: Ideogram crop-zoom.</strong> Proven, identity-perfect, reliable for patients. This is what every simulation uses right now.</li>
-      <li><strong>GPT full-image + tooth composite: gated behind <code>?engine=gpt</code></strong> (NOT the default). It produces the best teeth + lighting and uniquely handles severe missing/broken cases, but the browser composite intermittently shows a <strong>perioral band</strong> (a pale strip across the upper lip) on some live generations.</li>
-      <li><strong>The band is a browser-only bug, not the algorithm.</strong> The offline Python harness composites the exact same patient/input cleanly across many generations (no band). The browser JS port bands. It can't be reproduced offline and the browser path can't be headless-QA'd (its face detector needs a GPU/WebGL context that headless environments lack). This is the core blocker.</li>
-      <li><strong>Video:</strong> upgraded to Kling 2.5 Turbo Pro (natural laugh reveal) — live.</li>
-      <li><strong>Product layer:</strong> self-serve white-label + 3-tier role dashboard (super-admin / admin / client), in-dashboard practice onboarding, per-practice branding/booking/embed — live.</li>
+      <li><strong>Live primary engine: Google Gemini</strong> (<code>gemini-3-pro-image</code>, in-place teeth edit). It edits ONLY the mouth and keeps the rest of the photo unchanged, so it needs none of the older face-alignment/compositing machinery. Dr. Donelson rated it cleaner than the previous engine on every test photo (a clean sweep), including difficult cases in production. Runs as a metered server endpoint (<code>POST /api/gemini/edit</code>), ~18s, no GPU/Modal.</li>
+      <li><strong>Fallbacks:</strong> if Gemini fails, the simulator automatically falls back to the GPT server-side path (OpenAI <code>gpt-image-1</code> on Modal, with an inner-lip composite + a deterministic geometric quality gate), then Ideogram. No outage — just a quieter degrade.</li>
+      <li><strong>The old "perioral band" blocker is resolved.</strong> That was a browser-composite artifact from the previous approach; the current engines don't re-render the face, so it no longer applies. The GPT fallback also moved server-side (testable) with a quality gate that falls back on a broken generation.</li>
+      <li><strong>Security hardened</strong> (independent code audit): metering can't double-charge, server auth fails closed, the image-generation token is bound to the specific image, and an unmetered API proxy was removed.</li>
+      <li><strong>Cost:</strong> the old GPU model app was stopped. The real per-simulation cost is now the image API (a few cents each), not infrastructure.</li>
+      <li><strong>Video:</strong> Kling 2.5 Turbo Pro; default shareable style is <strong>"Talk &amp; laugh"</strong> (talk to camera, then a genuine joyful laugh).</li>
+      <li><strong>Product layer:</strong> self-serve white-label + 3-tier role dashboard, in-dashboard onboarding, per-practice branding/booking/embed — live.</li>
     </ul>
-    <p style="margin-top:10px"><strong>How to review the GPT engine:</strong> open the simulator with <code>?engine=gpt</code> appended to the URL and run a real photo. <strong>Where we need a second set of eyes:</strong> reproducing/fixing the JS composite band (leading theory: move the composite server-side to Python/OpenCV where gradient-domain blending + real QA are possible, instead of the browser canvas port).</p>
+    <p style="margin-top:10px"><strong>Open items:</strong> confirm Gemini on a truly severe missing/broken-teeth case, and run a larger dentist-rated batch to put a number on the success rate. <strong>Canonical technical detail:</strong> <code>COLD_START.md</code> (v6.0) in the repo.</p>
   </div>
 </div>
 
