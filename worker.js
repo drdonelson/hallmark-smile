@@ -1508,8 +1508,24 @@ async function runConcierge(env) {
       if (ageMin > 21600) continue;               // ignore leads older than 15 days
       const touches = lead.touches || {};
 
-      for (const t of CONCIERGE_TOUCHES) {
-        if (touches[t.key] || ageMin < t.afterMin) continue;
+      // Never burst: send at most ONE touch per lead per run. If several are
+      // past due (e.g. concierge enabled after leads existed), send only the
+      // latest and mark the earlier ones lapsed so they never fire.
+      const due = CONCIERGE_TOUCHES.filter(t => !touches[t.key] && ageMin >= t.afterMin);
+      if (due.length > 1) {
+        let changed = false;
+        for (const t of due.slice(0, -1)) { touches[t.key] = 'lapsed'; changed = true; }
+        if (changed) await updateLead(env, tenant, lead.id, { touches }).catch(() => {});
+      }
+      const sendList = due.length ? [due[due.length - 1]] : [];
+      // Practice nudge is pointless a day later — lapse it if stale.
+      if (sendList.length && sendList[0].key === 'nudge1h' && ageMin > 1440) {
+        touches.nudge1h = 'lapsed';
+        await updateLead(env, tenant, lead.id, { touches }).catch(() => {});
+        sendList.length = 0;
+      }
+
+      for (const t of sendList) {
         // Patient touches stop once the practice engages; nudge only while new.
         if ((lead.status || 'new') !== 'new') { out.skipped++; continue; }
         try {
