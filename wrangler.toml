@@ -6,3 +6,6 @@ account_id = "d73bdf88c9cb5e6a28a971102a5ebe92"
 [[r2_buckets]]
 binding = "TEMP_IMAGES"
 bucket_name = "hallmark-temp-images"
+
+[triggers]
+crons = ["*/30 * * * *"]

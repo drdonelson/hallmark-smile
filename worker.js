@@ -1423,6 +1423,143 @@ async function updateLead(env, tenant, id, patch) {
   });
 }
 
+// ── Email Lead Concierge ────────────────────────────────────────
+// Cron-driven follow-up on new leads. Patient touches stop the moment the
+// practice moves the lead past "new" in the dashboard. Unsubscribes are
+// honored via an HMAC-signed link → R2 suppression record.
+const CONCIERGE_TENANTS = ['hallmark'];   // pilot allowlist — add slugs as pilots onboard
+const CONCIERGE_TOUCHES = [
+  { key: 'nudge1h', afterMin: 60,    audience: 'practice' },
+  { key: 'day1',    afterMin: 1440,  audience: 'patient'  },
+  { key: 'day3',    afterMin: 4320,  audience: 'patient'  },
+  { key: 'day7',    afterMin: 10080, audience: 'patient'  },
+];
+
+async function conciergeSuppressed(env, tenant, email) {
+  try { return !!(await env.TEMP_IMAGES.head(`suppress/${tenant}/${emailKey(email)}`)); }
+  catch { return false; }
+}
+
+async function sendConciergeEmail(env, { to, replyTo, subject, html }) {
+  const r = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: 'Smile Simulator <leads@lucidroi.com>',
+      to: [to],
+      ...(replyTo ? { reply_to: replyTo } : {}),
+      subject, html,
+    }),
+  });
+  return r.ok;
+}
+
+function conciergeFooter(unsubUrl, practice) {
+  return `<hr style="border:none;border-top:1px solid #e6eaf2;margin:22px 0 12px">
+    <p style="font:11px sans-serif;color:#9aaac8">Sent on behalf of ${practice} via Lucid ROI.
+    <a href="${unsubUrl}" style="color:#9aaac8">Unsubscribe from these reminders</a></p>`;
+}
+
+function bookBlock(bookingUrl) {
+  return bookingUrl
+    ? `<p style="margin:20px 0"><a href="${bookingUrl}" style="background:#2D6FFF;color:#fff;font:600 14px sans-serif;text-decoration:none;border-radius:10px;padding:13px 26px;display:inline-block">Book Your Free Consultation</a></p>`
+    : `<p style="font:14px sans-serif;color:#36465c">Just reply to this email and the team will find a time that works for you.</p>`;
+}
+
+function conciergePatientEmail(touchKey, lead, practice, bookingUrl, unsubUrl) {
+  const name = lead.firstName || 'there';
+  const interest = lead.interest ? lead.interest.toLowerCase() : 'a smile makeover';
+  const H = (t, b) => `<h2 style="font-family:Georgia,serif;color:#1B3A5C">${t}</h2>${b}${conciergeFooter(unsubUrl, practice)}`;
+  if (touchKey === 'day1') return {
+    subject: `Your smile preview from ${practice} — ready when you are`,
+    html: H(`${name}, your new smile is one step away`,
+      `<p style="font:15px sans-serif;color:#36465c">Yesterday you saw what your smile could look like. The next step is a quick consultation with ${practice} — no commitment, just answers about what's actually possible for you.</p>` + bookBlock(bookingUrl)),
+  };
+  if (touchKey === 'day3') return {
+    subject: `${name}, questions about ${interest}?`,
+    html: H(`Still thinking it over?`,
+      `<p style="font:15px sans-serif;color:#36465c">Most people who try the simulator have the same two questions: <em>"What would it really take?"</em> and <em>"What does it cost?"</em> Both get answered in one short visit with ${practice} — and you'll leave knowing your options for ${interest}, even if you decide to wait.</p>` + bookBlock(bookingUrl)),
+  };
+  if (touchKey === 'day7') return {
+    subject: `Your smile photos expire soon`,
+    html: H(`${name}, your before &amp; after comes down soon`,
+      `<p style="font:15px sans-serif;color:#36465c">For your privacy, your simulation photos are automatically deleted 30 days after they were created. If you'd like ${practice} to review them with you while they're still available, now is a good time to grab a spot.</p>` + bookBlock(bookingUrl)),
+  };
+  return null;
+}
+
+async function runConcierge(env) {
+  const out = { scanned: 0, sent: 0, skipped: 0, errors: 0 };
+  const now = Date.now();
+  for (const tenant of CONCIERGE_TENANTS) {
+    const rec = await registryGet(env, tenant);
+    const cfg = (rec && rec.config) || {};
+    const practice = (cfg.branding && cfg.branding.name) || prettyTenant(tenant);
+    const bookingUrl = (cfg.booking && cfg.booking.url) || '';
+    const practiceEmail = (cfg.leads && cfg.leads.notifyEmails && cfg.leads.notifyEmails[0]) || (rec && rec.leadEmail) || null;
+
+    const list = await env.TEMP_IMAGES.list({ prefix: `leads/${tenant}/`, limit: 1000 });
+    for (const o of list.objects) {
+      out.scanned++;
+      let lead;
+      try { lead = await env.TEMP_IMAGES.get(o.key).then(r => r && r.json()); } catch { continue; }
+      if (!lead || !lead.ts) continue;
+      const ageMin = (now - Date.parse(lead.ts)) / 60000;
+      if (ageMin > 21600) continue;               // ignore leads older than 15 days
+      const touches = lead.touches || {};
+
+      for (const t of CONCIERGE_TOUCHES) {
+        if (touches[t.key] || ageMin < t.afterMin) continue;
+        // Patient touches stop once the practice engages; nudge only while new.
+        if ((lead.status || 'new') !== 'new') { out.skipped++; continue; }
+        try {
+          let ok = false;
+          if (t.audience === 'practice') {
+            if (!practiceEmail) continue;
+            ok = await sendConciergeEmail(env, {
+              to: practiceEmail,
+              subject: `Uncontacted lead: ${[lead.firstName, lead.lastName].filter(Boolean).join(' ') || lead.email || 'new patient'}`,
+              html: `<h2 style="font-family:Georgia,serif;color:#1B3A5C">A lead is waiting on you</h2>
+                <p style="font:14px sans-serif;color:#36465c">This lead came in about an hour ago and is still marked <strong>new</strong>. Leads contacted within the first hour book at several times the rate of ones contacted the next day.</p>
+                <p style="font:14px sans-serif;color:#36465c"><strong>${[lead.firstName, lead.lastName].filter(Boolean).join(' ')}</strong> &middot; ${lead.email || ''} &middot; ${lead.phone || ''} &middot; interested in ${lead.interest || 'cosmetic work'}</p>
+                <p style="margin:18px 0"><a href="https://app.lucidroi.com/dashboard.html" style="background:#2D6FFF;color:#fff;font:600 13px sans-serif;text-decoration:none;border-radius:9px;padding:11px 22px;display:inline-block">Open the Lead Dashboard</a></p>`,
+            });
+          } else {
+            if (!lead.email) continue;
+            if (await conciergeSuppressed(env, tenant, lead.email)) { out.skipped++; continue; }
+            const unsubToken = await dashSign(env, { u: lead.email, t: tenant, exp: Date.now() + 365 * 86400_000 });
+            const unsubUrl = `https://quiet-forest-e1f8.david-d73.workers.dev/api/unsub?token=${encodeURIComponent(unsubToken)}`;
+            const msg = conciergePatientEmail(t.key, lead, practice, bookingUrl, unsubUrl);
+            if (!msg) continue;
+            ok = await sendConciergeEmail(env, { to: lead.email, replyTo: practiceEmail || undefined, ...msg });
+          }
+          if (ok) {
+            touches[t.key] = new Date().toISOString();
+            await updateLead(env, tenant, lead.id, { touches });
+            out.sent++;
+          } else out.errors++;
+        } catch { out.errors++; }
+      }
+    }
+  }
+  return out;
+}
+
+// GET /api/unsub?token= — HMAC-verified unsubscribe (public, pre-gate)
+async function handleUnsub(request, env) {
+  const token = new URL(request.url).searchParams.get('token') || '';
+  const payload = await dashVerify(env, token);
+  if (!payload || !payload.u || !payload.t) return new Response('Invalid link', { status: 400 });
+  await env.TEMP_IMAGES.put(`suppress/${payload.t}/${emailKey(payload.u)}`, JSON.stringify({
+    email: payload.u, tenant: payload.t, ts: new Date().toISOString(),
+  }), { httpMetadata: { contentType: 'application/json' } });
+  return new Response(`<!doctype html><body style="font-family:Georgia,serif;background:#F4F7FF;display:flex;align-items:center;justify-content:center;height:100vh;margin:0">
+    <div style="background:#fff;border-radius:16px;padding:40px 48px;text-align:center;box-shadow:0 8px 40px rgba(10,22,40,.12)">
+    <h2 style="color:#1B3A5C;margin:0 0 8px">You're unsubscribed</h2>
+    <p style="font-family:sans-serif;font-size:14px;color:#4A5E8A;margin:0">You won't receive any more consultation reminders.</p></div></body>`,
+    { headers: { 'Content-Type': 'text/html' } });
+}
+
 // ── Dashboard auth (HMAC-signed token; password → tenant) ───────
 async function dashSign(env, payload) {
   const body = btoa(JSON.stringify(payload)).replace(/=+$/, '');
@@ -2280,6 +2417,20 @@ export default {
       return handleBillingWebhook(request, env);
     }
 
+    // Unsubscribe — clicked from email, no Origin; HMAC token is the auth.
+    if (url.pathname === '/api/unsub' && request.method === 'GET') {
+      return handleUnsub(request, env);
+    }
+
+    // Manual concierge trigger — admin-key gated (also runs on cron).
+    if (url.pathname === '/api/concierge/run') {
+      if (!env.CRON_ADMIN_KEY || url.searchParams.get('key') !== env.CRON_ADMIN_KEY) {
+        return new Response('Forbidden', { status: 403 });
+      }
+      const result = await runConcierge(env);
+      return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
+    }
+
     const origin = await getAllowedOrigin(request, env);
 
     // Reject requests from disallowed origins
@@ -2440,5 +2591,10 @@ export default {
       status: 404,
       headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
+  },
+
+  // Cron: email lead concierge (see CONCIERGE_TOUCHES for the sequence)
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(runConcierge(env));
   },
 };
