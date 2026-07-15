@@ -4001,6 +4001,19 @@ function escAttr(s){ return String(s==null?'':s).replace(/"/g,'&quot;'); }
 /* ── Init ──────────────────────────────────────────────────────── */
 syncBookBtn();
 loadPracticeConfig();
+
+// When embedded, report content height so the parent iframe can grow with
+// each step — prevents scroll-within-scroll on landing/practice pages.
+if (window.parent !== window) {
+  let lastH = 0;
+  const reportH = () => {
+    const h = document.documentElement.scrollHeight;
+    if (Math.abs(h - lastH) > 4) { lastH = h; window.parent.postMessage({ lucidSimHeight: h }, '*'); }
+  };
+  try { new ResizeObserver(reportH).observe(document.body); } catch {}
+  window.addEventListener('load', reportH);
+  setInterval(reportH, 900);
+}
 </script>
 </body>
 </html>
