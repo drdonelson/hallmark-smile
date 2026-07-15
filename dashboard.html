@@ -245,6 +245,7 @@
       <button class="tab active" data-tab="leads" type="button">Leads</button>
       <button class="tab" data-tab="branding" type="button">Branding</button>
       <button class="tab" data-tab="booking" type="button">Booking &amp; Treatments</button>
+      <button class="tab" data-tab="emails" type="button">Emails</button>
       <button class="tab" data-tab="embed" type="button">Embed</button>
       <button class="tab admin-only hidden" data-tab="review" type="button">GPT Review <span id="reviewBadge" class="review-badge" style="display:none"></span></button>
       <button class="tab" data-tab="usage" type="button">Usage</button>
@@ -372,9 +373,23 @@
           <div class="list-editor" id="qualList"></div>
           <button class="btn-sm" id="addQual" type="button">+ Add question</button>
         </div>
+        <div class="save-bar">
+          <button class="btn btn-save" id="saveBooking" type="button">Save settings</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" id="panel-emails">
+      <div class="no-tenant placeholder-msg hidden">Select a practice above to manage its emails.</div>
+      <div class="needs-tenant">
         <div class="card2">
-          <h3>Follow-up emails</h3>
-          <p class="hint">Automatic reminders sent to patients who tried the simulator but haven't booked. Leave a field empty to use the suggested copy shown in gray. Merge fields: <code>{firstName}</code> <code>{practice}</code> <code>{interest}</code></p>
+          <h3>Automatic follow-up sequence</h3>
+          <p class="hint">Every lead that hasn't booked gets this sequence automatically. It stops the moment you change their status from "New" in the Leads tab, and every email includes an unsubscribe link. Emails are branded with your logo, colors, and practice name from the Branding tab; the booking button uses your Booking URL.</p>
+          <p class="hint" style="margin-top:6px"><strong>Timing:</strong> you're notified after 1 hour if a lead is uncontacted &middot; patient reminders go out on day 1, day 3, and day 7.</p>
+        </div>
+        <div class="card2">
+          <h3>Email copy</h3>
+          <p class="hint">Leave a field empty to use the suggested copy shown in gray. Merge fields: <code>{firstName}</code> <code>{practice}</code> <code>{interest}</code></p>
           <div class="field"><label>Day 1 — subject</label><input type="text" id="ce-d1-subject" maxlength="140" placeholder="Your smile preview from {practice} — ready when you are"></div>
           <div class="field"><label>Day 1 — message</label><textarea id="ce-d1-body" rows="3" maxlength="900" placeholder="Yesterday you saw what your smile could look like. The next step is a quick consultation with {practice} — no commitment, just answers about what's actually possible for you."></textarea></div>
           <div class="field"><label>Day 3 — subject</label><input type="text" id="ce-d3-subject" maxlength="140" placeholder="{firstName}, questions about {interest}?"></div>
@@ -383,7 +398,7 @@
           <div class="field"><label>Day 7 — message</label><textarea id="ce-d7-body" rows="3" maxlength="900" placeholder="For your privacy, your simulation photos are automatically deleted 30 days after they were created. If you'd like {practice} to review them with you while they're still available, now is a good time to grab a spot."></textarea></div>
         </div>
         <div class="save-bar">
-          <button class="btn btn-save" id="saveBooking" type="button">Save settings</button>
+          <button class="btn btn-save" id="saveEmails" type="button">Save emails</button>
         </div>
       </div>
     </section>
@@ -1053,6 +1068,7 @@ async function saveSettings(btn){
 }
 $('saveBranding').addEventListener('click',()=>saveSettings($('saveBranding')));
 $('saveBooking').addEventListener('click',()=>saveSettings($('saveBooking')));
+$('saveEmails').addEventListener('click',()=>saveSettings($('saveEmails')));
 
 /* ── Token management (admin only) ── */
 async function saveCaps(btn){
