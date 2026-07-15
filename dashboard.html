@@ -372,6 +372,16 @@
           <div class="list-editor" id="qualList"></div>
           <button class="btn-sm" id="addQual" type="button">+ Add question</button>
         </div>
+        <div class="card2">
+          <h3>Follow-up emails</h3>
+          <p class="hint">Automatic reminders sent to patients who tried the simulator but haven't booked. Leave a field empty to use the suggested copy shown in gray. Merge fields: <code>{firstName}</code> <code>{practice}</code> <code>{interest}</code></p>
+          <div class="field"><label>Day 1 — subject</label><input type="text" id="ce-d1-subject" maxlength="140" placeholder="Your smile preview from {practice} — ready when you are"></div>
+          <div class="field"><label>Day 1 — message</label><textarea id="ce-d1-body" rows="3" maxlength="900" placeholder="Yesterday you saw what your smile could look like. The next step is a quick consultation with {practice} — no commitment, just answers about what's actually possible for you."></textarea></div>
+          <div class="field"><label>Day 3 — subject</label><input type="text" id="ce-d3-subject" maxlength="140" placeholder="{firstName}, questions about {interest}?"></div>
+          <div class="field"><label>Day 3 — message</label><textarea id="ce-d3-body" rows="3" maxlength="900" placeholder='Most people who try the simulator have the same two questions: "What would it really take?" and "What does it cost?" Both get answered in one short visit with {practice} — and you&#39;ll leave knowing your options for {interest}, even if you decide to wait.'></textarea></div>
+          <div class="field"><label>Day 7 — subject</label><input type="text" id="ce-d7-subject" maxlength="140" placeholder="Your smile photos expire soon"></div>
+          <div class="field"><label>Day 7 — message</label><textarea id="ce-d7-body" rows="3" maxlength="900" placeholder="For your privacy, your simulation photos are automatically deleted 30 days after they were created. If you'd like {practice} to review them with you while they're still available, now is a good time to grab a spot."></textarea></div>
+        </div>
         <div class="save-bar">
           <button class="btn btn-save" id="saveBooking" type="button">Save settings</button>
         </div>
@@ -939,6 +949,14 @@ function populateSettings(d){
   const lg = config.legal || {};
   $('lg-company').value = lg.companyName||''; $('lg-support').value = lg.supportEmail||''; $('lg-base').value = lg.legalBaseUrl||'';
   $('lc-locale').value = ['en','fr','es'].includes(config.locale) ? config.locale : 'en';
+  const ce = config.concierge || {};
+  for(const k of ['1','3','7']){
+    const day = ce['day'+k] || {};
+    // Empty field = use the suggested copy (shown as placeholder). Saved values
+    // that match the stock default also display as empty.
+    $(`ce-d${k}-subject`).value = (day.subject && day.subject !== CE_DEFAULTS['day'+k].subject) ? day.subject : '';
+    $(`ce-d${k}-body`).value    = (day.body && day.body !== CE_DEFAULTS['day'+k].body) ? day.body : '';
+  }
   // Token management (admin) — populate cap inputs from the registry caps.
   const caps = d.caps || {};
   if($('cap-sims'))   $('cap-sims').value   = caps.sims   ?? '';
@@ -965,8 +983,25 @@ function gatherConfig(){
   c.treatments = g.treatments; c.shades = g.shades; c.qualification = g.qualification;
   c.legal = { companyName:$('lg-company').value.trim(), supportEmail:$('lg-support').value.trim(), legalBaseUrl:$('lg-base').value.trim() };
   c.locale = $('lc-locale').value;
+  c.concierge = {};
+  for(const k of ['1','3','7']){
+    c.concierge['day'+k] = {
+      subject: $(`ce-d${k}-subject`).value.trim() || CE_DEFAULTS['day'+k].subject,
+      body:    $(`ce-d${k}-body`).value.trim()    || CE_DEFAULTS['day'+k].body,
+    };
+  }
   return c;
 }
+
+/* Stock follow-up email copy — must match defaultConfig().concierge in worker.js */
+const CE_DEFAULTS = {
+  day1: { subject: 'Your smile preview from {practice} — ready when you are',
+          body: "Yesterday you saw what your smile could look like. The next step is a quick consultation with {practice} — no commitment, just answers about what's actually possible for you." },
+  day3: { subject: '{firstName}, questions about {interest}?',
+          body: 'Most people who try the simulator have the same two questions: "What would it really take?" and "What does it cost?" Both get answered in one short visit with {practice} — and you\'ll leave knowing your options for {interest}, even if you decide to wait.' },
+  day7: { subject: 'Your smile photos expire soon',
+          body: "For your privacy, your simulation photos are automatically deleted 30 days after they were created. If you'd like {practice} to review them with you while they're still available, now is a good time to grab a spot." },
+};
 
 /* ── Logo upload ── */
 function downscaleImage(file, max){

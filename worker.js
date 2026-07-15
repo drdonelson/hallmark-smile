@@ -736,6 +736,15 @@ function defaultConfig(rec = {}) {
     legal: { companyName: 'Lucid ROI', supportEmail: 'support@lucidroi.com', legalBaseUrl: '' },
     locale: 'en',
     video: { styles: ['laugh'] },
+    // Follow-up email copy. Merge fields: {firstName} {practice} {interest}
+    concierge: {
+      day1: { subject: 'Your smile preview from {practice} — ready when you are',
+              body: "Yesterday you saw what your smile could look like. The next step is a quick consultation with {practice} — no commitment, just answers about what's actually possible for you." },
+      day3: { subject: '{firstName}, questions about {interest}?',
+              body: 'Most people who try the simulator have the same two questions: "What would it really take?" and "What does it cost?" Both get answered in one short visit with {practice} — and you\'ll leave knowing your options for {interest}, even if you decide to wait.' },
+      day7: { subject: 'Your smile photos expire soon',
+              body: "For your privacy, your simulation photos are automatically deleted 30 days after they were created. If you'd like {practice} to review them with you while they're still available, now is a good time to grab a spot." },
+    },
     // Future monetization (option 3) slots in here without a schema change.
     plan: { type: 'caps', simsCap: rec.sims || 1000, videosCap: rec.videos || 50 },
   };
@@ -810,6 +819,14 @@ function sanitizeConfig(input, rec = {}) {
     },
     locale: (['en','fr','es'].includes(c.locale) ? c.locale : 'en'),
     video: { styles },
+    concierge: (() => {
+      const cc = c.concierge || {};
+      const touch = (k) => ({
+        subject: str(cc[k]?.subject, 140, d.concierge[k].subject),
+        body: str(cc[k]?.body, 900, d.concierge[k].body),
+      });
+      return { day1: touch('day1'), day3: touch('day3'), day7: touch('day7') };
+    })(),
     plan: d.plan,
   };
 }
@@ -1469,18 +1486,37 @@ function conciergeBrand(cfg, tenant) {
 }
 
 function conciergeShell(brand, bodyHtml, footerHtml) {
-  const header = brand.logoUrl
-    ? `<img src="${brand.logoUrl}" alt="${brand.name}" style="max-height:44px;max-width:220px;display:block">`
-    : `<span style="font-family:Arial,sans-serif;font-weight:600;font-size:17px;letter-spacing:4px;color:#ffffff;text-transform:uppercase">${brand.name}</span>`;
+  // Horizontal lockup: logo mark on the left, letter-spaced wordmark + tagline
+  // expanding to the right — not the cramped logo-only box.
+  const mark = brand.logoUrl
+    ? `<td style="vertical-align:middle;width:52px"><img src="${brand.logoUrl}" alt="" style="height:42px;width:auto;display:block;border-radius:8px"></td><td style="width:16px"></td>`
+    : '';
+  const header = `<table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse"><tr>
+      ${mark}
+      <td style="vertical-align:middle">
+        <div style="font-family:Arial,sans-serif;font-weight:600;font-size:19px;letter-spacing:7px;color:#ffffff;text-transform:uppercase;line-height:1">${brand.name}</div>
+        ${brand.tagline ? `<div style="font-family:Arial,sans-serif;font-size:9.5px;letter-spacing:3px;color:rgba(255,255,255,0.65);text-transform:uppercase;margin-top:6px">${brand.tagline}</div>` : ''}
+      </td>
+    </tr></table>`;
   return `<div style="background:#f2f5fb;padding:28px 12px">
     <div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:14px;overflow:hidden;box-shadow:0 2px 14px rgba(10,22,40,0.07)">
-      <div style="background:${brand.navy};padding:20px 30px">${header}
-        ${brand.tagline ? `<div style="font-family:Arial,sans-serif;font-size:10px;letter-spacing:2.5px;color:rgba(255,255,255,0.7);text-transform:uppercase;margin-top:5px">${brand.tagline}</div>` : ''}
-      </div>
+      <div style="background:${brand.navy};padding:22px 30px">${header}</div>
       <div style="padding:28px 30px 8px">${bodyHtml}</div>
       <div style="padding:0 30px 24px">${footerHtml}</div>
     </div>
   </div>`;
+}
+
+// Merge-field substitution for practice-editable copy. Values are escaped so
+// lead-entered data can never inject HTML into the email.
+function conciergeEscape(s) {
+  return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+function conciergeMerge(template, lead, brand) {
+  return conciergeEscape(template)
+    .replace(/\{firstName\}/g, conciergeEscape(lead.firstName || 'there'))
+    .replace(/\{practice\}/g, conciergeEscape(brand.name))
+    .replace(/\{interest\}/g, conciergeEscape((lead.interest || 'a smile makeover').toLowerCase()));
 }
 
 function conciergeFooter(unsubUrl, practice) {
@@ -1495,29 +1531,28 @@ function bookBlock(bookingUrl, accent) {
     : `<p style="font:14px Arial,sans-serif;color:#36465c">Just reply to this email and the team will find a time that works for you.</p>`;
 }
 
-function conciergePatientEmail(touchKey, lead, brand, bookingUrl, unsubUrl) {
-  const name = lead.firstName || 'there';
-  const interest = lead.interest ? lead.interest.toLowerCase() : 'a smile makeover';
-  const wrap = (title, body) => conciergeShell(brand,
-    `<h2 style="font-family:Georgia,serif;color:${brand.navy};margin:0 0 12px">${title}</h2>${body}`,
-    conciergeFooter(unsubUrl, brand.name));
-  const P = t => `<p style="font:15px Arial,sans-serif;line-height:1.6;color:#36465c;margin:0 0 6px">${t}</p>`;
-  if (touchKey === 'day1') return {
-    subject: `Your smile preview from ${brand.name} — ready when you are`,
-    html: wrap(`${name}, your new smile is one step away`,
-      P(`Yesterday you saw what your smile could look like. The next step is a quick consultation with ${brand.name} — no commitment, just answers about what's actually possible for you.`) + bookBlock(bookingUrl, brand.accent)),
+const CONCIERGE_TITLES = {
+  day1: '{firstName}, your new smile is one step away',
+  day3: 'Still thinking it over?',
+  day7: '{firstName}, your before & after comes down soon',
+};
+function conciergePatientEmail(touchKey, lead, brand, bookingUrl, unsubUrl, copyCfg) {
+  const copy = (copyCfg && copyCfg[touchKey]) || {};
+  const dflt = defaultConfig({}).concierge[touchKey];
+  if (!dflt) return null;
+  const subject = conciergeMerge(copy.subject || dflt.subject, lead, brand)
+    .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');   // subjects are plain text
+  const title = conciergeMerge(CONCIERGE_TITLES[touchKey], lead, brand);
+  const paragraphs = conciergeMerge(copy.body || dflt.body, lead, brand)
+    .split(/\n\n+/)
+    .map(t => `<p style="font:15px Arial,sans-serif;line-height:1.6;color:#36465c;margin:0 0 12px">${t.replace(/\n/g, '<br>')}</p>`)
+    .join('');
+  return {
+    subject,
+    html: conciergeShell(brand,
+      `<h2 style="font-family:Georgia,serif;color:${brand.navy};margin:0 0 12px">${title}</h2>${paragraphs}${bookBlock(bookingUrl, brand.accent)}`,
+      conciergeFooter(unsubUrl, brand.name)),
   };
-  if (touchKey === 'day3') return {
-    subject: `${name}, questions about ${interest}?`,
-    html: wrap(`Still thinking it over?`,
-      P(`Most people who try the simulator have the same two questions: <em>"What would it really take?"</em> and <em>"What does it cost?"</em> Both get answered in one short visit with ${brand.name} — and you'll leave knowing your options for ${interest}, even if you decide to wait.`) + bookBlock(bookingUrl, brand.accent)),
-  };
-  if (touchKey === 'day7') return {
-    subject: `Your smile photos expire soon`,
-    html: wrap(`${name}, your before &amp; after comes down soon`,
-      P(`For your privacy, your simulation photos are automatically deleted 30 days after they were created. If you'd like ${brand.name} to review them with you while they're still available, now is a good time to grab a spot.`) + bookBlock(bookingUrl, brand.accent)),
-  };
-  return null;
 }
 
 async function runConcierge(env, opts = {}) {
@@ -1613,7 +1648,7 @@ async function runConcierge(env, opts = {}) {
             if (await conciergeSuppressed(env, tenant, lead.email)) { out.skipped++; continue; }
             const unsubToken = await dashSign(env, { u: lead.email, t: tenant, exp: Date.now() + 365 * 86400_000 });
             const unsubUrl = `https://quiet-forest-e1f8.david-d73.workers.dev/api/unsub?token=${encodeURIComponent(unsubToken)}`;
-            const msg = conciergePatientEmail(t.key, lead, brand, bookingUrl, unsubUrl);
+            const msg = conciergePatientEmail(t.key, lead, brand, bookingUrl, unsubUrl, cfg.concierge);
             if (!msg) continue;
             ok = await sendConciergeEmail(env, { fromName: brand.name, to: lead.email, replyTo: practiceEmail || undefined, ...msg });
           }
