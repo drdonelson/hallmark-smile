@@ -1486,16 +1486,17 @@ function conciergeBrand(cfg, tenant) {
 }
 
 function conciergeShell(brand, bodyHtml, footerHtml) {
-  // Horizontal lockup: logo mark on the left, letter-spaced wordmark + tagline
-  // expanding to the right — not the cramped logo-only box.
+  // Horizontal lockup: standalone geometric mark on the left (large), slim
+  // letter-spaced wordmark + tagline expanding to the right.
   const mark = brand.logoUrl
-    ? `<td style="vertical-align:middle;width:52px"><img src="${brand.logoUrl}" alt="" style="height:42px;width:auto;display:block;border-radius:8px"></td><td style="width:16px"></td>`
+    ? `<td style="vertical-align:middle;width:60px"><img src="${brand.logoUrl}" alt="" style="height:56px;width:auto;display:block"></td><td style="width:18px"></td>`
     : '';
+  const wordmarkFont = `font-family:'Josefin Sans','HelveticaNeue-Light','Helvetica Neue',Arial,sans-serif;font-weight:300`;
   const header = `<table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse"><tr>
       ${mark}
       <td style="vertical-align:middle">
-        <div style="font-family:Arial,sans-serif;font-weight:600;font-size:19px;letter-spacing:7px;color:#ffffff;text-transform:uppercase;line-height:1">${brand.name}</div>
-        ${brand.tagline ? `<div style="font-family:Arial,sans-serif;font-size:9.5px;letter-spacing:3px;color:rgba(255,255,255,0.65);text-transform:uppercase;margin-top:6px">${brand.tagline}</div>` : ''}
+        <div style="${wordmarkFont};font-size:23px;letter-spacing:9px;color:#ffffff;text-transform:uppercase;line-height:1">${brand.name}</div>
+        ${brand.tagline ? `<div style="${wordmarkFont};font-size:10px;letter-spacing:3.5px;color:rgba(255,255,255,0.65);text-transform:uppercase;margin-top:7px">${brand.tagline}</div>` : ''}
       </td>
     </tr></table>`;
   return `<div style="background:#f2f5fb;padding:28px 12px">
