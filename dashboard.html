@@ -400,6 +400,24 @@
         <div class="save-bar">
           <button class="btn btn-save" id="saveEmails" type="button">Save emails</button>
         </div>
+        <div class="card2">
+          <h3>Custom sending domain <span class="hint" style="display:inline">(optional)</span></h3>
+          <p class="hint">By default, emails send from <code>leads@lucidroi.com</code> with your practice name shown as the sender. To send from your own branded address (e.g. <code>smiles@mail.yourpractice.com</code>), connect a subdomain of your practice website below. Your website team adds the DNS records; verification usually completes within an hour.</p>
+          <div id="senderNone">
+            <div class="field"><label>Sending domain</label><input type="text" id="sd-domain" placeholder="mail.yourpractice.com"></div>
+            <div class="field"><label>Address (before the @)</label><input type="text" id="sd-local" placeholder="smiles" value="smiles"></div>
+            <button class="btn-sm" id="sd-add" type="button">Connect domain</button>
+          </div>
+          <div id="senderHave" class="hidden">
+            <p style="margin-bottom:10px"><span id="sd-status" class="review-badge" style="display:inline-block"></span>
+              <strong id="sd-email" style="margin-left:8px"></strong></p>
+            <p class="hint">Add these DNS records at the domain's DNS provider, then click Check verification:</p>
+            <div style="overflow-x:auto"><table id="sd-records" style="width:100%;border-collapse:collapse;font-size:.78rem;margin:8px 0 12px"></table></div>
+            <button class="btn-sm" id="sd-verify" type="button">Check verification</button>
+            <button class="btn-sm" id="sd-remove" type="button" style="margin-left:8px;opacity:.7">Remove</button>
+          </div>
+          <div class="m-err" id="sd-err" style="color:#ff7b7b;font-size:.82rem;margin-top:10px;display:none"></div>
+        </div>
       </div>
     </section>
 
@@ -979,6 +997,7 @@ function populateSettings(d){
   renderLists();
   setPreview();
   updateEmbed();
+  loadSender().catch(()=>{});
 }
 function gatherConfig(){
   const c = JSON.parse(JSON.stringify(config||{}));
@@ -1069,6 +1088,54 @@ async function saveSettings(btn){
 $('saveBranding').addEventListener('click',()=>saveSettings($('saveBranding')));
 $('saveBooking').addEventListener('click',()=>saveSettings($('saveBooking')));
 $('saveEmails').addEventListener('click',()=>saveSettings($('saveEmails')));
+
+/* ── Custom sending domain ── */
+function renderSender(d){
+  const has = d && d.sender;
+  $('senderNone').classList.toggle('hidden', !!has);
+  $('senderHave').classList.toggle('hidden', !has);
+  $('sd-err').style.display='none';
+  if(!has) return;
+  const s = d.sender;
+  const ok = s.status === 'verified';
+  $('sd-status').textContent = ok ? 'VERIFIED' : (s.status||'pending').toUpperCase();
+  $('sd-status').style.background = ok ? 'rgba(13,184,98,.18)' : 'rgba(255,196,0,.15)';
+  $('sd-status').style.color = ok ? '#2fd583' : '#ffc400';
+  $('sd-email').textContent = s.email;
+  const rows = (s.records||[]).map(r=>
+    `<tr><td style="padding:6px 10px;border:1px solid rgba(255,255,255,.1);white-space:nowrap">${r.type||r.record||''}</td>
+     <td style="padding:6px 10px;border:1px solid rgba(255,255,255,.1);word-break:break-all">${r.name||''}</td>
+     <td style="padding:6px 10px;border:1px solid rgba(255,255,255,.1);word-break:break-all"><code>${r.value||''}</code></td>
+     <td style="padding:6px 10px;border:1px solid rgba(255,255,255,.1)">${r.status||''}</td></tr>`).join('');
+  $('sd-records').innerHTML = `<tr><th style="text-align:left;padding:6px 10px">Type</th><th style="text-align:left;padding:6px 10px">Name</th><th style="text-align:left;padding:6px 10px">Value</th><th style="text-align:left;padding:6px 10px">Status</th></tr>` + rows;
+}
+async function senderApi(method, body){
+  const t = currentSettingsTenant(); if(!t){ toast('Select a practice first'); return null; }
+  const qs = scope==='*' ? `?tenant=${encodeURIComponent(t)}` : '';
+  const r = await api(`/api/dashboard/sender${qs}`, method==='GET' ? {} :
+    { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ...body, ...(scope==='*'&&{tenant:t}) }) });
+  const d = await r.json();
+  if(!r.ok){ $('sd-err').textContent = d.error||'Something went wrong'; $('sd-err').style.display='block'; return null; }
+  return d;
+}
+async function loadSender(){ const d = await senderApi('GET'); if(d) renderSender(d); }
+$('sd-add').addEventListener('click', async ()=>{
+  $('sd-add').disabled = true;
+  const d = await senderApi('POST', { action:'add', domain: $('sd-domain').value.trim(), localPart: $('sd-local').value.trim() });
+  $('sd-add').disabled = false;
+  if(d){ renderSender(d); toast('Domain added — hand the DNS records to your website team'); }
+});
+$('sd-verify').addEventListener('click', async ()=>{
+  $('sd-verify').disabled = true; $('sd-verify').textContent = 'Checking…';
+  const d = await senderApi('POST', { action:'verify' });
+  $('sd-verify').disabled = false; $('sd-verify').textContent = 'Check verification';
+  if(d){ renderSender(d); toast(d.sender && d.sender.status==='verified' ? 'Verified! Emails now send from your domain' : 'Not verified yet — DNS can take up to an hour'); }
+});
+$('sd-remove').addEventListener('click', async ()=>{
+  if(!confirm('Remove the custom sending domain? Emails will revert to leads@lucidroi.com.')) return;
+  const d = await senderApi('POST', { action:'remove' });
+  if(d){ renderSender(d); toast('Removed'); }
+});
 
 /* ── Token management (admin only) ── */
 async function saveCaps(btn){
