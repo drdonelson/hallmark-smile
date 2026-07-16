@@ -1391,7 +1391,7 @@ async function handleShare(request, env, origin) {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        from: 'Smile Simulator <leads@lucidroi.com>',
+        from: senderFrom(rec, practice),
         to: [patientEmail],
         subject: `Your smile preview from ${practice}`,
         html: `<h2 style="font-family:Georgia,serif;color:#1B3A5C">${patientName ? patientName + ', here' : 'Here'}'s your smile preview</h2>
@@ -1405,7 +1405,7 @@ async function handleShare(request, env, origin) {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      from: 'Smile Simulator <leads@lucidroi.com>',
+      from: senderFrom(rec, practice),
       to: [dentistEmail],
       bcc: [AGENCY_EMAIL],
       subject: `Smile simulation for review${patientName ? ' — ' + patientName : ''}`,
@@ -1457,12 +1457,12 @@ async function conciergeSuppressed(env, tenant, email) {
   catch { return false; }
 }
 
-async function sendConciergeEmail(env, { fromName, to, replyTo, subject, html }) {
+async function sendConciergeEmail(env, { from, to, replyTo, subject, html }) {
   const r = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      from: `${fromName || 'Smile Simulator'} <leads@lucidroi.com>`,
+      from: from || 'Smile Simulator <leads@lucidroi.com>',
       to: [to],
       ...(replyTo ? { reply_to: replyTo } : {}),
       subject, html,
@@ -1646,7 +1646,7 @@ async function runConcierge(env, opts = {}) {
           if (t.audience === 'practice') {
             if (!practiceEmail) continue;
             ok = await sendConciergeEmail(env, {
-              fromName: brand.name,
+              from: senderFrom(rec, brand.name),
               to: practiceEmail,
               subject: `Uncontacted lead: ${[lead.firstName, lead.lastName].filter(Boolean).join(' ') || lead.email || 'new patient'}`,
               html: conciergeShell(brand,
@@ -1663,7 +1663,7 @@ async function runConcierge(env, opts = {}) {
             const unsubUrl = `https://quiet-forest-e1f8.david-d73.workers.dev/api/unsub?token=${encodeURIComponent(unsubToken)}`;
             const msg = conciergePatientEmail(t.key, lead, brand, bookingUrl, unsubUrl, cfg.concierge);
             if (!msg) continue;
-            ok = await sendConciergeEmail(env, { fromName: brand.name, to: lead.email, replyTo: practiceEmail || undefined, ...msg });
+            ok = await sendConciergeEmail(env, { from: senderFrom(rec, brand.name), to: lead.email, replyTo: practiceEmail || undefined, ...msg });
           }
           if (ok) {
             touches[t.key] = new Date().toISOString();
@@ -1928,6 +1928,97 @@ async function handleDashResetPassword(request, env, origin) {
 // GET/POST /api/dashboard/settings — read or write a practice's white-label
 // config. Authenticated. Upserts a registry record for static tenants that
 // have none yet (so hallmark/lucid/etc. can be customized too).
+// ── Custom sending domain (per-tenant, Resend-verified) ─────────
+// rec.sender = { domain, id, email, status } lives at the registry ROOT
+// (sibling of config) so dashboard settings saves never clobber it.
+function senderFrom(rec, displayName) {
+  const s = rec && rec.sender;
+  if (s && s.status === 'verified' && s.email) return `${displayName} <${s.email}>`;
+  return `${displayName} <leads@lucidroi.com>`;
+}
+const FREEMAIL = /(^|\.)(gmail|googlemail|yahoo|outlook|hotmail|live|aol|icloud|me|proton|protonmail)\.com$|(^|\.)mail\.ru$/i;
+async function resendApi(env, method, path, body) {
+  const r = await fetch(`https://api.resend.com${path}`, {
+    method,
+    headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data?.message || `Email provider error ${r.status}`);
+  return data;
+}
+function senderView(sender, records) {
+  if (!sender) return { sender: null };
+  return { sender: { domain: sender.domain, email: sender.email, status: sender.status, records: records || sender.records || [] } };
+}
+async function handleDashSender(request, env, origin) {
+  const payload = await dashVerify(env, bearer(request));
+  const json = (obj, status = 200) => new Response(JSON.stringify(obj), {
+    status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+  if (!payload) return json({ error: 'Unauthorized' }, 401);
+
+  if (request.method === 'GET') {
+    const t = scopeTenant(payload, request, null);
+    if (!t) return json({ error: 'Missing tenant' }, 400);
+    const rec = await registryGet(env, t);
+    if (!rec || !rec.sender) return json({ sender: null });
+    // Refresh live status + records from Resend.
+    try {
+      const d = await resendApi(env, 'GET', `/domains/${rec.sender.id}`);
+      if (d.status && d.status !== rec.sender.status) {
+        rec.sender.status = d.status;
+        await env.TEMP_IMAGES.put(`registry/${t}.json`, JSON.stringify(rec), { httpMetadata: { contentType: 'application/json' } });
+      }
+      return json(senderView(rec.sender, d.records));
+    } catch { return json(senderView(rec.sender)); }
+  }
+
+  // POST — { action: 'add'|'verify'|'remove', domain?, localPart? }
+  let body; try { body = await request.json(); } catch { body = {}; }
+  const t = scopeTenant(payload, request, body);
+  if (!t) return json({ error: 'Missing tenant' }, 400);
+  const rec = await registryGet(env, t);
+  if (!rec) return json({ error: 'Unknown practice' }, 404);
+  const save = () => env.TEMP_IMAGES.put(`registry/${t}.json`, JSON.stringify(rec), { httpMetadata: { contentType: 'application/json' } });
+
+  try {
+    if (body.action === 'add') {
+      const domain = String(body.domain || '').toLowerCase().trim().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+      if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(domain)) {
+        return json({ error: 'Enter a valid domain, e.g. mail.yourpractice.com' }, 400);
+      }
+      if (FREEMAIL.test(domain)) {
+        return json({ error: 'Free email domains (gmail, yahoo…) cannot be verified for sending. Use a subdomain of the practice website, e.g. mail.yourpractice.com' }, 400);
+      }
+      const local = String(body.localPart || 'smiles').toLowerCase().replace(/[^a-z0-9._-]/g, '') || 'smiles';
+      const d = await resendApi(env, 'POST', '/domains', { name: domain });
+      rec.sender = { domain, id: d.id, email: `${local}@${domain}`, status: d.status || 'pending' };
+      await save();
+      return json(senderView(rec.sender, d.records));
+    }
+    if (body.action === 'verify') {
+      if (!rec.sender) return json({ error: 'No domain configured' }, 400);
+      await resendApi(env, 'POST', `/domains/${rec.sender.id}/verify`).catch(() => {});
+      const d = await resendApi(env, 'GET', `/domains/${rec.sender.id}`);
+      rec.sender.status = d.status || rec.sender.status;
+      await save();
+      return json(senderView(rec.sender, d.records));
+    }
+    if (body.action === 'remove') {
+      if (rec.sender) {
+        await resendApi(env, 'DELETE', `/domains/${rec.sender.id}`).catch(() => {});
+        delete rec.sender;
+        await save();
+      }
+      return json({ sender: null });
+    }
+    return json({ error: 'Unknown action' }, 400);
+  } catch (e) {
+    return json({ error: e.message }, 502);
+  }
+}
+
 async function handleDashSettings(request, env, origin) {
   const payload = await dashVerify(env, bearer(request));
   if (!payload) return new Response(JSON.stringify({ error: 'Unauthorized' }), {
@@ -2208,6 +2299,7 @@ async function handleLead(request, env, origin) {
 
   // Persist to the central lead store for the dashboard.
   const tenant = tenantOf(body);
+  const rec = await registryGet(env, tenant);
   const leadId = body.leadId || randomToken();
   await saveLead(env, tenant, leadId, {
     id: leadId, ts: new Date().toISOString(), tenant, practice,
@@ -2238,7 +2330,7 @@ async function handleLead(request, env, origin) {
         'Content-Type':  'application/json',
       },
       body: JSON.stringify({
-        from:    'Smile Simulator <leads@lucidroi.com>',
+        from:    senderFrom(rec, practice),
         to:      [to],
         bcc:     [AGENCY_EMAIL],
         subject,
@@ -2595,6 +2687,9 @@ export default {
     }
     if (url.pathname === '/api/dashboard/settings' && (request.method === 'GET' || request.method === 'POST')) {
       return handleDashSettings(request, env, origin);
+    }
+    if (url.pathname === '/api/dashboard/sender' && (request.method === 'GET' || request.method === 'POST')) {
+      return handleDashSender(request, env, origin);
     }
     if (url.pathname === '/api/dashboard/logo' && request.method === 'POST') {
       return handleDashLogo(request, env, origin);
