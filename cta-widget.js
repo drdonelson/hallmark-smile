@@ -37,6 +37,7 @@
     sub:        opt('data-sub',         'sub',        ''),
     ctaLabel:   opt('data-cta-label',   'ctaLabel',   'Get Started'),
     heroUrl:    opt('data-hero-url',    'heroUrl',    'https://app.lucidroi.com/smile-hero.jpg'),
+    heroVideo:  opt('data-hero-video',  'heroVideo',  'https://app.lucidroi.com/smile-hero.mp4'),
     bookingUrl: opt('data-booking-url', 'bookingUrl', ''),
     sideTab:    opt('data-side-tab',    'sideTab',    'Schedule Your Consultation Today!'),
     delay:      parseInt(opt('data-delay', 'delay', '3000'), 10),
@@ -120,9 +121,12 @@
     '}',
     '#lucid-side-tab:hover{padding-right:13px;}',
     // Modal
-    '#lucid-cta-modal{position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:14px;}',
-    '#lucid-cta-modal-inner{position:relative;width:100%;max-width:560px;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.4);}',
-    '#lucid-cta-modal iframe{width:100%;height:90vh;max-height:760px;border:none;display:block;}',
+    // Contained popup (bitebot-style) — a compact card anchored bottom-right where
+    // the widget lives, NOT a full-screen takeover. Light backdrop; click to close.
+    '#lucid-cta-modal{position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,0.32);}',
+    '#lucid-cta-modal-inner{position:fixed;bottom:20px;right:20px;width:410px;max-width:calc(100vw - 32px);height:min(680px,calc(100vh - 40px));background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.45);animation:lucid-cta-in 0.35s cubic-bezier(0.34,1.56,0.64,1) both;transform-origin:bottom right;}',
+    '#lucid-cta-modal iframe{width:100%;height:100%;border:none;display:block;}',
+    '@media(max-width:480px){#lucid-cta-modal-inner{inset:10px;width:auto;height:auto;}}',
     '#lucid-cta-modal-close{position:absolute;top:10px;right:12px;z-index:1;background:rgba(0,0,0,0.5);border:none;border-radius:50%;width:30px;height:30px;cursor:pointer;color:#fff;font-size:16px;display:flex;align-items:center;justify-content:center;}',
     '@media(max-width:420px){#lucid-cta-card{right:12px;left:12px;width:auto;max-width:none;}#lucid-side-tab{font-size:12px;padding:13px 7px;}}',
   ].join('\n');
@@ -158,7 +162,9 @@
     card.id = 'lucid-cta-card';
     card.innerHTML = [
       '<button id="lucid-cta-close" aria-label="Close" title="Dismiss">&#x2715;</button>',
-      '<img id="lucid-cta-hero" src="' + cfg.heroUrl + '" alt="AI smile before and after" loading="lazy">',
+      (cfg.heroVideo
+        ? '<video id="lucid-cta-hero" src="' + cfg.heroVideo + '" poster="' + cfg.heroUrl + '" autoplay muted loop playsinline preload="metadata"></video>'
+        : '<img id="lucid-cta-hero" src="' + cfg.heroUrl + '" alt="AI smile before and after" loading="lazy">'),
       '<div id="lucid-cta-heading">' + cfg.heading + '</div>',
       cfg.sub ? '<div id="lucid-cta-sub">' + cfg.sub + '</div>' : '',
       '<button id="lucid-cta-btn" type="button">' + cfg.ctaLabel + '</button>',
