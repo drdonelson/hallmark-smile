@@ -6,10 +6,13 @@
  * Usage:
  *   <script src="https://app.lucidroi.com/cta-widget.js"
  *     data-sim-url="https://app.lucidroi.com/smile-simulator.html"
- *     data-heading="Ready for a New Smile?"
- *     data-sub="Get a Quick Smile Makeover Preview to See What&apos;s Possible."
- *     data-avatar-url=""
+ *     data-heading="Want to See Your Future Smile? (FREE)"
+ *     data-cta-label="Get Started"
+ *     data-hero-url="https://app.lucidroi.com/smile-hero.jpg"
+ *     data-booking-url="https://practice.com/book"
+ *     data-side-tab="Schedule Your Consultation Today!"
  *     data-delay="3000"
+ *     data-open="modal"
  *     data-theme="hallmark">
  *   </script>
  */
@@ -23,22 +26,29 @@
   })();
 
   var ext = window.LucidCTA || {};
+  function opt(attr, key, def) {
+    var v = script.getAttribute(attr);
+    if (v === null || v === '') v = (key in ext) ? ext[key] : undefined;
+    return (v === undefined || v === null) ? def : v;
+  }
   var cfg = {
-    simUrl:    script.getAttribute('data-sim-url')    || ext.simUrl    || 'https://app.lucidroi.com/smile-simulator.html',
-    heading:   script.getAttribute('data-heading')    || ext.heading   || 'Ready for a New Smile?',
-    sub:       script.getAttribute('data-sub')        || ext.sub       || 'Get a Quick Smile Makeover Preview to See What’s Possible.',
-    avatarUrl: script.getAttribute('data-avatar-url') || ext.avatarUrl || 'https://app.lucidroi.com/smile-avatar.png',
-    delay:     parseInt(script.getAttribute('data-delay') || ext.delay || '3000', 10),
-    theme:     script.getAttribute('data-theme')      || ext.theme     || 'hallmark',
-    openMode:  script.getAttribute('data-open')       || ext.openMode  || 'tab', // 'tab' | 'modal'
-    tenant:    script.getAttribute('data-tenant')     || ext.tenant    || '',
-    practice:  script.getAttribute('data-practice')   || ext.practice  || '',
-    leadEmail: script.getAttribute('data-lead-email') || ext.leadEmail || '',
+    simUrl:     opt('data-sim-url',     'simUrl',     'https://app.lucidroi.com/smile-simulator.html'),
+    heading:    opt('data-heading',     'heading',    'Want to See Your Future Smile? (FREE)'),
+    sub:        opt('data-sub',         'sub',        ''),
+    ctaLabel:   opt('data-cta-label',   'ctaLabel',   'Get Started'),
+    heroUrl:    opt('data-hero-url',    'heroUrl',    'https://app.lucidroi.com/smile-hero.jpg'),
+    bookingUrl: opt('data-booking-url', 'bookingUrl', ''),
+    sideTab:    opt('data-side-tab',    'sideTab',    'Schedule Your Consultation Today!'),
+    delay:      parseInt(opt('data-delay', 'delay', '3000'), 10),
+    theme:      opt('data-theme',       'theme',      'hallmark'),
+    openMode:   opt('data-open',        'openMode',   'modal'), // 'modal' | 'tab'
+    tenant:     opt('data-tenant',      'tenant',     ''),
+    practice:   opt('data-practice',    'practice',   ''),
+    leadEmail:  opt('data-lead-email',  'leadEmail',  ''),
   };
 
   // Thread tenant/practice/leadEmail into the simulator URL so leads route to
-  // the right practice and the simulator loads that practice's white-label
-  // config. Params already present in data-sim-url are preserved.
+  // the right practice and the simulator loads that practice's white-label config.
   (function () {
     try {
       var u = new URL(cfg.simUrl, location.href);
@@ -46,203 +56,132 @@
       if (cfg.practice  && !u.searchParams.get('practice'))  u.searchParams.set('practice', cfg.practice);
       if (cfg.leadEmail && !u.searchParams.get('leadEmail')) u.searchParams.set('leadEmail', cfg.leadEmail);
       cfg.simUrl = u.toString();
-    } catch (e) { /* leave simUrl as-is on parse failure */ }
+    } catch (e) { /* leave simUrl as-is */ }
   })();
 
-  // ── Themes ───────────────────────────────────────────────────────────────
+  // ── Themes (per-practice; card stays white, accents follow the brand) ─────
   var THEMES = {
-    hallmark: {
-      bg:         '#003057',
-      bgGrad:     'linear-gradient(135deg,#003057 0%,#004a82 100%)',
-      highlight:  '#D9C087',
-      text:       '#ffffff',
-      sub:        'rgba(255,255,255,0.82)',
-      avatarBg:   'linear-gradient(135deg,#BA935A,#D9C087)',
-      closeFg:    'rgba(255,255,255,0.65)',
-      shadow:     '0 8px 40px rgba(0,48,87,0.45)',
-      border:     'rgba(217,192,135,0.25)',
-    },
-    lucid: {
-      bg:         '#0a1628',
-      bgGrad:     'linear-gradient(135deg,#0a1628 0%,#162444 100%)',
-      highlight:  '#6B8FFF',
-      text:       '#EEF2FF',
-      sub:        'rgba(195,215,250,0.82)',
-      avatarBg:   'linear-gradient(135deg,#2D6FFF,#6B8FFF)',
-      closeFg:    'rgba(255,255,255,0.55)',
-      shadow:     '0 8px 40px rgba(10,22,40,0.55)',
-      border:     'rgba(100,145,255,0.2)',
-    },
+    hallmark: { accent: 'linear-gradient(135deg,#004a82 0%,#003057 100%)', accentSolid: '#003057', glow: 'rgba(217,192,135,0.55)', tab: 'linear-gradient(180deg,#004a82,#003057)' },
+    lucid:    { accent: 'linear-gradient(135deg,#2D6FFF 0%,#6B8FFF 100%)', accentSolid: '#2D6FFF', glow: 'rgba(107,143,255,0.5)',  tab: 'linear-gradient(180deg,#2D6FFF,#1b4fd0)' },
   };
   var T = THEMES[cfg.theme] || THEMES.hallmark;
 
   // ── Session persistence ──────────────────────────────────────────────────
   var SK = 'lucid_cta_dismissed';
-  if (sessionStorage.getItem(SK)) return; // dismissed this session — don't show
-
-  // ── Avatar SVG (smiling face) ─────────────────────────────────────────────
-  var AVATAR_SVG = [
-    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64">',
-    '<circle cx="32" cy="32" r="32" fill="url(#ag)"/>',
-    '<defs><linearGradient id="ag" x1="0" y1="0" x2="1" y2="1">',
-    '<stop offset="0%" stop-color="#BA935A"/>',
-    '<stop offset="100%" stop-color="#D9C087"/>',
-    '</linearGradient></defs>',
-    // face
-    '<circle cx="32" cy="28" r="14" fill="rgba(255,255,255,0.18)"/>',
-    // eyes
-    '<circle cx="27" cy="25" r="2" fill="#fff"/>',
-    '<circle cx="37" cy="25" r="2" fill="#fff"/>',
-    // smile arc
-    '<path d="M24 32 Q32 40 40 32" stroke="#fff" stroke-width="2.5" fill="none" stroke-linecap="round"/>',
-    // teeth hint
-    '<path d="M26 32 Q32 37 38 32" fill="rgba(255,255,255,0.4)"/>',
-    '</svg>'
-  ].join('');
+  if (sessionStorage.getItem(SK)) { mountSideTab(); return; } // card dismissed → keep the booking tab
 
   // ── Styles ────────────────────────────────────────────────────────────────
   var CSS = [
-    '#lucid-cta-wrap{',
-    '  position:fixed;bottom:24px;right:24px;z-index:99999;',
-    '  display:flex;align-items:center;',
-    '  max-width:340px;width:calc(100vw - 48px);',
-    '  background:' + T.bgGrad + ';',
-    '  border:1px solid ' + T.border + ';',
-    '  border-radius:18px;',
-    '  box-shadow:' + T.shadow + ';',
-    '  padding:18px 20px 18px 24px;',
-    '  gap:14px;',
-    '  cursor:pointer;',
-    '  text-decoration:none;',
+    '#lucid-cta-card{',
+    '  position:fixed;bottom:22px;right:22px;z-index:99999;',
+    '  width:300px;max-width:calc(100vw - 40px);',
+    '  background:#fff;border-radius:20px;',
+    '  box-shadow:0 12px 44px rgba(0,0,0,0.22), 0 0 0 3px ' + T.glow + ';',
+    '  padding:14px;',
     '  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;',
-    '  animation:lucid-cta-in 0.45s cubic-bezier(0.34,1.56,0.64,1) both;',
+    '  animation:lucid-cta-in 0.5s cubic-bezier(0.34,1.56,0.64,1) both;',
     '  transform-origin:bottom right;',
     '}',
-    '#lucid-cta-wrap:hover{filter:brightness(1.08);}',
-    '@keyframes lucid-cta-in{',
-    '  from{opacity:0;transform:scale(0.7) translateY(20px);}',
-    '  to{opacity:1;transform:scale(1) translateY(0);}',
+    '@keyframes lucid-cta-in{from{opacity:0;transform:scale(0.85) translateY(16px);}to{opacity:1;transform:scale(1) translateY(0);}}',
+    '@keyframes lucid-cta-out{from{opacity:1;transform:scale(1);}to{opacity:0;transform:scale(0.85) translateY(16px);}}',
+    '#lucid-cta-hero{',
+    '  width:100%;height:150px;border-radius:13px;object-fit:cover;display:block;',
+    '  background:#0c1622;cursor:pointer;',
     '}',
-    '@keyframes lucid-cta-out{',
-    '  from{opacity:1;transform:scale(1) translateY(0);}',
-    '  to{opacity:0;transform:scale(0.7) translateY(20px);}',
-    '}',
-    '#lucid-cta-avatar{',
-    '  flex-shrink:0;',
-    '  width:58px;height:58px;',
-    '  border-radius:50%;',
-    '  overflow:hidden;',
-    '  border:2.5px solid rgba(255,255,255,0.3);',
-    '  background:' + T.avatarBg + ';',
-    '  display:flex;align-items:center;justify-content:center;',
-    '}',
-    '#lucid-cta-avatar img{width:100%;height:100%;object-fit:cover;display:block;}',
-    '#lucid-cta-body{flex:1;min-width:0;}',
     '#lucid-cta-heading{',
-    '  font-size:15px;font-weight:700;line-height:1.3;',
-    '  color:' + T.text + ';margin-bottom:4px;',
+    '  font-size:16px;font-weight:800;line-height:1.28;color:#16222f;',
+    '  text-align:center;margin:12px 6px 4px;cursor:pointer;',
     '}',
-    '#lucid-cta-heading .hl{color:' + T.highlight + ';}',
-    '#lucid-cta-sub{',
-    '  font-size:12.5px;line-height:1.45;',
-    '  color:' + T.sub + ';',
+    '#lucid-cta-sub{font-size:12.5px;line-height:1.4;color:#5b6b7a;text-align:center;margin:0 6px 4px;}',
+    '#lucid-cta-btn{',
+    '  display:block;width:100%;margin-top:11px;padding:12px 16px;',
+    '  background:' + T.accent + ';color:#fff;font-weight:800;font-size:14.5px;',
+    '  border:none;border-radius:12px;cursor:pointer;text-align:center;',
+    '  font-family:inherit;letter-spacing:.2px;transition:filter .15s,transform .15s;',
     '}',
+    '#lucid-cta-btn:hover{filter:brightness(1.08);transform:translateY(-1px);}',
     '#lucid-cta-close{',
-    '  position:absolute;top:8px;right:10px;',
-    '  background:none;border:none;cursor:pointer;',
-    '  color:' + T.closeFg + ';',
-    '  font-size:18px;line-height:1;padding:2px 4px;',
-    '  font-family:inherit;',
+    '  position:absolute;top:-9px;right:-9px;width:26px;height:26px;',
+    '  background:#fff;border:1px solid #e4e9ef;border-radius:50%;cursor:pointer;',
+    '  color:#8b98a6;font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center;',
+    '  box-shadow:0 2px 8px rgba(0,0,0,0.15);font-family:inherit;',
     '}',
-    '#lucid-cta-close:hover{color:' + T.text + ';}',
-    // Modal overlay
-    '#lucid-cta-modal{',
-    '  position:fixed;inset:0;z-index:100000;',
-    '  background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);',
-    '  display:flex;align-items:center;justify-content:center;padding:16px;',
+    '#lucid-cta-close:hover{color:#16222f;}',
+    // Vertical side tab (booking CTA)
+    '#lucid-side-tab{',
+    '  position:fixed;top:34%;right:0;z-index:99998;',
+    '  background:' + T.tab + ';color:#fff;',
+    '  writing-mode:vertical-rl;transform:rotate(180deg);',
+    '  padding:16px 9px;border-radius:0 0 12px 12px;',
+    '  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;',
+    '  font-size:13.5px;font-weight:700;letter-spacing:.3px;cursor:pointer;',
+    '  box-shadow:-4px 0 18px rgba(0,0,0,0.2);text-decoration:none;',
+    '  transition:padding-right .15s;user-select:none;',
     '}',
-    '#lucid-cta-modal-inner{',
-    '  position:relative;width:100%;max-width:560px;',
-    '  background:#fff;border-radius:20px;overflow:hidden;',
-    '  box-shadow:0 24px 80px rgba(0,0,0,0.4);',
-    '}',
-    '#lucid-cta-modal iframe{',
-    '  width:100%;height:88vh;max-height:700px;border:none;display:block;',
-    '}',
-    '#lucid-cta-modal-close{',
-    '  position:absolute;top:10px;right:12px;z-index:1;',
-    '  background:rgba(0,0,0,0.5);border:none;border-radius:50%;',
-    '  width:30px;height:30px;cursor:pointer;color:#fff;font-size:16px;',
-    '  display:flex;align-items:center;justify-content:center;',
-    '}',
-    '@media(max-width:420px){',
-    '  #lucid-cta-wrap{bottom:16px;right:12px;left:12px;width:auto;max-width:none;}',
-    '}',
+    '#lucid-side-tab:hover{padding-right:13px;}',
+    // Modal
+    '#lucid-cta-modal{position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,0.7);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;padding:14px;}',
+    '#lucid-cta-modal-inner{position:relative;width:100%;max-width:560px;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.4);}',
+    '#lucid-cta-modal iframe{width:100%;height:90vh;max-height:760px;border:none;display:block;}',
+    '#lucid-cta-modal-close{position:absolute;top:10px;right:12px;z-index:1;background:rgba(0,0,0,0.5);border:none;border-radius:50%;width:30px;height:30px;cursor:pointer;color:#fff;font-size:16px;display:flex;align-items:center;justify-content:center;}',
+    '@media(max-width:420px){#lucid-cta-card{right:12px;left:12px;width:auto;max-width:none;}#lucid-side-tab{font-size:12px;padding:13px 7px;}}',
   ].join('\n');
 
-  // ── Build heading HTML (highlights first word) ───────────────────────────
-  function buildHeading(text) {
-    var parts = text.split(' ');
-    parts[0] = '<span class="hl">' + parts[0] + '</span>';
-    return parts.join(' ');
+  var styleEl = null;
+  function ensureStyle() {
+    if (styleEl) return;
+    styleEl = document.createElement('style');
+    styleEl.id = 'lucid-cta-style';
+    styleEl.textContent = CSS;
+    document.head.appendChild(styleEl);
   }
 
-  // ── Inject ────────────────────────────────────────────────────────────────
+  // ── Vertical booking side tab (shown whenever there's a booking URL) ──────
+  function mountSideTab() {
+    if (!cfg.bookingUrl || document.getElementById('lucid-side-tab')) return;
+    ensureStyle();
+    var a = document.createElement('a');
+    a.id = 'lucid-side-tab';
+    a.href = cfg.bookingUrl;
+    a.target = '_blank';
+    a.rel = 'noopener';
+    a.textContent = cfg.sideTab;
+    document.body.appendChild(a);
+  }
+
+  // ── Floating before/after card ────────────────────────────────────────────
   function inject() {
-    // style
-    var style = document.createElement('style');
-    style.id = 'lucid-cta-style';
-    style.textContent = CSS;
-    document.head.appendChild(style);
+    ensureStyle();
+    mountSideTab();
 
-    // avatar content
-    var avatarContent = cfg.avatarUrl
-      ? '<img src="' + cfg.avatarUrl + '" alt="Smile preview" loading="lazy">'
-      : AVATAR_SVG;
-
-    // bubble
-    var wrap = document.createElement('div');
-    wrap.id = 'lucid-cta-wrap';
-    wrap.setAttribute('role', 'button');
-    wrap.setAttribute('tabindex', '0');
-    wrap.setAttribute('aria-label', cfg.heading);
-    wrap.innerHTML = [
+    var card = document.createElement('div');
+    card.id = 'lucid-cta-card';
+    card.innerHTML = [
       '<button id="lucid-cta-close" aria-label="Close" title="Dismiss">&#x2715;</button>',
-      '<div id="lucid-cta-avatar">' + avatarContent + '</div>',
-      '<div id="lucid-cta-body">',
-      '  <div id="lucid-cta-heading">' + buildHeading(cfg.heading) + '</div>',
-      '  <div id="lucid-cta-sub">' + cfg.sub + '</div>',
-      '</div>',
+      '<img id="lucid-cta-hero" src="' + cfg.heroUrl + '" alt="AI smile before and after" loading="lazy">',
+      '<div id="lucid-cta-heading">' + cfg.heading + '</div>',
+      cfg.sub ? '<div id="lucid-cta-sub">' + cfg.sub + '</div>' : '',
+      '<button id="lucid-cta-btn" type="button">' + cfg.ctaLabel + '</button>',
     ].join('');
-    document.body.appendChild(wrap);
+    document.body.appendChild(card);
 
-    // close
-    document.getElementById('lucid-cta-close').addEventListener('click', function (e) {
-      e.stopPropagation();
-      dismiss();
-    });
-
-    // click → open
-    wrap.addEventListener('click', function () { openSim(); });
-    wrap.addEventListener('keydown', function (e) {
-      if (e.key === 'Enter' || e.key === ' ') openSim();
-    });
+    document.getElementById('lucid-cta-close').addEventListener('click', function (e) { e.stopPropagation(); dismiss(); });
+    document.getElementById('lucid-cta-hero').addEventListener('click', openSim);
+    document.getElementById('lucid-cta-heading').addEventListener('click', openSim);
+    document.getElementById('lucid-cta-btn').addEventListener('click', openSim);
   }
 
   function dismiss() {
-    var wrap = document.getElementById('lucid-cta-wrap');
-    if (!wrap) return;
-    wrap.style.animation = 'lucid-cta-out 0.25s ease forwards';
-    setTimeout(function () { wrap.remove(); }, 260);
-    sessionStorage.setItem(SK, '1');
+    var card = document.getElementById('lucid-cta-card');
+    if (!card) return;
+    card.style.animation = 'lucid-cta-out 0.25s ease forwards';
+    setTimeout(function () { card.remove(); }, 260);
+    sessionStorage.setItem(SK, '1'); // side tab stays; only the card is dismissed
   }
 
   function openSim() {
-    if (cfg.openMode === 'modal') {
-      openModal();
-    } else {
-      window.open(cfg.simUrl, '_blank', 'noopener');
-    }
+    if (cfg.openMode === 'modal') openModal();
+    else window.open(cfg.simUrl, '_blank', 'noopener');
   }
 
   function openModal() {
@@ -255,23 +194,15 @@
       '</div>',
     ].join('');
     document.body.appendChild(modal);
-
-    document.getElementById('lucid-cta-modal-close').addEventListener('click', function () {
-      modal.remove();
-    });
-    modal.addEventListener('click', function (e) {
-      if (e.target === modal) modal.remove();
-    });
+    document.getElementById('lucid-cta-modal-close').addEventListener('click', function () { modal.remove(); });
+    modal.addEventListener('click', function (e) { if (e.target === modal) modal.remove(); });
   }
 
-  // ── Wait for DOM, then delay ──────────────────────────────────────────────
+  // ── Wait for DOM, then delay the card (side tab shows immediately) ─────────
   function init() {
+    mountSideTab();
     setTimeout(inject, cfg.delay);
   }
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', init);
-  } else {
-    init();
-  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
+  else init();
 })();

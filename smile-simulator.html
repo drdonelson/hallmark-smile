@@ -135,9 +135,19 @@
     .site-header {
       display: flex; align-items: center; justify-content: space-between;
       padding: 14px 20px;
-      background: var(--navy-dark);
+      background: linear-gradient(135deg, var(--navy) 0%, var(--navy-dark) 100%);
       border-bottom: 1px solid rgba(255,255,255,0.07);
     }
+    .header-right { display: flex; align-items: center; gap: 14px; }
+    .lang-toggle { display: inline-flex; border: 1px solid rgba(255,255,255,0.22); border-radius: 8px; overflow: hidden; }
+    .lang-btn {
+      background: transparent; color: rgba(255,255,255,0.7); border: none;
+      font: inherit; font-size: 0.72rem; font-weight: 700; letter-spacing: 0.05em;
+      padding: 5px 11px; cursor: pointer; transition: background .15s, color .15s;
+    }
+    .lang-btn.active { background: var(--gold); color: var(--navy-dark); }
+    .lang-btn:not(.active):hover { color: #fff; }
+    @media (max-width: 440px) { .header-badge { display: none; } }
     .logo-wrap { display: flex; align-items: center; gap: 12px; }
     .logo-img { height: 40px; width: auto; max-width: 160px; object-fit: contain; display: block; border-radius: 6px; }
     .logo-name {
@@ -191,8 +201,13 @@
       font-size: 1rem;
       color: var(--dark-grey);
       max-width: 420px;
-      margin: 0 auto 32px;
+      margin: 0 auto 24px;
       line-height: 1.6;
+    }
+    .hero-ba {
+      display: block; width: 100%; max-width: 440px;
+      margin: 0 auto 26px; border-radius: 14px;
+      box-shadow: 0 12px 34px rgba(0,0,0,0.16);
     }
     .hero-steps {
       display: flex;
@@ -948,7 +963,13 @@
       <div class="logo-tagline" id="headerTagline">AI Smile Simulator</div>
     </div>
   </div>
-  <div class="header-badge" id="headerBadge">Powered by Lucid</div>
+  <div class="header-right">
+    <div class="lang-toggle" id="langToggle" role="group" aria-label="Language">
+      <button type="button" class="lang-btn active" data-lang="en">EN</button>
+      <button type="button" class="lang-btn" data-lang="es">ES</button>
+    </div>
+    <div class="header-badge" id="headerBadge">Powered by Lucid</div>
+  </div>
 </header>
 <script>
 (function(){
@@ -962,6 +983,7 @@
   <div class="hero-badge">✦ AI Smile Simulator</div>
   <h1 class="hero-title">See Your <span class="gold">Dream Smile</span><br>Before You Commit</h1>
   <p class="hero-sub">Upload a photo and our AI instantly shows you what your smile could look like — no obligation, no office visit required.</p>
+  <img class="hero-ba" id="heroBa" src="https://app.lucidroi.com/smile-hero.jpg" alt="AI smile transformation — before and after" loading="lazy">
   <div class="hero-steps">
     <div class="hero-step"><span class="hero-step-num">1</span> Upload your photo</div>
     <div class="hero-step"><span class="hero-step-num">2</span> AI transforms your smile</div>
@@ -3946,7 +3968,9 @@ function applyConfig(cfg) {
 
   applyLegalLinks();
   buildQualification();
-  applyLocale(PRACTICE.locale);
+  // A user's explicit EN/ES toggle choice wins over the practice's default locale.
+  let savedLang = null; try { savedLang = localStorage.getItem('sim_lang'); } catch(e){}
+  applyLocale(savedLang || PRACTICE.locale);
   syncBookBtn();
 }
 
@@ -3974,16 +3998,33 @@ const I18N = {
   '#tryAnotherBtn':         { fr: 'Essayer une autre photo', es: 'Probar otra foto' },
   '#downloadBtn':           { fr: 'Télécharger la photo', es: 'Descargar foto' },
   '#createVideoBtn':        { fr: 'Créer une vidéo à partager', es: 'Crear video para compartir' },
+  '.hero-badge':            { es: '✦ Simulador de Sonrisa con IA' },
+  '.hero-steps':            { es: '<div class="hero-step"><span class="hero-step-num">1</span> Suba su foto</div><div class="hero-step"><span class="hero-step-num">2</span> La IA transforma su sonrisa</div><div class="hero-step"><span class="hero-step-num">3</span> Reserve su consulta gratis</div>' },
+  '#uploadCard .upload-text':{ es: '<strong>Toque para subir</strong> o arrastre y suelte' },
+  '#uploadCard .upload-hint':{ es: 'JPG, PNG o HEIC · Mejor resultado: sonrisa de frente, bien iluminada' },
+  '#chooseFileBtn':         { es: 'Elegir una foto' },
+  '#openCameraBtn':         { es: '📷 Tomar una foto' },
+  '#qualContinue':          { es: 'Continuar' },
+  '#videoStyleRow label':   { es: 'Estilo de video' },
 };
+// Two-way locale switch. Captures the original English innerHTML on first run so
+// the EN/ES toggle can flip back and forth (config sets the default; the toggle
+// lets a patient override it, persisted per-device).
 function applyLocale(loc) {
-  document.documentElement.lang = loc || 'en';
-  if (!loc || loc === 'en') return;
+  loc = (loc === 'es' || loc === 'fr') ? loc : 'en';
+  document.documentElement.lang = loc;
   for (const [sel, t] of Object.entries(I18N)) {
     const el = document.querySelector(sel);
-    const val = t[loc];
-    if (el && val) el.innerHTML = val;
+    if (!el) continue;
+    if (t._en === undefined) t._en = el.innerHTML;   // capture original English once
+    el.innerHTML = (loc === 'en') ? t._en : (t[loc] || t._en);
   }
+  PRACTICE.locale = loc;
+  try { localStorage.setItem('sim_lang', loc); } catch(e){}
+  document.querySelectorAll('.lang-btn').forEach(b => b.classList.toggle('active', b.dataset.lang === loc));
 }
+document.querySelectorAll('.lang-btn').forEach(b =>
+  b.addEventListener('click', () => applyLocale(b.dataset.lang)));
 
 async function loadPracticeConfig() {
   if (!TENANT || TENANT === 'unknown') { applyLegalLinks(); buildQualification(); return; }
@@ -4001,7 +4042,6 @@ function escAttr(s){ return String(s==null?'':s).replace(/"/g,'&quot;'); }
 /* ── Init ──────────────────────────────────────────────────────── */
 syncBookBtn();
 loadPracticeConfig();
-
 // When embedded, report content height so the parent iframe can grow with
 // each step — prevents scroll-within-scroll on landing/practice pages.
 if (window.parent !== window) {
@@ -4014,6 +4054,10 @@ if (window.parent !== window) {
   window.addEventListener('load', reportH);
   setInterval(reportH, 900);
 }
+
+// Restore a saved EN/ES choice on load (covers the no-tenant/standalone case,
+// where loadPracticeConfig returns before calling applyLocale).
+(function(){ let s=null; try{ s=localStorage.getItem('sim_lang'); }catch(e){} if (s && s !== 'en') applyLocale(s); })();
 </script>
 </body>
 </html>
