@@ -608,9 +608,12 @@
        (2) upload: clean dropzone + single "Continue" (no step title, no 2 buttons). */
     body.embedded #headerBadge { display: none; }
     body.embedded .hero-badge, body.embedded .hero-steps { display: none; }
-    body.embedded .hero { padding: 18px 0 4px; }
-    body.embedded .hero-title { font-size: 1.5rem; margin-bottom: 10px; }
-    body.embedded #introGetStarted { display: block !important; max-width: 340px; margin: 16px auto 0; }
+    /* Compact intro (first screen ~50% smaller): smaller before/after + tighter. */
+    body.embedded .hero { padding: 14px 0 2px; }
+    body.embedded .hero-ba { max-width: 210px; margin: 0 auto 12px; }
+    body.embedded .hero-title { font-size: 1.2rem; margin-bottom: 6px; }
+    body.embedded .hero-sub { font-size: 0.85rem; line-height: 1.4; margin-bottom: 8px; }
+    body.embedded #introGetStarted { display: block !important; max-width: 320px; margin: 12px auto 0; }
     body.embedded #uploadCard { display: none; }             /* shown after Get Started */
     body.embedded #uploadCard .card-title { display: none; }
     body.embedded #uploadCard .upload-area { padding: 40px 20px; }
