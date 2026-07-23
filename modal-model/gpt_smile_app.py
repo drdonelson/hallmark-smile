@@ -81,6 +81,69 @@ image = (
 )
 app = modal.App("gpt-smile", image=image)
 
+# Lightweight image for the before|after video compositing endpoint — just ffmpeg,
+# NO mediapipe/opencv. Kept separate from the GptSmile class so cold starts are
+# fast (the class's @enter downloads the FaceLandmarker model, which video
+# compositing doesn't need).
+video_image = (
+    modal.Image.debian_slim(python_version="3.11")
+    .apt_install("ffmpeg")
+    .pip_install("requests==2.32.3", "fastapi[standard]==0.115.0")
+)
+
+
+@app.function(image=video_image, timeout=300, min_containers=0,
+              secrets=[modal.Secret.from_name("smile-secret")])
+@modal.fastapi_endpoint(method="POST")
+def compose_video(body: dict):
+    """Stitch the STATIC before photo beside the animated after video into one
+    shareable before|after clip (like bitebot). Returns raw mp4 bytes.
+    Auth: any valid meter token (the browser mints an uncapped kind=shadow one —
+    the video was already billed at Kling-start, so this must not re-charge)."""
+    import base64 as b64m, subprocess, tempfile, os as _os
+    import requests as rq
+    from fastapi import Response
+    if not _verify_meter_token(body.get("token", ""), _os.environ.get("SMILE_HMAC_SECRET", "")):
+        return Response(content=b'{"error":"unauthorized"}', status_code=401, media_type="application/json")
+    vurl = body.get("video_url", "")
+    before = body.get("before", "")
+    if not vurl or not before:
+        return Response(content=b'{"error":"need before + video_url"}', status_code=400, media_type="application/json")
+    d = tempfile.mkdtemp()
+    bpath, vpath, opath = _os.path.join(d, "b.jpg"), _os.path.join(d, "v.mp4"), _os.path.join(d, "out.mp4")
+    try:
+        raw = before.split(",", 1)[1] if "," in before else before
+        open(bpath, "wb").write(b64m.b64decode(raw))
+        r = rq.get(vurl, timeout=60); r.raise_for_status()
+        open(vpath, "wb").write(r.content)
+        # Probe the video length so we can HARD-CAP the output with -t. That's the
+        # reliable way to stop ffmpeg: a -loop'd still image is an infinite input,
+        # and hstack (even with shortest=1) can fail to propagate EOF and hang. A
+        # -t output cap forces the muxer to finalize at exactly the clip length.
+        dur = 10.0
+        try:
+            pr = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                                 "-of", "default=nw=1:nk=1", vpath],
+                                capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
+            dur = min(float(pr.stdout.decode().strip()), 12.0)
+        except Exception:
+            pass
+        # Before (looped still, input 0) | After (video, input 1), same height,
+        # web-friendly H.264. scale=-2 keeps widths even so no pad is needed.
+        fc = ("[0:v]scale=-2:900,setsar=1[b];[1:v]scale=-2:900,setsar=1[a];"
+              "[b][a]hstack=inputs=2")
+        cmd = ["ffmpeg", "-nostdin", "-y", "-loop", "1", "-i", bpath, "-i", vpath,
+               "-filter_complex", fc, "-t", "%.2f" % dur, "-c:v", "libx264",
+               "-preset", "veryfast", "-pix_fmt", "yuv420p", "-movflags", "+faststart", opath]
+        p = subprocess.run(cmd, capture_output=True, stdin=subprocess.DEVNULL, timeout=90)
+        if p.returncode != 0 or not _os.path.exists(opath):
+            return Response(content=('{"error":"ffmpeg: %s"}' % p.stderr.decode()[-180:].replace('"', "'")).encode(),
+                            status_code=500, media_type="application/json")
+        return Response(content=open(opath, "rb").read(), media_type="video/mp4")
+    except Exception as e:
+        return Response(content=('{"error":"%s"}' % str(e)[:180].replace('"', "'")).encode(),
+                        status_code=500, media_type="application/json")
+
 MP_MODEL_URL = (
     "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
     "face_landmarker/float16/1/face_landmarker.task"
