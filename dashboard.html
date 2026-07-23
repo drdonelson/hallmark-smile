@@ -776,7 +776,11 @@ $('lbDl').addEventListener('click',async e=>{
 
 /* ═══════════════ Settings suite ═══════════════ */
 const SIM_BASE = 'https://drdonelson.github.io/hallmark-smile/smile-simulator.html';
-const WIDGET_SRC = 'https://drdonelson.github.io/hallmark-smile/cta-widget.js';
+// Versioned URL cache-busts Cloudflare's 4h browser cache — bump ?v= whenever
+// cta-widget.js changes so practices get the update immediately (a new URL is a
+// guaranteed cache miss). Use the custom domain, not github.io.
+const WIDGET_VERSION = '20260723';
+const WIDGET_SRC = 'https://app.lucidroi.com/cta-widget.js?v=' + WIDGET_VERSION;
 let config = null, settingsSlug = '', settingsName = '';
 let colorState = {}, pendingLogoDataUrl = null;
 
@@ -1248,7 +1252,10 @@ function updateEmbed(){
   $('snipWidget').textContent =
     `<script src="${WIDGET_SRC}" data-sim-url="${popupUrl}"` +
     attr('data-heading', w.heading) + attr('data-sub', w.sub) +
-    attr('data-avatar-url', w.avatarUrl) + attr('data-theme', w.theme) +
+    attr('data-cta-label', w.ctaLabel) + attr('data-hero-url', w.heroUrl) +
+    attr('data-booking-url', w.bookingUrl || (config && config.booking && config.booking.url)) +
+    attr('data-side-tab', w.sideTab) +
+    attr('data-theme', w.theme) +
     ` async><\/script>`;
 }
 document.querySelectorAll('[data-copy]').forEach(b=>b.addEventListener('click',async()=>{
