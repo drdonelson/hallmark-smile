@@ -779,11 +779,10 @@ $('lbDl').addEventListener('click',async e=>{
 
 /* ═══════════════ Settings suite ═══════════════ */
 const SIM_BASE = 'https://drdonelson.github.io/hallmark-smile/smile-simulator.html';
-// Versioned URL cache-busts Cloudflare's 4h browser cache — bump ?v= whenever
-// cta-widget.js changes so practices get the update immediately (a new URL is a
-// guaranteed cache miss). Use the custom domain, not github.io.
-const WIDGET_VERSION = '20260723';
-const WIDGET_SRC = 'https://app.lucidroi.com/cta-widget.js?v=' + WIDGET_VERSION;
+// Unversioned: Cloudflare Browser Cache TTL is "Respect Existing Headers", so the
+// origin's max-age=600 means widget updates propagate in ~10 min automatically —
+// practices paste once and never re-paste. (For an instant push, append ?v=<date>.)
+const WIDGET_SRC = 'https://app.lucidroi.com/cta-widget.js';
 let config = null, settingsSlug = '', settingsName = '';
 let colorState = {}, pendingLogoDataUrl = null;
 
