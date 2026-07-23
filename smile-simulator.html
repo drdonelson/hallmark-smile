@@ -609,15 +609,16 @@
     /* Let the popup shrink to actual content — body min-height:100vh otherwise
        forces the reported height to the full viewport (popup stays tall). */
     body.embedded { min-height: 0; }
-    body.embedded .main { padding: 14px 12px 12px !important; }
+    body.embedded .main { padding: 12px 14px 14px !important; }
     body.embedded #headerBadge { display: none; }
     body.embedded .hero-badge, body.embedded .hero-steps { display: none; }
-    /* Compact intro (first screen ~50% smaller): smaller before/after + tighter. */
-    body.embedded .hero { padding: 14px 0 2px; }
-    body.embedded .hero-ba { max-width: 210px; margin: 0 auto 12px; }
-    body.embedded .hero-title { font-size: 1.2rem; margin-bottom: 6px; }
-    body.embedded .hero-sub { font-size: 0.85rem; line-height: 1.4; margin-bottom: 8px; }
-    body.embedded #introGetStarted { display: block !important; max-width: 320px; margin: 12px auto 0; }
+    /* Bitebot-style intro: before/after VIDEO first (fills width), then heading,
+       subtext, full-width Get Started. Tight spacing, no dead space. */
+    body.embedded .hero { display: flex; flex-direction: column; padding: 12px 0 0; }
+    body.embedded .hero-ba { order: 1; max-width: 100%; margin: 0 0 12px; border-radius: 12px; }
+    body.embedded .hero-title { order: 2; font-size: 1.22rem; margin: 0 0 6px; }
+    body.embedded .hero-sub { order: 3; font-size: 0.85rem; line-height: 1.4; margin: 0 0 12px; }
+    body.embedded #introGetStarted { order: 4; display: block !important; max-width: 100%; margin: 0; }
     body.embedded #uploadCard { display: none; }             /* shown after Get Started */
     body.embedded #uploadCard .card-title { display: none; }
     body.embedded #uploadCard .upload-area { padding: 40px 20px; }
@@ -1011,7 +1012,7 @@
   <div class="hero-badge">✦ AI Smile Simulator</div>
   <h1 class="hero-title">See Your <span class="gold">Dream Smile</span><br>Before You Commit</h1>
   <p class="hero-sub">Upload a photo and our AI instantly shows you what your smile could look like — no obligation, no office visit required.</p>
-  <img class="hero-ba" id="heroBa" src="https://app.lucidroi.com/smile-hero.jpg" alt="AI smile transformation — before and after" loading="lazy">
+  <video class="hero-ba" id="heroBa" src="https://app.lucidroi.com/smile-hero.mp4" poster="https://app.lucidroi.com/smile-hero.jpg" autoplay muted loop playsinline preload="metadata"></video>
   <button class="btn-primary" id="introGetStarted" type="button" style="display:none">Get Started</button>
   <div class="hero-steps">
     <div class="hero-step"><span class="hero-step-num">1</span> Upload your photo</div>
