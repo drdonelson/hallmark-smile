@@ -598,6 +598,14 @@
     .site-footer a { color: var(--mid-grey); text-decoration: none; }
     .site-footer a:hover { color: var(--navy); text-decoration: underline; }
     .site-footer .sep { margin: 0 8px; opacity: 0.5; }
+    .powered-by { margin-top: 10px; font-size: 0.72rem; }
+    .powered-by a { color: var(--mid-grey); text-decoration: none; font-weight: 600; }
+    .powered-by a:hover { color: var(--navy); text-decoration: underline; }
+    /* Embedded in the widget popup: compact, upload-first (hide the big hero
+       landing + the header "Powered by" badge; powered-by lives at the bottom). */
+    body.embedded .hero { display: none; }
+    body.embedded #headerBadge { display: none; }
+    body.embedded .main { padding-top: 16px; }
     .results-actions { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
     .secondary-actions { display: flex; gap: 10px; }
 
@@ -1188,6 +1196,7 @@
     <a href="legal/privacy.html" target="_blank" rel="noopener">Privacy</a><span class="sep">·</span>
     <a href="legal/terms.html" target="_blank" rel="noopener">Terms</a><span class="sep">·</span>
     <a href="legal/disclaimer.html" target="_blank" rel="noopener">Disclaimer</a>
+    <div class="powered-by"><a href="https://lucidroi.com" target="_blank" rel="noopener">Powered by LucidROI</a></div>
   </footer>
 </main>
 
@@ -4108,6 +4117,9 @@ loadPracticeConfig();
 // When embedded, report content height so the parent iframe can grow with
 // each step — prevents scroll-within-scroll on landing/practice pages.
 if (window.parent !== window) {
+  // Embedded in the widget popup → compact upload-first view (hide the big hero
+  // landing), so the popup opens just to the upload dialog + legal + powered-by.
+  document.body.classList.add('embedded');
   let lastH = 0;
   const reportH = () => {
     const h = document.documentElement.scrollHeight;
