@@ -603,13 +603,19 @@
     .powered-by a:hover { color: var(--navy); text-decoration: underline; }
     /* Embedded in the widget popup: compact, upload-first (hide the big hero
        landing + the header "Powered by" badge; powered-by lives at the bottom). */
-    body.embedded .hero { display: none; }
+    /* Embedded in the widget popup = bitebot-style TWO-STEP flow:
+       (1) intro: before/after hero + heading + "Get Started"
+       (2) upload: clean dropzone + single "Continue" (no step title, no 2 buttons). */
     body.embedded #headerBadge { display: none; }
-    body.embedded .main { padding-top: 16px; }
-    /* Cleaner, bitebot-style upload step in the popup: no step title, roomier dropzone. */
+    body.embedded .hero-badge, body.embedded .hero-steps { display: none; }
+    body.embedded .hero { padding: 18px 0 4px; }
+    body.embedded .hero-title { font-size: 1.5rem; margin-bottom: 10px; }
+    body.embedded #introGetStarted { display: block !important; max-width: 340px; margin: 16px auto 0; }
+    body.embedded #uploadCard { display: none; }             /* shown after Get Started */
     body.embedded #uploadCard .card-title { display: none; }
     body.embedded #uploadCard .upload-area { padding: 40px 20px; }
     body.embedded #uploadCard .upload-text { font-size: 1.05rem; }
+    body.embedded #uploadCtaRow { display: none; }           /* dropzone tap opens the picker; selecting auto-advances */
     .results-actions { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
     .secondary-actions { display: flex; gap: 10px; }
 
@@ -999,6 +1005,7 @@
   <h1 class="hero-title">See Your <span class="gold">Dream Smile</span><br>Before You Commit</h1>
   <p class="hero-sub">Upload a photo and our AI instantly shows you what your smile could look like — no obligation, no office visit required.</p>
   <img class="hero-ba" id="heroBa" src="https://app.lucidroi.com/smile-hero.jpg" alt="AI smile transformation — before and after" loading="lazy">
+  <button class="btn-primary" id="introGetStarted" type="button" style="display:none">Get Started</button>
   <div class="hero-steps">
     <div class="hero-step"><span class="hero-step-num">1</span> Upload your photo</div>
     <div class="hero-step"><span class="hero-step-num">2</span> AI transforms your smile</div>
@@ -4118,6 +4125,17 @@ function escAttr(s){ return String(s==null?'':s).replace(/"/g,'&quot;'); }
 /* ── Init ──────────────────────────────────────────────────────── */
 syncBookBtn();
 loadPracticeConfig();
+// Intro "Get Started" (shown only in the embedded popup) → advance from the
+// intro hero to the upload step. Inline display:block beats the embed CSS that
+// hides #uploadCard until now.
+(function(){
+  var gs = document.getElementById('introGetStarted');
+  if (gs) gs.addEventListener('click', function(){
+    var hero = document.querySelector('.hero'); if (hero) hero.style.display = 'none';
+    var uc = document.getElementById('uploadCard'); if (uc) uc.style.display = 'block';
+    window.scrollTo(0, 0);
+  });
+})();
 // When embedded, report content height so the parent iframe can grow with
 // each step — prevents scroll-within-scroll on landing/practice pages.
 if (window.parent !== window) {
