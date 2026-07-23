@@ -326,9 +326,12 @@
           <div class="card2">
             <h3>Popup / website widget</h3>
             <p class="hint">Customizes the floating popup from the Embed tab’s widget snippet.</p>
-            <div class="field"><label>Popup heading</label><input type="text" id="w-heading" placeholder="Ready for a New Smile?"></div>
-            <div class="field"><label>Popup subtext</label><input type="text" id="w-sub" placeholder="See your smile makeover in seconds — free."></div>
-            <div class="field"><label>Popup avatar image URL</label><input type="url" id="w-avatar" placeholder="https://…/avatar.png (blank = default)"></div>
+            <div class="field"><label>Popup heading</label><input type="text" id="w-heading" placeholder="Want to See Your Future Smile? (FREE)"></div>
+            <div class="field"><label>Popup subtext <span class="hint" style="display:inline;text-transform:none;font-weight:400">(optional)</span></label><input type="text" id="w-sub" placeholder="(blank = none)"></div>
+            <div class="field"><label>Button label</label><input type="text" id="w-cta-label" placeholder="Get Started"></div>
+            <div class="field"><label>Before / after hero image URL <span class="hint" style="display:inline;text-transform:none;font-weight:400">(blank = default sample — use a consented patient or licensed image)</span></label><input type="url" id="w-hero" placeholder="https://…/before-after.jpg"></div>
+            <div class="field"><label>Booking link <span class="hint" style="display:inline;text-transform:none;font-weight:400">(shows the “Schedule” side tab; blank = no side tab)</span></label><input type="url" id="w-booking" placeholder="https://your-booking-link"></div>
+            <div class="field"><label>Side-tab text</label><input type="text" id="w-sidetab" placeholder="Schedule Your Consultation Today!"></div>
             <div class="field"><label>Popup theme</label>
               <select id="w-theme"><option value="hallmark">Hallmark (navy/gold)</option><option value="lucid">Lucid (blue)</option></select></div>
             <div class="field"><label>Popup link override <span class="hint" style="display:inline;text-transform:none;font-weight:400">(where the popup opens; blank = this practice’s simulator)</span></label>
@@ -982,7 +985,9 @@ function populateSettings(d){
   $('ty-url').value = config.thankYouUrl||'';
   const w = config.widget || {};
   $('w-heading').value = w.heading||''; $('w-sub').value = w.sub||'';
-  $('w-avatar').value = w.avatarUrl||''; $('w-theme').value = (w.theme==='lucid'?'lucid':'hallmark'); $('w-cta').value = w.ctaUrl||'';
+  $('w-cta-label').value = w.ctaLabel||''; $('w-hero').value = w.heroUrl||'';
+  $('w-booking').value = w.bookingUrl||''; $('w-sidetab').value = w.sideTab||'';
+  $('w-theme').value = (w.theme==='lucid'?'lucid':'hallmark'); $('w-cta').value = w.ctaUrl||'';
   const lg = config.legal || {};
   $('lg-company').value = lg.companyName||''; $('lg-support').value = lg.supportEmail||''; $('lg-base').value = lg.legalBaseUrl||'';
   $('lc-locale').value = ['en','fr','es'].includes(config.locale) ? config.locale : 'en';
@@ -1015,7 +1020,7 @@ function gatherConfig(){
   c.branding.colors = gatherColors();
   c.booking = { url:$('bk-url').value.trim(), ctaLabel:$('bk-cta').value.trim(), ctaFallback:$('bk-fallback').value };
   c.thankYouUrl = $('ty-url').value.trim();
-  c.widget = { heading:$('w-heading').value.trim(), sub:$('w-sub').value.trim(), avatarUrl:$('w-avatar').value.trim(), theme:$('w-theme').value, ctaUrl:$('w-cta').value.trim() };
+  c.widget = { heading:$('w-heading').value.trim(), sub:$('w-sub').value.trim(), ctaLabel:$('w-cta-label').value.trim(), heroUrl:$('w-hero').value.trim(), bookingUrl:$('w-booking').value.trim(), sideTab:$('w-sidetab').value.trim(), theme:$('w-theme').value, ctaUrl:$('w-cta').value.trim() };
   const g = gatherLists();
   c.leads = { notifyEmails:g.notifyEmails };
   c.treatments = g.treatments; c.shades = g.shades; c.qualification = g.qualification;

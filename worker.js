@@ -726,7 +726,7 @@ function defaultConfig(rec = {}) {
     thankYouUrl: '',
     // Floating popup / CTA widget (cta-widget.js) customization. ctaUrl overrides
     // where the popup opens (blank = the practice's own simulator URL).
-    widget: { heading: 'Ready for a New Smile?', sub: 'See your smile makeover in seconds — free, no obligation.', avatarUrl: '', theme: 'hallmark', ctaUrl: '' },
+    widget: { heading: 'Want to See Your Future Smile? (FREE)', sub: '', ctaLabel: 'Get Started', heroUrl: '', bookingUrl: '', sideTab: 'Schedule Your Consultation Today!', avatarUrl: '', theme: 'hallmark', ctaUrl: '' },
     leads: { notifyEmails: rec.leadEmail ? [rec.leadEmail] : [] },
     treatments: [
       { id: 'veneers',   label: 'Veneers',              enabled: true },
@@ -809,11 +809,15 @@ function sanitizeConfig(input, rec = {}) {
     },
     thankYouUrl: str(c.thankYouUrl, 400, ''),
     widget: {
-      heading:   str(w.heading, 80, d.widget.heading),
-      sub:       str(w.sub, 160, d.widget.sub),
-      avatarUrl: str(w.avatarUrl, 300, ''),
-      theme:     str(w.theme, 24, d.widget.theme),
-      ctaUrl:    str(w.ctaUrl, 400, ''),
+      heading:    str(w.heading, 80, d.widget.heading),
+      sub:        str(w.sub, 160, ''),
+      ctaLabel:   str(w.ctaLabel, 40, d.widget.ctaLabel),
+      heroUrl:    str(w.heroUrl, 400, ''),
+      bookingUrl: str(w.bookingUrl, 400, ''),
+      sideTab:    str(w.sideTab, 80, d.widget.sideTab),
+      avatarUrl:  str(w.avatarUrl, 300, ''),
+      theme:      str(w.theme, 24, d.widget.theme),
+      ctaUrl:     str(w.ctaUrl, 400, ''),
     },
     leads: { notifyEmails: leadEmails },
     treatments,
