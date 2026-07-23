@@ -624,6 +624,17 @@
     body.embedded #uploadCard .upload-area { padding: 40px 20px; }
     body.embedded #uploadCard .upload-text { font-size: 1.05rem; }
     body.embedded #uploadCtaRow { display: none; }           /* dropzone tap opens the picker; selecting auto-advances */
+    /* Phones: shrink the popup to a compact bottom-card (~bitebot size). Cap the
+       before/after video height and tighten spacing so the intro fits without a
+       tall takeover. object-position keeps the smiles in frame when cropped. */
+    @media (max-width: 480px) {
+      body.embedded .main { padding: 10px 12px 12px !important; }
+      body.embedded .hero { padding: 6px 0 0; }
+      body.embedded .hero-ba { max-height: 186px; object-fit: cover; object-position: center 40%; margin: 0 0 9px; }
+      body.embedded .hero-title { font-size: 1.08rem; margin: 0 0 5px; }
+      body.embedded .hero-sub { font-size: 0.8rem; line-height: 1.35; margin: 0 0 9px; }
+      body.embedded #introGetStarted { padding: 12px; }
+    }
     .results-actions { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
     .secondary-actions { display: flex; gap: 10px; }
 
