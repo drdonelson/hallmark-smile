@@ -126,15 +126,16 @@ async function handleKlingStart(request, env, origin) {
   const line = (body.videoLine || 'this is amazing').replace(/["\\]/g, '');
   // Style presets — the patient can pick the vibe of the shareable clip.
   const STYLE_PROMPTS = {
-    // Default: talk-to-camera THEN break into a joyful laugh — combines the two
-    // styles patients liked best (dropped the disliked "confident reveal").
+    // Default: the full "bitebot arc" — smile → turn to a side/profile view to
+    // show off the new smile → back to camera → talk → break into a joyful laugh.
     talklaugh:
-      'The person faces the camera and speaks naturally, as if excitedly telling a friend about their new smile, ' +
-      `warmly mouthing the words "${line}" with clear, relaxed lip and jaw movement and expressive eyebrows — ` +
-      'then breaks into a big warm genuine laugh: head tilting back a little, cheeks lifting, eyes crinkling with ' +
-      'joy, shoulders relaxing. Bright confident smile showing their new teeth the whole time. Friendly and ' +
-      'conversational turning joyful and celebratory, natural blinking and small head movements, photorealistic ' +
-      'human face, soft studio lighting, camera static.',
+      'The person smiles at the camera to show off their bright new teeth, then smoothly turns their head to ' +
+      'one side into a three-quarter/profile view — showing the new smile from the side — and turns back to ' +
+      'face the camera. Facing the camera again, they speak naturally as if excitedly telling a friend about ' +
+      `their new smile, warmly mouthing the words "${line}" with clear, relaxed lip and jaw movement and ` +
+      'expressive eyebrows, then break into a big warm genuine laugh: head tilting back a little, cheeks lifting, ' +
+      'eyes crinkling with joy, shoulders relaxing. Bright confident smile showing the new teeth throughout. ' +
+      'Smooth natural head motion, natural blinking, photorealistic human face, soft studio lighting, camera static.',
     laugh:
       'The person turns their head slightly to show off their new smile, then faces the camera. ' +
       `Looking at the camera with a delighted, surprised expression, they clearly mouth the words "${line}" ` +
@@ -150,6 +151,12 @@ async function handleKlingStart(request, env, origin) {
   };
   const style = STYLE_PROMPTS[body.style] ? body.style : 'talklaugh';
   const prompt = STYLE_PROMPTS[style];
+  // The talklaugh arc (turn to profile → talk → laugh) needs room; default it to
+  // 10s so the beats don't feel rushed. Other styles stay at 5s. An explicit
+  // body.duration always wins. (10s ≈ $0.70 vs 5s ≈ $0.35; video is opt-in.)
+  const duration = (body.duration === '10' || body.duration === '5')
+    ? body.duration
+    : (style === 'talklaugh' ? '10' : KLING_DURATION);
 
   let fal;
   try {
@@ -162,7 +169,7 @@ async function handleKlingStart(request, env, origin) {
       body: JSON.stringify({
         prompt,
         image_url:       image,
-        duration:        (body.duration === '10' ? '10' : KLING_DURATION),
+        duration:        duration,
         negative_prompt: 'blur, distortion, low quality, deformed or extra teeth, ' +
           'changing tooth color, morphing face, identity change, warping, flicker, artifacts',
         cfg_scale:       0.5,
