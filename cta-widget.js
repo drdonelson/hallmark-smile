@@ -126,7 +126,7 @@
     '#lucid-cta-modal{position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,0.32);}',
     '#lucid-cta-modal-inner{position:fixed;bottom:12px;right:12px;width:410px;max-width:calc(100vw - 32px);height:540px;max-height:calc(100vh - 24px);transition:height .2s ease;background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.45);animation:lucid-cta-in 0.35s cubic-bezier(0.34,1.56,0.64,1) both;transform-origin:bottom right;}',
     '#lucid-cta-modal iframe{width:100%;height:100%;border:none;display:block;}',
-    '@media(max-width:480px){#lucid-cta-modal-inner{inset:10px;width:auto;height:auto;}}',
+    '@media(max-width:480px){#lucid-cta-modal-inner{top:auto;bottom:8px;left:8px;right:8px;width:auto;max-width:none;}}',
     '#lucid-cta-modal-close{position:absolute;top:10px;right:12px;z-index:1;background:rgba(0,0,0,0.5);border:none;border-radius:50%;width:30px;height:30px;cursor:pointer;color:#fff;font-size:16px;display:flex;align-items:center;justify-content:center;}',
     '@media(max-width:420px){#lucid-cta-card{right:12px;left:12px;width:auto;max-width:none;}#lucid-side-tab{font-size:12px;padding:13px 7px;}}',
   ].join('\n');
@@ -207,7 +207,9 @@
     function onMsg(e) {
       var h = e && e.data && e.data.lucidSimHeight;
       if (typeof h === 'number' && h > 0 && inner) {
-        var maxH = window.innerHeight - 24;
+        // On phones leave ~90px at the top so the popup is a bottom-anchored card
+        // (like bitebot) sized to content, not a full-screen takeover.
+        var maxH = window.innerHeight - (window.innerWidth <= 480 ? 90 : 24);
         inner.style.height = Math.max(300, Math.min(h, maxH)) + 'px';
       }
     }
