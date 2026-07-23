@@ -628,11 +628,13 @@
        before/after video height and tighten spacing so the intro fits without a
        tall takeover. object-position keeps the smiles in frame when cropped. */
     @media (max-width: 480px) {
-      body.embedded .main { padding: 10px 12px 12px !important; }
-      body.embedded .hero { padding: 6px 0 0; }
-      body.embedded .hero-ba { max-height: 186px; object-fit: cover; object-position: center 40%; margin: 0 0 9px; }
-      body.embedded .hero-title { font-size: 1.08rem; margin: 0 0 5px; }
-      body.embedded .hero-sub { font-size: 0.8rem; line-height: 1.35; margin: 0 0 9px; }
+      body.embedded .main { padding: 8px 14px 10px !important; }
+      body.embedded .hero { padding: 4px 0 0; }
+      /* Smaller before/after footprint, centered with side margins (bitebot-style)
+         and NEVER cropped: fixed height + auto width shows the whole frame. */
+      body.embedded .hero-ba { height: 170px; width: auto; max-width: 100%; object-fit: contain; display: block; margin: 0 auto 8px; }
+      body.embedded .hero-title { font-size: 1.05rem; margin: 0 0 4px; }
+      body.embedded .hero-sub { font-size: 0.8rem; line-height: 1.3; margin: 0 0 8px; }
       body.embedded #introGetStarted { padding: 12px; }
     }
     .results-actions { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
