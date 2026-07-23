@@ -633,9 +633,10 @@
       /* Smaller before/after footprint, centered with side margins (bitebot-style)
          and NEVER cropped: fixed height + auto width shows the whole frame. */
       body.embedded .hero-ba { height: 202px; width: auto; max-width: 100%; object-fit: contain; display: block; margin: 0 auto 8px; }
-      body.embedded .hero-title { font-size: 1.05rem; margin: 0 0 4px; }
-      body.embedded .hero-sub { font-size: 0.8rem; line-height: 1.3; margin: 0 0 8px; }
-      body.embedded #introGetStarted { padding: 6px; }
+      body.embedded .hero-title { font-size: 1.05rem; margin: 0 0 4px; padding: 0 16px; }
+      body.embedded .hero-sub { font-size: 0.8rem; line-height: 1.3; margin: 0 0 10px; padding: 0 24px; }
+      /* Pill hugs the text (auto width, centered) with slim horizontal padding. */
+      body.embedded #introGetStarted { width: auto; align-self: center; margin: 2px auto 0; padding: 8px 14px; }
       body.embedded .site-footer { padding: 12px 16px 4px; margin-top: 4px; }
       body.embedded .powered-by { margin-top: 6px; }
     }
