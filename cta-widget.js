@@ -75,10 +75,10 @@
   var CSS = [
     '#lucid-cta-card{',
     '  position:fixed;bottom:22px;right:22px;z-index:99999;',
-    '  width:300px;max-width:calc(100vw - 40px);',
-    '  background:#fff;border-radius:20px;',
+    '  width:225px;max-width:calc(100vw - 40px);',
+    '  background:#fff;border-radius:16px;',
     '  box-shadow:0 12px 44px rgba(0,0,0,0.22), 0 0 0 3px ' + T.glow + ';',
-    '  padding:14px;',
+    '  padding:11px;',
     '  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;',
     '  animation:lucid-cta-in 0.5s cubic-bezier(0.34,1.56,0.64,1) both;',
     '  transform-origin:bottom right;',
@@ -86,12 +86,12 @@
     '@keyframes lucid-cta-in{from{opacity:0;transform:scale(0.85) translateY(16px);}to{opacity:1;transform:scale(1) translateY(0);}}',
     '@keyframes lucid-cta-out{from{opacity:1;transform:scale(1);}to{opacity:0;transform:scale(0.85) translateY(16px);}}',
     '#lucid-cta-hero{',
-    '  width:100%;height:150px;border-radius:13px;object-fit:cover;display:block;',
+    '  width:100%;height:112px;border-radius:10px;object-fit:cover;display:block;',
     '  background:#0c1622;cursor:pointer;',
     '}',
     '#lucid-cta-heading{',
-    '  font-size:16px;font-weight:800;line-height:1.28;color:#16222f;',
-    '  text-align:center;margin:12px 6px 4px;cursor:pointer;',
+    '  font-size:12.5px;font-weight:800;line-height:1.28;color:#16222f;',
+    '  text-align:center;margin:9px 5px 2px;cursor:pointer;',
     '}',
     '#lucid-cta-sub{font-size:12.5px;line-height:1.4;color:#5b6b7a;text-align:center;margin:0 6px 4px;}',
     '#lucid-cta-btn{',
@@ -124,7 +124,7 @@
     // Contained popup (bitebot-style) — a compact card anchored bottom-right where
     // the widget lives, NOT a full-screen takeover. Light backdrop; click to close.
     '#lucid-cta-modal{position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,0.32);}',
-    '#lucid-cta-modal-inner{position:fixed;bottom:20px;right:20px;width:410px;max-width:calc(100vw - 32px);height:min(680px,calc(100vh - 40px));background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.45);animation:lucid-cta-in 0.35s cubic-bezier(0.34,1.56,0.64,1) both;transform-origin:bottom right;}',
+    '#lucid-cta-modal-inner{position:fixed;bottom:12px;right:12px;width:410px;max-width:calc(100vw - 32px);height:min(900px,calc(100vh - 24px));background:#fff;border-radius:20px;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,0.45);animation:lucid-cta-in 0.35s cubic-bezier(0.34,1.56,0.64,1) both;transform-origin:bottom right;}',
     '#lucid-cta-modal iframe{width:100%;height:100%;border:none;display:block;}',
     '@media(max-width:480px){#lucid-cta-modal-inner{inset:10px;width:auto;height:auto;}}',
     '#lucid-cta-modal-close{position:absolute;top:10px;right:12px;z-index:1;background:rgba(0,0,0,0.5);border:none;border-radius:50%;width:30px;height:30px;cursor:pointer;color:#fff;font-size:16px;display:flex;align-items:center;justify-content:center;}',
@@ -167,14 +167,13 @@
         : '<img id="lucid-cta-hero" src="' + cfg.heroUrl + '" alt="AI smile before and after" loading="lazy">'),
       '<div id="lucid-cta-heading">' + cfg.heading + '</div>',
       cfg.sub ? '<div id="lucid-cta-sub">' + cfg.sub + '</div>' : '',
-      '<button id="lucid-cta-btn" type="button">' + cfg.ctaLabel + '</button>',
     ].join('');
+    card.style.cursor = 'pointer';
     document.body.appendChild(card);
 
+    // No button — the whole card is clickable (opens the simulator).
     document.getElementById('lucid-cta-close').addEventListener('click', function (e) { e.stopPropagation(); dismiss(); });
-    document.getElementById('lucid-cta-hero').addEventListener('click', openSim);
-    document.getElementById('lucid-cta-heading').addEventListener('click', openSim);
-    document.getElementById('lucid-cta-btn').addEventListener('click', openSim);
+    card.addEventListener('click', openSim);
   }
 
   function dismiss() {
