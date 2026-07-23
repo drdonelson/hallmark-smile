@@ -606,6 +606,10 @@
     /* Embedded in the widget popup = bitebot-style TWO-STEP flow:
        (1) intro: before/after hero + heading + "Get Started"
        (2) upload: clean dropzone + single "Continue" (no step title, no 2 buttons). */
+    /* Let the popup shrink to actual content — body min-height:100vh otherwise
+       forces the reported height to the full viewport (popup stays tall). */
+    body.embedded { min-height: 0; }
+    body.embedded .main { padding: 14px 12px 12px !important; }
     body.embedded #headerBadge { display: none; }
     body.embedded .hero-badge, body.embedded .hero-steps { display: none; }
     /* Compact intro (first screen ~50% smaller): smaller before/after + tighter. */
