@@ -606,6 +606,10 @@
     body.embedded .hero { display: none; }
     body.embedded #headerBadge { display: none; }
     body.embedded .main { padding-top: 16px; }
+    /* Cleaner, bitebot-style upload step in the popup: no step title, roomier dropzone. */
+    body.embedded #uploadCard .card-title { display: none; }
+    body.embedded #uploadCard .upload-area { padding: 40px 20px; }
+    body.embedded #uploadCard .upload-text { font-size: 1.05rem; }
     .results-actions { display: flex; flex-direction: column; gap: 12px; margin-top: 20px; }
     .secondary-actions { display: flex; gap: 10px; }
 
@@ -1011,8 +1015,8 @@
       <input type="file" id="fileInput" accept="image/*">
       <div id="uploadPrompt">
         <div class="upload-icon" aria-hidden="true"><svg width="46" height="46" viewBox="0 0 24 24" fill="none" stroke="#1B3A5C" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8.5a2 2 0 0 1 2-2h1.6l1.2-1.8a1 1 0 0 1 .83-.45h6.74a1 1 0 0 1 .83.45l1.2 1.8H19a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><circle cx="12" cy="12.5" r="3.4" stroke="#C9A84C"/></svg></div>
-        <div class="upload-text"><strong>Tap to upload</strong> or drag &amp; drop</div>
-        <div class="upload-hint">JPG, PNG or HEIC · Best results: straight-on, well-lit smile photo</div>
+        <div class="upload-text"><strong>Tap to take or upload a photo</strong></div>
+        <div class="upload-hint">Show your teeth in a natural smile</div>
       </div>
       <div id="previewWrap" class="hidden">
         <div class="preview-container">
