@@ -2439,6 +2439,55 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
 // Crops to the mouth region so teeth fill more of the frame, giving
 // gpt-image-2 enough resolution to render individual tooth anatomy.
 // Composites the GPT result back into the original face.
+// SAFE WHITENING FLOOR — recolors ONLY the existing tooth pixels (per the
+// MediaPipe mask): lifts brightness and neutralizes yellow, feathered at the
+// mask edge. It never regenerates, reshapes, or moves geometry, so it is
+// incapable of distorting an already-good smile. Used as the guaranteed-safe
+// fallback when the clean Gemini engine is unavailable — a subtle whiten is
+// always better than a from-scratch repaint that can mangle good teeth.
+async function safeWhitenMakeover(resizedUrl, width, height, mpResult) {
+  const [origImg, maskImg] = await Promise.all([
+    loadImage(resizedUrl),
+    loadImage(mpResult.maskDataUrl),
+  ]);
+  const c = document.createElement('canvas');
+  c.width = width; c.height = height;
+  const ctx = c.getContext('2d');
+  ctx.drawImage(origImg, 0, 0, width, height);
+  const img = ctx.getImageData(0, 0, width, height);
+  const d = img.data;
+
+  // Mask (tooth pixels = white). Slight blur feathers the edge so the whitening
+  // fades into the lips/gums instead of leaving a hard boundary.
+  const mc = document.createElement('canvas');
+  mc.width = width; mc.height = height;
+  const mctx = mc.getContext('2d');
+  mctx.filter = 'blur(1px)';
+  mctx.drawImage(maskImg, 0, 0, width, height);
+  const m = mctx.getImageData(0, 0, width, height).data;
+
+  const STRENGTH = 0.8;   // overall blend of the whitened value
+  const BRIGHT   = 1.10;  // luminance lift
+  for (let i = 0; i < d.length; i += 4) {
+    const a = m[i] / 255;                 // tooth coverage (feathered 0..1)
+    if (a < 0.04) continue;
+    const r = d[i], g = d[i + 1], b = d[i + 2];
+    // Neutralize yellow: raise blue toward the red/green average.
+    const yellow = Math.max(0, (r + g) / 2 - b);
+    let nb = b + yellow * 0.65;
+    // Brighten toward white, clamp.
+    const nr = Math.min(255, r * BRIGHT);
+    const ng = Math.min(255, g * BRIGHT);
+    nb = Math.min(255, nb * BRIGHT);
+    const w = a * STRENGTH;
+    d[i]     = r + (nr - r) * w;
+    d[i + 1] = g + (ng - g) * w;
+    d[i + 2] = b + (nb - b) * w;
+  }
+  ctx.putImageData(img, 0, 0);
+  return c.toDataURL('image/jpeg', 0.93);
+}
+
 async function gptMaskWhiten(resizedUrl, width, height, mpMaskDataUrl, bounds) {
   const [origImg, srcMask] = await Promise.all([loadImage(resizedUrl), loadImage(mpMaskDataUrl)]);
 
@@ -3012,7 +3061,7 @@ async function geminiMakeover(dataUrl) {
   const timer = setTimeout(() => ctrl.abort(), 28000);   // under the worker's 30s ceiling
   let res;
   try {
-    res = await fetch(`${PROXY_URL}/api/gemini/edit?tenant=${encodeURIComponent(TENANT)}`, {
+    res = await fetch(`${PROXY_URL}/api/gemini/edit?tenant=${encodeURIComponent(TENANT)}${simMetered ? '&metered=1' : ''}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ image: dataUrl, tenant: TENANT }), signal: ctrl.signal,
     });
@@ -3131,14 +3180,39 @@ async function generateSmile(dataUrl) {
   // --- PRIMARY: Gemini in-place teeth edit (dentist-rated cleaner than GPT;
   // edits only the mouth so no composite/gate; ~18s via the metered worker
   // endpoint, no Modal). GPT-Modal + Ideogram below are the automatic fallbacks. ---
+  let mpResult = null;
   if (GEMINI_PRIMARY) {
+    // Retry once — a transient Gemini hiccup must not drop the patient into the
+    // from-scratch regenerate fallbacks (which repaint teeth and can distort an
+    // already-good smile). The worker meters on entry, so mark metered after the
+    // first attempt to avoid double-charging the retry.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        updateProgress('Designing your new smile…', 30);
+        const g = await geminiMakeover(resizedUrl);
+        if (g) { console.log('✅ Result from: Gemini (in-place edit)'); return g; }
+      } catch (e) {
+        if (/limit reached/i.test(e.message)) throw e;
+        console.warn(`Gemini attempt ${attempt + 1} failed, ${attempt === 0 ? 'retrying' : 'falling through'}:`, e.message);
+        simMetered = true;
+      }
+    }
+
+    // --- SAFE FLOOR: masked whitening of the EXISTING teeth (client-side, cannot
+    // reshape or distort — it only recolors tooth pixels). If the clean Gemini
+    // engine is unavailable, degrade to a subtle safe whiten instead of a
+    // from-scratch regenerate (Ideogram/LoRA) that can mangle already-good teeth.
+    // Those regenerate engines become deep last-resort (only if MediaPipe fails). ---
     try {
-      updateProgress('Designing your new smile…', 30);
-      const g = await geminiMakeover(resizedUrl);
-      if (g) { console.log('✅ Result from: Gemini (in-place edit)'); return g; }
-    } catch (e) {
-      if (/limit reached/i.test(e.message)) throw e;
-      console.warn('Gemini failed, trying next path:', e.message);
+      updateProgress('Detecting your teeth…', 15);
+      mpResult = await buildMediaPipeMask(resizedUrl, width, height);
+    } catch (e) { console.warn('MediaPipe failed:', e.message); }
+    if (mpResult && mpResult.maskDataUrl) {
+      try {
+        updateProgress('Whitening your smile…', 45);
+        const whitened = await safeWhitenMakeover(resizedUrl, width, height, mpResult);
+        if (whitened) { console.log('✅ Result from: safe masked whiten (floor)'); return whitened; }
+      } catch (e) { console.warn('Safe whiten floor failed, trying deep fallbacks:', e.message); }
     }
   }
 
@@ -3160,13 +3234,15 @@ async function generateSmile(dataUrl) {
     }
   }
 
-  // Run MediaPipe once — result reused across all pipeline stages
-  let mpResult = null;
-  try {
-    updateProgress('Detecting your teeth…', 15);
-    mpResult = await buildMediaPipeMask(resizedUrl, width, height);
-  } catch(e) {
-    console.warn('MediaPipe failed:', e.message);
+  // Run MediaPipe once — result reused across all pipeline stages (may already
+  // be populated by the safe-whiten floor above; only compute if still missing).
+  if (!mpResult) {
+    try {
+      updateProgress('Detecting your teeth…', 15);
+      mpResult = await buildMediaPipeMask(resizedUrl, width, height);
+    } catch(e) {
+      console.warn('MediaPipe failed:', e.message);
+    }
   }
 
   // --- GPT full-image + tooth composite (OPT-IN via ?engine=gpt) ---

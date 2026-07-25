@@ -2571,14 +2571,19 @@ async function handleGptEdit(request, env, origin) {
 // Gemini key is a Worker secret (GEMINI_API_KEY) — never exposed to the browser.
 const GEMINI_MODEL = 'gemini-3-pro-image';
 const GEMINI_PROMPT =
-  'Edit this portrait photograph. Change ONLY the teeth visible in the mouth: make them straight, ' +
-  'even, and a natural bright white (dental shade BL1-BL2), individually defined with subtle ' +
-  'inter-dental shadows and natural incisal translucency, with healthy pink gums; repair any chips, ' +
-  'gaps, decay, or missing teeth into a complete healthy arch. Keep EVERYTHING else exactly the same ' +
+  'Edit this portrait photograph. Change ONLY the teeth visible in the mouth. FIRST assess the teeth: ' +
+  'if they are ALREADY straight, even, and healthy, KEEP their exact shape, size, alignment, and ' +
+  'position and apply ONLY a subtle natural whitening — do NOT reshape, realign, restructure, resize, ' +
+  'or move any tooth. If (and only if) teeth are crooked, chipped, worn, decayed, gapped, or missing, ' +
+  'gently correct them into a straight, even, complete healthy arch. In all cases make the enamel a ' +
+  'natural bright white (dental shade BL1-BL2), individually defined with subtle inter-dental shadows ' +
+  'and natural incisal translucency, with healthy pink gums. Keep EVERYTHING else exactly the same ' +
   'and pixel-identical: face, lip shape and position, skin texture, freckles, wrinkles, facial hair, ' +
   'eyes, hair, head angle, framing, lighting, shadows, background. Do NOT beautify or smooth skin. Do ' +
-  'NOT change smile width or how open the mouth is. Photorealistic, the same photograph, only the ' +
-  'teeth improved.';
+  'NOT change smile width or how open the mouth is. The teeth must ALWAYS look natural, realistic, and ' +
+  'at least as good as the original — NEVER distorted, warped, melted, blurry, misaligned, or worse ' +
+  'than the original. When in doubt, make a smaller, safer change. Photorealistic, the same ' +
+  'photograph, only the teeth improved.';
 async function handleGeminiEdit(request, env, origin) {
   const url = new URL(request.url);
   const tenant = (url.searchParams.get('tenant') || 'unknown').toLowerCase();
