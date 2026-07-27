@@ -721,7 +721,7 @@ function defaultConfig(rec = {}) {
       poweredByLabel: 'Powered by Lucid',
       colors: {},   // empty → simulator uses its built-in default palette
     },
-    booking: { url: '', ctaLabel: 'Book Your Free Consultation', ctaFallback: 'lead-capture' },
+    booking: { url: '', ctaLabel: 'Book Your Consultation', ctaFallback: 'lead-capture' },
     // Where to send the patient after they finish (post-result). Blank = stay.
     thankYouUrl: '',
     // Floating popup / CTA widget (cta-widget.js) customization. ctaUrl overrides
@@ -844,6 +844,12 @@ function sanitizeConfig(input, rec = {}) {
 function publicConfig(env, slug, rec) {
   const name = rec?.name || prettyTenant(slug);
   const config = (rec && rec.config) ? rec.config : defaultConfig(rec || { slug, name });
+  // Backfill the retired default CTA label ("Book Your Free Consultation") on
+  // existing tenants whose config baked it in at onboarding. Practices that want
+  // "Free" can re-add it in their dashboard (any other value is left untouched).
+  if (config.booking && config.booking.ctaLabel === 'Book Your Free Consultation') {
+    config.booking.ctaLabel = 'Book Your Consultation';
+  }
   return { slug, name, config };
 }
 
@@ -1551,7 +1557,7 @@ function conciergeFooter(unsubUrl, practice) {
 
 function bookBlock(bookingUrl, accent) {
   return bookingUrl
-    ? `<p style="margin:22px 0"><a href="${bookingUrl}" style="background:${accent};color:#fff;font:600 14px Arial,sans-serif;text-decoration:none;border-radius:10px;padding:13px 28px;display:inline-block">Book Your Free Consultation</a></p>`
+    ? `<p style="margin:22px 0"><a href="${bookingUrl}" style="background:${accent};color:#fff;font:600 14px Arial,sans-serif;text-decoration:none;border-radius:10px;padding:13px 28px;display:inline-block">Book Your Consultation</a></p>`
     : `<p style="font:14px Arial,sans-serif;color:#36465c">Just reply to this email and the team will find a time that works for you.</p>`;
 }
 

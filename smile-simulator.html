@@ -534,11 +534,14 @@
       line-height: 0;
     }
     .ba-base { width: 100%; display: block; object-fit: cover; object-position: center top; }
+    /* Reveal clip is anchored RIGHT so the AFTER image sits on the right half and
+       the BEFORE (base) shows on the left — matching the Before/After labels.
+       (Left-anchoring here previously swapped them.) */
     .ba-after-clip {
-      position: absolute; top: 0; left: 0; height: 100%; width: 50%;
+      position: absolute; top: 0; right: 0; height: 100%; width: 50%;
       overflow: hidden; will-change: width;
     }
-    .ba-after { position: absolute; top: 0; left: 0; height: 100%; width: auto; display: block; object-fit: cover; object-position: center top; }
+    .ba-after { position: absolute; top: 0; right: 0; height: 100%; width: auto; display: block; object-fit: cover; object-position: center top; }
     .ba-label {
       position: absolute; bottom: 10px;
       background: rgba(0,0,0,0.55); color: #fff;
@@ -1192,7 +1195,7 @@
     </div>
     <div class="results-actions">
       <a href="#" id="bookBtn" class="btn-gold" target="_blank" rel="noopener">
-        Book Your Free Consultation
+        Book Your Consultation
       </a>
       <a href="#" id="thankYouBtn" class="btn-gold" style="display:none">Continue →</a>
       <!-- Video generator -->
@@ -1372,7 +1375,7 @@ const hide = el => el.classList.add('hidden');
 const PRACTICE = {
   name: LEAD_PRACTICE,
   bookingUrl: BOOKING_URL || '',
-  ctaLabel: 'Book Your Free Consultation',
+  ctaLabel: 'Book Your Consultation',
   ctaFallback: 'lead-capture',       // 'lead-capture' | 'hidden'
   thankYouUrl: '',                   // post-completion redirect (Continue button)
   notifyEmail: LEAD_EMAIL,
@@ -1392,7 +1395,7 @@ function syncBookBtn() {
   const btn = $('bookBtn');
   if (!btn) return;
   const u = (PRACTICE.bookingUrl || '').trim();
-  btn.textContent = PRACTICE.ctaLabel || 'Book Your Free Consultation';
+  btn.textContent = PRACTICE.ctaLabel || 'Book Your Consultation';
   if (u) {
     btn.href = u;
     btn.target = '_blank';
@@ -1405,7 +1408,7 @@ function syncBookBtn() {
     const subject = encodeURIComponent(`Consultation request — ${PRACTICE.name}`);
     btn.href = `mailto:${PRACTICE.notifyEmail}?subject=${subject}`;
     btn.removeAttribute('target');
-    btn.textContent = PRACTICE.ctaLabel && PRACTICE.ctaLabel !== 'Book Your Free Consultation'
+    btn.textContent = PRACTICE.ctaLabel && PRACTICE.ctaLabel !== 'Book Your Consultation'
       ? PRACTICE.ctaLabel : 'Request Your Consultation';
     btn.style.display = '';
   }
@@ -3753,7 +3756,9 @@ function sizeAfterImage() {
 }
 function setSliderPos(pct) {
   sliderPos = Math.max(0, Math.min(100, pct));
-  $('baAfterClip').style.width = sliderPos + '%';
+  // Clip is right-anchored (reveals the AFTER on the right), so its width is the
+  // portion to the RIGHT of the handle. Handle sits at sliderPos% from the left.
+  $('baAfterClip').style.width = (100 - sliderPos) + '%';
   $('baHandle').style.left = sliderPos + '%';
   $('baHandle').setAttribute('aria-valuenow', Math.round(sliderPos));
 }
