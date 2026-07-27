@@ -850,7 +850,9 @@ function publicConfig(env, slug, rec) {
   if (config.booking && config.booking.ctaLabel === 'Book Your Free Consultation') {
     config.booking.ctaLabel = 'Book Your Consultation';
   }
-  return { slug, name, config };
+  const out = { slug, name, config };
+  if (rec && rec.billing) out.billing = { amount: rec.billing.amount, trialDays: rec.billing.trialDays || 0, label: rec.billing.label || 'Custom plan' };
+  return out;
 }
 
 // ── Stripe billing ──────────────────────────────────────────────
@@ -889,7 +891,7 @@ async function handleBillingCheckout(request, env, origin) {
   }
   let body; try { body = await request.json(); } catch { body = {}; }
   const slug = String(body.tenant || '').toLowerCase().replace(/[^a-z0-9-]/g, '');
-  const plan = BILLING_PLANS[body.plan] ? body.plan : null;
+  const plan = BILLING_PLANS[body.plan] ? body.plan : (body.plan === 'custom' ? 'custom' : null);
   const email = (typeof body.email === 'string' && body.email.includes('@')) ? body.email.slice(0, 120) : null;
   if (!slug || !plan || !email) {
     return new Response(JSON.stringify({ error: 'Missing tenant, plan, or email' }), {
@@ -900,6 +902,11 @@ async function handleBillingCheckout(request, env, origin) {
   if (!rec) {
     return new Response(JSON.stringify({ error: 'Unknown practice — onboard first' }), {
       status: 404, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+    });
+  }
+  if (plan === 'custom' && !(rec.billing && rec.billing.amount)) {
+    return new Response(JSON.stringify({ error: 'No agreed pricing on file for this practice — contact your Lucid representative' }), {
+      status: 400, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
     });
   }
 
@@ -913,12 +920,16 @@ async function handleBillingCheckout(request, env, origin) {
     ua: request.headers.get('User-Agent') || '',
   }), { httpMetadata: { contentType: 'application/json' } });
 
-  const P = BILLING_PLANS[plan];
+  const P = plan === 'custom'
+    ? { amount: rec.billing.amount, label: `Lucid Smile Simulator — ${rec.name || prettyTenant(slug)}` }
+    : BILLING_PLANS[plan];
+  const trialDays = plan === 'custom' ? (rec.billing.trialDays || 0) : 0;
   let session;
   try {
     session = await stripePost(env, 'checkout/sessions', {
       mode: 'subscription',
       customer_email: email,
+      ...(trialDays > 0 ? { 'subscription_data[trial_period_days]': trialDays } : {}),
       'line_items[0][quantity]': 1,
       'line_items[0][price_data][currency]': 'usd',
       'line_items[0][price_data][unit_amount]': P.amount,
@@ -968,11 +979,11 @@ async function handleBillingWebhook(request, env) {
   if (event.type === 'checkout.session.completed') {
     const s = event.data.object;
     const slug = s.metadata?.tenant;
-    const plan = BILLING_PLANS[s.metadata?.plan] ? s.metadata.plan : null;
+    const plan = BILLING_PLANS[s.metadata?.plan] ? s.metadata.plan : (s.metadata?.plan === 'custom' ? 'custom' : null);
     if (slug && plan) {
       const rec = await registryGet(env, slug);
       if (rec) {
-        const P = BILLING_PLANS[plan];
+        const P = BILLING_PLANS[plan] || { sims: rec.sims || 1500, videos: rec.videos || 50 };
         rec.plan = plan;
         rec.sims = P.sims;
         rec.videos = P.videos;
@@ -1968,6 +1979,36 @@ function senderView(sender, records) {
   if (!sender) return { sender: null };
   return { sender: { domain: sender.domain, email: sender.email, status: sender.status, records: records || sender.records || [] } };
 }
+// ── Agreed billing (bridge/custom pricing, admin-set) ───────────
+// rec.billing = { amount (cents), trialDays, label } at registry ROOT.
+async function handleDashBilling(request, env, origin) {
+  const payload = await dashVerify(env, bearer(request));
+  const json = (obj, status = 200) => new Response(JSON.stringify(obj), {
+    status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+  if (!payload) return json({ error: 'Unauthorized' }, 401);
+  if (!isAdmin(payload)) return json({ error: 'Admin only' }, 403);
+  let body = {};
+  if (request.method === 'POST') { try { body = await request.json(); } catch { body = {}; } }
+  const t = scopeTenant(payload, request, body);
+  if (!t) return json({ error: 'Missing tenant' }, 400);
+  const rec = await registryGet(env, t);
+  if (!rec) return json({ error: 'Unknown practice' }, 404);
+
+  if (request.method === 'GET') return json({ billing: rec.billing || null });
+
+  if (body.remove) {
+    delete rec.billing;
+  } else {
+    const amount = Math.round(Number(body.amount) || 0);
+    const trialDays = Math.max(0, Math.min(90, Math.round(Number(body.trialDays) || 0)));
+    if (amount < 5000 || amount > 1000000) return json({ error: 'Amount must be between $50 and $10,000/mo' }, 400);
+    rec.billing = { amount, trialDays, label: String(body.label || 'Custom plan').slice(0, 60) };
+  }
+  await env.TEMP_IMAGES.put(`registry/${t}.json`, JSON.stringify(rec), { httpMetadata: { contentType: 'application/json' } });
+  return json({ billing: rec.billing || null });
+}
+
 async function handleDashSender(request, env, origin) {
   const payload = await dashVerify(env, bearer(request));
   const json = (obj, status = 200) => new Response(JSON.stringify(obj), {
@@ -2712,6 +2753,9 @@ export default {
     }
     if (url.pathname === '/api/dashboard/sender' && (request.method === 'GET' || request.method === 'POST')) {
       return handleDashSender(request, env, origin);
+    }
+    if (url.pathname === '/api/dashboard/billing' && (request.method === 'GET' || request.method === 'POST')) {
+      return handleDashBilling(request, env, origin);
     }
     if (url.pathname === '/api/dashboard/logo' && request.method === 'POST') {
       return handleDashLogo(request, env, origin);

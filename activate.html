@@ -104,21 +104,37 @@ const PLANS = {
 };
 const q = new URLSearchParams(location.search);
 const tenant = (q.get('t')||'').toLowerCase().replace(/[^a-z0-9-]/g,'');
-const plan = PLANS[q.get('plan')] ? q.get('plan') : 'growth';
+const plan = PLANS[q.get('plan')] ? q.get('plan') : (q.get('plan') === 'custom' ? 'custom' : 'growth');
 const $ = id => document.getElementById(id);
 
 if (q.get('done') === '1') {
   $('checkoutView').classList.add('hidden');
   $('successView').classList.remove('hidden');
 } else {
-  const P = PLANS[plan];
-  $('planName').textContent = P.name;
-  $('planPrice').innerHTML = P.price + '<span> /month</span>';
-  $('planFeatures').innerHTML = P.features.map(f=>`<li>${f}</li>`).join('');
+  if (plan !== 'custom') {
+    const P = PLANS[plan];
+    $('planName').textContent = P.name;
+    $('planPrice').innerHTML = P.price + '<span> /month</span>';
+    $('planFeatures').innerHTML = P.features.map(f=>`<li>${f}</li>`).join('');
+  } else {
+    $('planName').textContent = 'Your Plan';
+    $('planPrice').innerHTML = '&hellip;';
+  }
   if (tenant) {
     fetch(`${API}/api/config?tenant=${encodeURIComponent(tenant)}`)
       .then(r=>r.json())
-      .then(d=>{ if(d && d.name) $('practiceLine').textContent = `${d.name} — review your plan and start your subscription.`; })
+      .then(d=>{
+        if(d && d.name) $('practiceLine').textContent = `${d.name} — review your plan and start your subscription.`;
+        if(plan === 'custom' && d && d.billing && d.billing.amount){
+          const dollars = (d.billing.amount/100).toLocaleString('en-US',{maximumFractionDigits:0});
+          $('planName').textContent = d.billing.label || 'Your Plan';
+          $('planPrice').innerHTML = '$' + dollars + '<span> /month</span>';
+          const feats = ['Full platform access for your practice','White-label branding, lead dashboard & automatic follow-up','Professional installation included'];
+          if(d.billing.trialDays > 0) feats.unshift(`First ${d.billing.trialDays} days free — card on file, $0 today`);
+          $('planFeatures').innerHTML = feats.map(f=>`<li>${f}</li>`).join('');
+          $('payBtn').textContent = d.billing.trialDays > 0 ? 'Start My Free Trial' : 'Continue to Secure Payment';
+        }
+      })
       .catch(()=>{});
   }
 }

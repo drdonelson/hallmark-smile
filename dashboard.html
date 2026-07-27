@@ -489,6 +489,23 @@
           <div class="coming" style="margin-top:12px">Credit balances &amp; top-ups — coming soon.</div>
         </div>
 
+        <!-- Agreed billing — admins only -->
+        <div class="card2 admin-only hidden" id="billingCard">
+          <h3>Agreed billing <span class="hint" style="display:inline">(bridge / custom pricing)</span></h3>
+          <p class="hint">Set the price this practice agreed to. Their activation link then charges exactly this: <code id="bl-link">app.lucidroi.com/activate.html?t=&hellip;&amp;plan=custom</code>. Trial days = card on file day one, $0 today, first charge when the trial ends.</p>
+          <div class="cap-row">
+            <div class="field"><label for="bl-amount">Monthly price (USD)</label>
+              <input type="number" id="bl-amount" min="50" step="1" placeholder="1000"></div>
+            <div class="field"><label for="bl-trial">Trial days (0 = none)</label>
+              <input type="number" id="bl-trial" min="0" max="90" step="1" placeholder="0"></div>
+          </div>
+          <div class="field"><label for="bl-label">Plan label shown to the practice</label>
+            <input type="text" id="bl-label" maxlength="60" placeholder="Lucid Platform — agreed rate"></div>
+          <button class="btn btn-save" id="saveBilling" type="button">Save agreed billing</button>
+          <button class="btn-sm" id="clearBilling" type="button" style="margin-left:10px;opacity:.7">Clear</button>
+          <div class="m-err" id="bl-err" style="color:#ff7b7b;font-size:.82rem;margin-top:10px;display:none"></div>
+        </div>
+
         <!-- Client login management — super-admin only -->
         <div class="card2 super-only hidden" id="resetPwCard">
           <h3>Client login</h3>
@@ -1006,6 +1023,7 @@ function populateSettings(d){
   setPreview();
   updateEmbed();
   loadSender().catch(()=>{});
+  loadBilling().catch(()=>{});
 }
 function gatherConfig(){
   const c = JSON.parse(JSON.stringify(config||{}));
@@ -1146,6 +1164,35 @@ $('sd-remove').addEventListener('click', async ()=>{
 });
 
 /* ── Token management (admin only) ── */
+async function billingApi(method, body){
+  const t = currentSettingsTenant(); if(!t){ toast('Select a practice first'); return null; }
+  const qs = scope==='*' ? `?tenant=${encodeURIComponent(t)}` : '';
+  const r = await api(`/api/dashboard/billing${qs}`, method==='GET' ? {} :
+    { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ ...body, ...(scope==='*'&&{tenant:t}) }) });
+  const d = await r.json();
+  if(!r.ok){ $('bl-err').textContent = d.error||'Something went wrong'; $('bl-err').style.display='block'; return null; }
+  $('bl-err').style.display='none';
+  return d;
+}
+function renderBilling(d){
+  const b = d && d.billing;
+  $('bl-amount').value = b ? Math.round(b.amount/100) : '';
+  $('bl-trial').value  = b ? (b.trialDays||0) : '';
+  $('bl-label').value  = b ? (b.label||'') : '';
+  const t = currentSettingsTenant();
+  $('bl-link').textContent = `app.lucidroi.com/activate.html?t=${t||'…'}&plan=custom`;
+}
+async function loadBilling(){ if(!isAdminRole()) return; const d = await billingApi('GET'); if(d) renderBilling(d); }
+$('saveBilling').addEventListener('click', async ()=>{
+  const d = await billingApi('POST', { amount: Math.round((+$('bl-amount').value||0)*100), trialDays:+$('bl-trial').value||0, label:$('bl-label').value.trim() });
+  if(d){ renderBilling(d); toast('Agreed billing saved — activation link is ready'); }
+});
+$('clearBilling').addEventListener('click', async ()=>{
+  if(!confirm('Remove agreed billing? The custom activation link will stop working.')) return;
+  const d = await billingApi('POST', { remove:true });
+  if(d){ renderBilling(d); toast('Cleared'); }
+});
+
 async function saveCaps(btn){
   if(!isAdminRole()) return;
   const t = currentSettingsTenant();
