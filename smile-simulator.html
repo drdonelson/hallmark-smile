@@ -1698,6 +1698,30 @@ async function initMediaPipe() {
   return _faceLandmarker;
 }
 
+// Lightweight face-presence guard. Runs the MediaPipe FaceLandmarker on a
+// downscaled copy of the photo. Returns true if a face is found, false if the
+// detector RAN but found none (e.g. a document, pet, or scenery — the garbage
+// case we want to reject), or null if the detector couldn't run at all (no
+// WebGL / model load failed) — the caller treats null as "allow" so a real
+// patient on a limited device is never blocked.
+async function hasFace(dataUrl) {
+  let landmarker;
+  try { landmarker = await initMediaPipe(); } catch (e) { console.warn('Face check: detector unavailable', e.message); return null; }
+  if (!landmarker) return null;
+  try {
+    const img = await loadImage(dataUrl);
+    const w = img.naturalWidth || img.width, h = img.naturalHeight || img.height;
+    if (!w || !h) return null;
+    const scale = Math.min(1, 640 / Math.max(w, h));   // cap size for speed
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(w * scale));
+    c.height = Math.max(1, Math.round(h * scale));
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    const results = landmarker.detect(c);
+    return !!(results && results.faceLandmarks && results.faceLandmarks.length);
+  } catch (e) { console.warn('Face check errored, allowing through:', e.message); return null; }
+}
+
 // Run MediaPipe on imageUrl. Returns { mask, maskDataUrl, landmarks, bounds } or null.
 async function buildMediaPipeMask(imageUrl, width, height) {
   const landmarker = await initMediaPipe();
@@ -3686,6 +3710,22 @@ async function startGeneration() {
   $('progressCard').scrollIntoView({ behavior: 'smooth', block: 'center' });
   startProgress();
   genStartTime = Date.now();
+
+  // Face guard — reject non-face photos (a document, pet, scenery) BEFORE
+  // spending a sim, so a demo/upload of the wrong image can't produce a garbage
+  // "makeover". Fail-open if the detector can't run (see hasFace).
+  updateProgress('Checking your photo…', 6);
+  const faceOk = await hasFace(imgDataUrl);
+  if (faceOk === false) {
+    stopProgress();
+    hide($('progressCard'));
+    show($('shadeCard'));
+    $('shadeCard').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const eb = $('shadeError');
+    eb.textContent = "We couldn't find a face in that photo. Please upload a clear, well-lit photo of your face with a natural smile showing your teeth.";
+    show(eb);
+    return;
+  }
 
   try {
     const resultUrl = await generateSmile(imgDataUrl);
