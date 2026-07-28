@@ -1221,8 +1221,14 @@ function openNewPractice(){
 }
 function closeNewPractice(){ $('newPracticeModal').classList.remove('open'); }
 if($('newPracticeBtn')) $('newPracticeBtn').addEventListener('click',openNewPractice);
-if($('npClose')) $('npClose').addEventListener('click',closeNewPractice);
-if($('newPracticeModal')) $('newPracticeModal').addEventListener('click',e=>{ if(e.target.id==='newPracticeModal') closeNewPractice(); });
+// Backdrop clicks do NOT close this modal — it's a data-entry form and an
+// accidental click outside would silently discard everything typed. Close is
+// explicit only (×), with a confirm when fields have content.
+function npDirty(){ return ['np-name','np-email'].some(id=>{ const el=$(id); return el && el.value.trim(); }); }
+if($('npClose')) $('npClose').addEventListener('click',()=>{
+  if(npDirty() && !confirm('Discard this practice? The form will be cleared.')) return;
+  closeNewPractice();
+});
 if($('npCreate')) $('npCreate').addEventListener('click',async()=>{
   if(!isAdminRole()) return;
   const name=$('np-name').value.trim(), email=$('np-email').value.trim();
