@@ -2472,7 +2472,7 @@ async function ideogramCropMakeover(resizedUrl, width, height, mpMaskDataUrl, bo
 // incapable of distorting an already-good smile. Used as the guaranteed-safe
 // fallback when the clean Gemini engine is unavailable — a subtle whiten is
 // always better than a from-scratch repaint that can mangle good teeth.
-async function safeWhitenMakeover(resizedUrl, width, height, mpResult) {
+async function safeWhitenMakeover(resizedUrl, width, height, mpResult, shade = 'natural') {
   const [origImg, maskImg] = await Promise.all([
     loadImage(resizedUrl),
     loadImage(mpResult.maskDataUrl),
@@ -2493,15 +2493,18 @@ async function safeWhitenMakeover(resizedUrl, width, height, mpResult) {
   mctx.drawImage(maskImg, 0, 0, width, height);
   const m = mctx.getImageData(0, 0, width, height).data;
 
-  const STRENGTH = 0.8;   // overall blend of the whitened value
-  const BRIGHT   = 1.10;  // luminance lift
+  // Whitening must be clearly visible (several shades), even on already-white
+  // teeth — a no-change before/after reads as broken. Hollywood pushes harder.
+  const STRENGTH = shade === 'hollywood' ? 0.95 : 0.9;   // overall blend
+  const BRIGHT   = shade === 'hollywood' ? 1.24 : 1.17;  // luminance lift
+  const YELLOW   = shade === 'hollywood' ? 0.9  : 0.8;   // yellow removal
   for (let i = 0; i < d.length; i += 4) {
     const a = m[i] / 255;                 // tooth coverage (feathered 0..1)
     if (a < 0.04) continue;
     const r = d[i], g = d[i + 1], b = d[i + 2];
     // Neutralize yellow: raise blue toward the red/green average.
     const yellow = Math.max(0, (r + g) / 2 - b);
-    let nb = b + yellow * 0.65;
+    let nb = b + yellow * YELLOW;
     // Brighten toward white, clamp.
     const nr = Math.min(255, r * BRIGHT);
     const ng = Math.min(255, g * BRIGHT);
@@ -3090,7 +3093,7 @@ async function geminiMakeover(dataUrl) {
   try {
     res = await fetch(`${PROXY_URL}/api/gemini/edit?tenant=${encodeURIComponent(TENANT)}${simMetered ? '&metered=1' : ''}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: dataUrl, tenant: TENANT }), signal: ctrl.signal,
+      body: JSON.stringify({ image: dataUrl, tenant: TENANT, shade: selectedShade }), signal: ctrl.signal,
     });
   } finally { clearTimeout(timer); }
   if (res.status === 429) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'limit reached'); }
@@ -3237,7 +3240,7 @@ async function generateSmile(dataUrl) {
     if (mpResult && mpResult.maskDataUrl) {
       try {
         updateProgress('Whitening your smile…', 45);
-        const whitened = await safeWhitenMakeover(resizedUrl, width, height, mpResult);
+        const whitened = await safeWhitenMakeover(resizedUrl, width, height, mpResult, selectedShade);
         if (whitened) { console.log('✅ Result from: safe masked whiten (floor)'); return whitened; }
       } catch (e) { console.warn('Safe whiten floor failed, trying deep fallbacks:', e.message); }
     }
