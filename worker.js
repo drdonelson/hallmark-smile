@@ -1472,7 +1472,7 @@ async function updateLead(env, tenant, id, patch) {
 // Cron-driven follow-up on new leads. Patient touches stop the moment the
 // practice moves the lead past "new" in the dashboard. Unsubscribes are
 // honored via an HMAC-signed link → R2 suppression record.
-const CONCIERGE_TENANTS = ['hallmark', 'lucid', 'sevenbridges'];   // pilot allowlist — add slugs as pilots onboard
+const CONCIERGE_TENANTS = ['hallmark', 'lucid', 'sevenbridges', 'madison'];   // pilot allowlist — add slugs as pilots onboard
 const CONCIERGE_TOUCHES = [
   { key: 'nudge1h', afterMin: 60,    audience: 'practice' },
   { key: 'day1',    afterMin: 1440,  audience: 'patient'  },
