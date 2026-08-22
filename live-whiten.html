@@ -21,6 +21,13 @@
   .fps{position:absolute;top:12px;right:12px;background:rgba(20,32,38,.55);color:#bfeee9;font-size:10px;font-weight:700;padding:4px 8px;border-radius:8px;z-index:2}
   .status{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#cfe;font-size:13px;font-weight:600;text-align:center;padding:24px;z-index:3}
   .cmp{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:rgba(255,255,255,.92);color:var(--ink);font-size:12px;font-weight:700;padding:9px 16px;border-radius:20px;z-index:2;user-select:none;border:none;box-shadow:0 3px 10px rgba(0,0,0,.2)}
+  .shotview{position:absolute;inset:0;z-index:5;display:none;background:#0b1418}
+  .shotview.on{display:block}
+  .shotview img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .shotacts{position:absolute;left:12px;right:12px;bottom:12px;display:flex;gap:10px;z-index:6}
+  .shotacts a{flex:1;text-align:center;padding:12px;border-radius:99px;font-weight:800;font-size:13px;text-decoration:none}
+  .shotacts .save{background:var(--teal-d);color:#fff}
+  .shotacts .retake{background:rgba(255,255,255,.92);color:var(--ink)}
   .chips{display:flex;gap:10px;justify-content:center;margin-top:16px}
   .chip{flex:1;max-width:130px;background:#fff;border:2px solid var(--line);border-radius:14px;padding:10px 6px;text-align:center;cursor:pointer;transition:all .15s}
   .chip.on{border-color:var(--teal);background:#e9faf8;box-shadow:0 4px 14px rgba(15,181,171,.18)}
@@ -47,6 +54,13 @@
     <div class="fps" id="fps">– fps</div>
     <div class="status" id="status">Tap “Start camera” and allow camera access.</div>
     <button class="cmp" id="cmp">Hold to see before</button>
+    <div class="shotview" id="shotview">
+      <img id="shotimg" alt="Your smile preview">
+      <div class="shotacts">
+        <a class="retake" id="retake">Retake</a>
+        <a class="save" id="save" download="my-smile.jpg">Save photo</a>
+      </div>
+    </div>
   </div>
 
   <div class="chips" id="chips">
@@ -57,6 +71,7 @@
 
   <div class="row">
     <button class="btn" id="start">Start camera</button>
+    <button class="btn" id="capture" style="display:none">📷 Take a photo</button>
     <button class="btn g" id="toggle">Effect: On</button>
   </div>
 
@@ -69,11 +84,13 @@ import { FaceLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@m
 // Inner-lip ring — SAME indices the production simulator uses (INNER_LIP).
 const INNER_LIP = [78,191,80,81,82,13,312,311,310,415,308,324,318,402,317,14,87,178,88,95];
 
-// Shade presets — BRIGHT lifts luminance, YELLOW neutralizes yellow, STRENGTH blends.
+// Shade presets. BRIGHT lifts luminance, YELLOW neutralizes yellow, DESAT pulls
+// the result toward neutral grey (kills any pink/yellow tint → whiter without an
+// opaque slab), STRENGTH blends against the original (keeps enamel translucency).
 const SHADES = {
-  a2:  { BRIGHT:1.10, YELLOW:0.60, STRENGTH:0.62 },  // "Whiter"
-  b1:  { BRIGHT:1.18, YELLOW:0.82, STRENGTH:0.82 },  // "Whitest"
-  bl2: { BRIGHT:1.28, YELLOW:0.95, STRENGTH:0.95 },  // "Whitest+"
+  a2:  { BRIGHT:1.08, YELLOW:0.60, DESAT:0.15, STRENGTH:0.60 },  // "Whiter"
+  b1:  { BRIGHT:1.15, YELLOW:0.80, DESAT:0.28, STRENGTH:0.78 },  // "Whitest"
+  bl2: { BRIGHT:1.20, YELLOW:0.90, DESAT:0.45, STRENGTH:0.85 },  // "Whitest+"
 };
 
 const vid = document.getElementById('vid');
@@ -115,6 +132,8 @@ async function start() {
   await vid.play();
   cvs.width = vid.videoWidth; cvs.height = vid.videoHeight;
   statusEl.style.display = 'none';
+  document.getElementById('start').style.display = 'none';
+  document.getElementById('capture').style.display = '';
   running = true;
   loop();
 }
@@ -159,7 +178,7 @@ function whitenTeeth(lm, w, h) {
   // Rasterize the feathered polygon mask in bbox space.
   maskC.width = bw; maskC.height = bh;
   mctx.clearRect(0,0,bw,bh);
-  mctx.filter = 'blur(2px)';
+  mctx.filter = 'blur(1px)';   // light feather — less bleed onto pink lips/gums
   mctx.fillStyle = '#fff';
   mctx.beginPath(); mctx.moveTo(pts[0].x-bx, pts[0].y-by);
   for (let i=1;i<pts.length;i++) mctx.lineTo(pts[i].x-bx, pts[i].y-by);
@@ -174,19 +193,24 @@ function whitenTeeth(lm, w, h) {
     const a = mask[i+3] / 255;              // feathered mouth coverage
     if (a < 0.05) continue;
     const r=d[i], g=d[i+1], b=d[i+2];
-    // Tooth heuristic: bright enough, and not reddish (skip gums/tongue/lips + dark interior).
+    // Tooth heuristic: bright enough, and not reddish (skip gums/tongue/lips + dark
+    // interior). Tighter redness gate (20) keeps pink lip/gum edges out.
     const luma = 0.299*r + 0.587*g + 0.114*b;
-    if (luma < 55 || (r - g) > 30) continue;
-    // Whiten: neutralize yellow + lift brightness.
+    if (luma < 55 || (r - g) > 20) continue;
+    // Whiten: neutralize yellow, lift brightness, then pull toward neutral grey so
+    // no pink/yellow tint survives and it reads white without going opaque.
     const yellow = Math.max(0, (r+g)/2 - b);
-    let nb = b + yellow * S.YELLOW;
-    const nr = Math.min(255, r * S.BRIGHT);
-    const ng = Math.min(255, g * S.BRIGHT);
-    nb = Math.min(255, nb * S.BRIGHT);
+    let nr = Math.min(255, r * S.BRIGHT);
+    let ng = Math.min(255, g * S.BRIGHT);
+    let nb = Math.min(255, (b + yellow * S.YELLOW) * S.BRIGHT);
+    const avg = (nr + ng + nb) / 3;
+    nr += (avg - nr) * S.DESAT;
+    ng += (avg - ng) * S.DESAT;
+    nb += (avg - nb) * S.DESAT;
     const wgt = a * S.STRENGTH;
-    d[i]   = r + (nr  - r) * wgt;
-    d[i+1] = g + (ng  - g) * wgt;
-    d[i+2] = b + (nb  - b) * wgt;
+    d[i]   = r + (nr - r) * wgt;
+    d[i+1] = g + (ng - g) * wgt;
+    d[i+2] = b + (nb - b) * wgt;
   }
   ctx.putImageData(id, bx, by);
 }
@@ -206,6 +230,20 @@ document.querySelectorAll('.chip').forEach(c => c.addEventListener('click', () =
   document.querySelectorAll('.chip').forEach(x=>x.classList.remove('on'));
   c.classList.add('on'); shade = c.dataset.shade;
 }));
+
+// Capture: freeze the current whitened frame → Save / Retake.
+const shotview = document.getElementById('shotview');
+document.getElementById('capture').addEventListener('click', () => {
+  const url = cvs.toDataURL('image/jpeg', 0.95);
+  document.getElementById('shotimg').src = url;
+  document.getElementById('save').href = url;
+  shotview.classList.add('on');
+  running = false;   // pause the live loop while previewing the snapshot
+});
+document.getElementById('retake').addEventListener('click', () => {
+  shotview.classList.remove('on');
+  if (!running) { running = true; loop(); }
+});
 </script>
 </body>
 </html>
