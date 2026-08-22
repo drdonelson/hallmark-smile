@@ -28,6 +28,13 @@
   .shotacts a{flex:1;text-align:center;padding:12px;border-radius:99px;font-weight:800;font-size:13px;text-decoration:none}
   .shotacts .save{background:var(--teal-d);color:#fff}
   .shotacts .retake{background:rgba(255,255,255,.92);color:var(--ink)}
+  .shotacts .book{background:var(--ink);color:#fff}
+  .genwrap{position:absolute;inset:0;display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px;background:rgba(11,20,24,.82);color:#eafffb;font-weight:700;font-size:14px;z-index:7;text-align:center;padding:24px}
+  .genwrap.on{display:flex}
+  .spin{width:38px;height:38px;border-radius:50%;border:3px solid rgba(255,255,255,.25);border-top-color:var(--teal);animation:sp .9s linear infinite}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .airesult{position:absolute;top:12px;left:50%;transform:translateX(-50%);background:linear-gradient(120deg,var(--teal),#3dd6c8);color:#062e2b;font-size:11px;font-weight:800;padding:5px 12px;border-radius:20px;z-index:6}
+  .cmp2{position:absolute;bottom:64px;left:50%;transform:translateX(-50%);background:rgba(255,255,255,.92);color:var(--ink);font-size:12px;font-weight:700;padding:8px 15px;border-radius:20px;z-index:6;border:none;user-select:none}
   .chips{display:flex;gap:10px;justify-content:center;margin-top:16px}
   .chip{flex:1;max-width:130px;background:#fff;border:2px solid var(--line);border-radius:14px;padding:10px 6px;text-align:center;cursor:pointer;transition:all .15s}
   .chip.on{border-color:var(--teal);background:#e9faf8;box-shadow:0 4px 14px rgba(15,181,171,.18)}
@@ -56,9 +63,13 @@
     <button class="cmp" id="cmp">Hold to see before</button>
     <div class="shotview" id="shotview">
       <img id="shotimg" alt="Your smile preview">
+      <div class="airesult" id="airesult" style="display:none">✦ AI RESULT</div>
+      <button class="cmp2" id="cmp2" style="display:none">Hold to see before</button>
+      <div class="genwrap" id="genwrap"><div class="spin" id="spin"></div><div id="genmsg">Generating your photorealistic smile…</div></div>
       <div class="shotacts">
         <a class="retake" id="retake">Retake</a>
-        <a class="save" id="save" download="my-smile.jpg">Save photo</a>
+        <a class="save" id="save" download="my-smile.jpg">Save</a>
+        <a class="save book" id="book" href="https://www.hallmarkdds.com/book-now/" target="_blank" rel="noopener">Book</a>
       </div>
     </div>
   </div>
@@ -83,6 +94,28 @@ import { FaceLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@m
 
 // Inner-lip ring — SAME indices the production simulator uses (INNER_LIP).
 const INNER_LIP = [78,191,80,81,82,13,312,311,310,415,308,324,318,402,317,14,87,178,88,95];
+
+// Hybrid: on capture we send the RAW frame to the real generative engine.
+const PROXY_URL = 'https://quiet-forest-e1f8.david-d73.workers.dev';
+const TENANT = new URLSearchParams(location.search).get('tenant') || 'hallmark';
+async function geminiMakeover(dataUrl) {
+  const shadeMap = shade === 'bl2' ? 'hollywood' : 'natural';
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 30000);
+  let res;
+  try {
+    res = await fetch(`${PROXY_URL}/api/gemini/edit?tenant=${encodeURIComponent(TENANT)}`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ image: dataUrl, tenant: TENANT, shade: shadeMap }), signal: ctrl.signal,
+    });
+  } finally { clearTimeout(timer); }
+  if (res.status === 429) throw new Error('preview limit reached');
+  if (!res.ok) throw new Error('generation ' + res.status);
+  const d = await res.json();
+  if (d.error) throw new Error(d.error);
+  if (!d.image) throw new Error('no image');
+  return d.image;
+}
 
 // Shade presets. BRIGHT lifts luminance, YELLOW neutralizes yellow, DESAT pulls
 // the result toward neutral grey (kills any pink/yellow tint → whiter without an
@@ -231,19 +264,54 @@ document.querySelectorAll('.chip').forEach(c => c.addEventListener('click', () =
   c.classList.add('on'); shade = c.dataset.shade;
 }));
 
-// Capture: freeze the current whitened frame → Save / Retake.
+// Capture (HYBRID): freeze the instant AR frame, then generate the REAL
+// photorealistic result from the raw frame and show a true before/after.
 const shotview = document.getElementById('shotview');
-document.getElementById('capture').addEventListener('click', () => {
-  const url = cvs.toDataURL('image/jpeg', 0.95);
-  document.getElementById('shotimg').src = url;
-  document.getElementById('save').href = url;
-  shotview.classList.add('on');
-  running = false;   // pause the live loop while previewing the snapshot
+const shotimg  = document.getElementById('shotimg');
+const genwrap  = document.getElementById('genwrap');
+const genmsg   = document.getElementById('genmsg');
+const spin     = document.getElementById('spin');
+const cmp2      = document.getElementById('cmp2');
+const airesult  = document.getElementById('airesult');
+let beforeUrl = null, resultUrl = null;
+
+document.getElementById('capture').addEventListener('click', async () => {
+  running = false;   // pause the live loop
+  // Raw (un-whitened) mirrored frame = the "before" we send to the engine.
+  const oc = document.createElement('canvas'); oc.width = cvs.width; oc.height = cvs.height;
+  const octx = oc.getContext('2d');
+  octx.setTransform(-1,0,0,1,oc.width,0); octx.drawImage(vid,0,0,oc.width,oc.height); octx.setTransform(1,0,0,1,0,0);
+  beforeUrl = oc.toDataURL('image/jpeg', 0.92);
+  // Instant AR snapshot shows immediately as a placeholder while we generate.
+  resultUrl = cvs.toDataURL('image/jpeg', 0.95);
+  shotimg.src = resultUrl; document.getElementById('save').href = resultUrl;
+  airesult.style.display = 'none'; cmp2.style.display = 'none';
+  spin.style.display = ''; genmsg.textContent = 'Generating your photorealistic smile…';
+  genwrap.classList.add('on'); shotview.classList.add('on');
+  try {
+    const after = await geminiMakeover(beforeUrl);
+    resultUrl = after;
+    shotimg.src = after; document.getElementById('save').href = after;
+    airesult.style.display = ''; cmp2.style.display = '';
+    genwrap.classList.remove('on');
+  } catch (e) {
+    // Graceful fallback: keep the instant AR preview.
+    spin.style.display = 'none';
+    genmsg.textContent = 'Showing your instant preview (' + (e.message || 'generation unavailable') + ').';
+    cmp2.style.display = '';   // can still compare AR vs raw
+    setTimeout(() => genwrap.classList.remove('on'), 2000);
+  }
 });
 document.getElementById('retake').addEventListener('click', () => {
-  shotview.classList.remove('on');
+  shotview.classList.remove('on'); genwrap.classList.remove('on');
   if (!running) { running = true; loop(); }
 });
+// Hold on the result to compare against the original photo.
+cmp2.addEventListener('mousedown', () => { shotimg.src = beforeUrl; });
+cmp2.addEventListener('mouseup',   () => { shotimg.src = resultUrl; });
+cmp2.addEventListener('mouseleave',() => { shotimg.src = resultUrl; });
+cmp2.addEventListener('touchstart',e=>{e.preventDefault();shotimg.src=beforeUrl;},{passive:false});
+cmp2.addEventListener('touchend',  e=>{e.preventDefault();shotimg.src=resultUrl;},{passive:false});
 </script>
 </body>
 </html>
