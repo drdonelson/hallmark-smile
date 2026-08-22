@@ -1,0 +1,211 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>LucidROI — Live Whitening (AR prototype)</title>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root{--teal:#0FB5AB;--teal-d:#087A75;--ink:#1e2a30;--grey:#8a949c;--bg:#f2f8f7;--line:#e3ebec}
+  *{box-sizing:border-box;margin:0;padding:0;font-family:Manrope,system-ui,sans-serif}
+  html,body{background:var(--bg);color:var(--ink)}
+  .wrap{max-width:520px;margin:0 auto;min-height:100dvh;display:flex;flex-direction:column;padding:14px 14px 22px}
+  .hdr{display:flex;align-items:center;gap:9px;margin-bottom:12px}
+  .logo{width:30px;height:30px;border-radius:8px;background:var(--teal-d);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800}
+  .ttl{font-weight:800;font-size:16px;line-height:1.1}
+  .sub{font-size:10px;letter-spacing:.14em;color:var(--grey);font-weight:700}
+  .stage{position:relative;border-radius:20px;overflow:hidden;background:#0b1418;aspect-ratio:3/4;box-shadow:0 16px 44px rgba(8,122,117,.18)}
+  video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;visibility:hidden}
+  canvas{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .badge{position:absolute;top:12px;left:50%;transform:translateX(-50%);background:rgba(8,122,117,.85);color:#fff;font-size:11px;font-weight:700;padding:5px 12px;border-radius:20px;backdrop-filter:blur(4px);z-index:2}
+  .fps{position:absolute;top:12px;right:12px;background:rgba(20,32,38,.55);color:#bfeee9;font-size:10px;font-weight:700;padding:4px 8px;border-radius:8px;z-index:2}
+  .status{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#cfe;font-size:13px;font-weight:600;text-align:center;padding:24px;z-index:3}
+  .cmp{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:rgba(255,255,255,.92);color:var(--ink);font-size:12px;font-weight:700;padding:9px 16px;border-radius:20px;z-index:2;user-select:none;border:none;box-shadow:0 3px 10px rgba(0,0,0,.2)}
+  .chips{display:flex;gap:10px;justify-content:center;margin-top:16px}
+  .chip{flex:1;max-width:130px;background:#fff;border:2px solid var(--line);border-radius:14px;padding:10px 6px;text-align:center;cursor:pointer;transition:all .15s}
+  .chip.on{border-color:var(--teal);background:#e9faf8;box-shadow:0 4px 14px rgba(15,181,171,.18)}
+  .sw{width:34px;height:34px;border-radius:50%;margin:0 auto 6px;border:1px solid rgba(0,0,0,.08)}
+  .chip .lab{font-size:10px;font-weight:800;letter-spacing:.06em;color:var(--teal-d);background:#dcf6f2;border-radius:20px;padding:2px 8px;display:inline-block}
+  .chip .nm{font-size:13px;font-weight:800;margin-top:5px}
+  .row{display:flex;gap:10px;margin-top:14px}
+  .btn{flex:1;background:var(--teal-d);color:#fff;border:none;font-weight:800;font-size:14px;padding:13px;border-radius:99px;cursor:pointer}
+  .btn.g{background:#fff;color:var(--teal-d);border:2px solid var(--line)}
+  .note{font-size:11px;color:var(--grey);text-align:center;margin-top:14px;line-height:1.5;font-weight:600}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="hdr">
+    <div class="logo">◈</div>
+    <div><div class="ttl">Live Whitening</div><div class="sub">LUCIDROI · AR PROTOTYPE</div></div>
+  </div>
+
+  <div class="stage">
+    <video id="vid" playsinline muted autoplay></video>
+    <canvas id="cvs"></canvas>
+    <div class="badge" id="badge">Real-time · on your teeth</div>
+    <div class="fps" id="fps">– fps</div>
+    <div class="status" id="status">Tap “Start camera” and allow camera access.</div>
+    <button class="cmp" id="cmp">Hold to see before</button>
+  </div>
+
+  <div class="chips" id="chips">
+    <div class="chip" data-shade="a2"><div class="sw" style="background:#efe6cf"></div><span class="lab">Whiter</span><div class="nm">Shade A2</div></div>
+    <div class="chip on" data-shade="b1"><div class="sw" style="background:#f4f1e6"></div><span class="lab">Whitest</span><div class="nm">Shade B1</div></div>
+    <div class="chip" data-shade="bl2"><div class="sw" style="background:#f3f6fb"></div><span class="lab">Whitest</span><div class="nm">Shade BL2</div></div>
+  </div>
+
+  <div class="row">
+    <button class="btn" id="start">Start camera</button>
+    <button class="btn g" id="toggle">Effect: On</button>
+  </div>
+
+  <div class="note">Prototype: teeth are recolored live inside the tracked mouth region (MediaPipe face landmarks + the same tooth-whitening math as the LucidROI simulator). Only tooth-like pixels are affected — gums, lips and tongue are skipped.</div>
+</div>
+
+<script type="module">
+import { FaceLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/vision_bundle.mjs';
+
+// Inner-lip ring — SAME indices the production simulator uses (INNER_LIP).
+const INNER_LIP = [78,191,80,81,82,13,312,311,310,415,308,324,318,402,317,14,87,178,88,95];
+
+// Shade presets — BRIGHT lifts luminance, YELLOW neutralizes yellow, STRENGTH blends.
+const SHADES = {
+  a2:  { BRIGHT:1.10, YELLOW:0.60, STRENGTH:0.62 },  // "Whiter"
+  b1:  { BRIGHT:1.18, YELLOW:0.82, STRENGTH:0.82 },  // "Whitest"
+  bl2: { BRIGHT:1.28, YELLOW:0.95, STRENGTH:0.95 },  // "Whitest+"
+};
+
+const vid = document.getElementById('vid');
+const cvs = document.getElementById('cvs');
+const ctx = cvs.getContext('2d', { willReadFrequently:true });
+const statusEl = document.getElementById('status');
+const fpsEl = document.getElementById('fps');
+const badge = document.getElementById('badge');
+
+// Offscreen mask canvas (feathered mouth polygon) — sized per-frame to the mouth bbox.
+const maskC = document.createElement('canvas');
+const mctx = maskC.getContext('2d', { willReadFrequently:true });
+
+let landmarker = null, running = false, effectOn = true, showBefore = false;
+let shade = 'b1';
+let lastTs = 0, frames = 0, fpsT = 0;
+
+async function initModel() {
+  const vision = await FilesetResolver.forVisionTasks('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.3/wasm');
+  const opts = {
+    baseOptions: { modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task', delegate: 'GPU' },
+    runningMode: 'VIDEO', numFaces: 1,
+  };
+  try { landmarker = await FaceLandmarker.createFromOptions(vision, opts); }
+  catch (e) { opts.baseOptions.delegate = 'CPU'; landmarker = await FaceLandmarker.createFromOptions(vision, opts); }
+}
+
+async function start() {
+  statusEl.textContent = 'Loading face model…';
+  try {
+    if (!landmarker) await initModel();
+  } catch (e) { statusEl.textContent = 'Could not load the face model: ' + e.message; return; }
+  statusEl.textContent = 'Requesting camera…';
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode:'user', width:{ideal:640}, height:{ideal:480} }, audio:false });
+  } catch (e) { statusEl.textContent = 'Camera blocked: ' + e.message + '. Allow camera and retry.'; return; }
+  vid.srcObject = stream;
+  await vid.play();
+  cvs.width = vid.videoWidth; cvs.height = vid.videoHeight;
+  statusEl.style.display = 'none';
+  running = true;
+  loop();
+}
+
+function loop() {
+  if (!running) return;
+  const w = cvs.width, h = cvs.height;
+
+  // Mirror-draw the live frame (selfie feel).
+  ctx.save();
+  ctx.setTransform(-1,0,0,1,w,0);
+  ctx.drawImage(vid, 0, 0, w, h);
+  ctx.setTransform(1,0,0,1,0,0);
+  ctx.restore();
+
+  if (landmarker && effectOn && !showBefore) {
+    let res = null;
+    const ts = Math.max(performance.now(), lastTs + 1); lastTs = ts;
+    try { res = landmarker.detectForVideo(vid, ts); } catch(e) {}
+    const lm = res && res.faceLandmarks && res.faceLandmarks[0];
+    if (lm) whitenTeeth(lm, w, h);
+  }
+
+  // FPS
+  frames++; const now = performance.now();
+  if (now - fpsT > 500) { fpsEl.textContent = Math.round(frames * 1000 / (now - fpsT)) + ' fps'; frames = 0; fpsT = now; }
+
+  if ('requestVideoFrameCallback' in HTMLVideoElement.prototype) vid.requestVideoFrameCallback(loop);
+  else requestAnimationFrame(loop);
+}
+
+function whitenTeeth(lm, w, h) {
+  // Mirrored pixel coords for the inner-lip polygon.
+  const pts = INNER_LIP.map(i => ({ x: (1 - lm[i].x) * w, y: lm[i].y * h }));
+  let xMin=1e9,yMin=1e9,xMax=-1e9,yMax=-1e9;
+  for (const p of pts){ if(p.x<xMin)xMin=p.x; if(p.y<yMin)yMin=p.y; if(p.x>xMax)xMax=p.x; if(p.y>yMax)yMax=p.y; }
+  const pad = 6;
+  const bx = Math.max(0, Math.floor(xMin - pad)), by = Math.max(0, Math.floor(yMin - pad));
+  const bw = Math.min(w - bx, Math.ceil(xMax - xMin + pad*2)), bh = Math.min(h - by, Math.ceil(yMax - yMin + pad*2));
+  if (bw < 4 || bh < 4) return;
+
+  // Rasterize the feathered polygon mask in bbox space.
+  maskC.width = bw; maskC.height = bh;
+  mctx.clearRect(0,0,bw,bh);
+  mctx.filter = 'blur(2px)';
+  mctx.fillStyle = '#fff';
+  mctx.beginPath(); mctx.moveTo(pts[0].x-bx, pts[0].y-by);
+  for (let i=1;i<pts.length;i++) mctx.lineTo(pts[i].x-bx, pts[i].y-by);
+  mctx.closePath(); mctx.fill();
+  mctx.filter = 'none';
+  const mask = mctx.getImageData(0,0,bw,bh).data;
+
+  const id = ctx.getImageData(bx,by,bw,bh);
+  const d = id.data;
+  const S = SHADES[shade];
+  for (let i=0;i<d.length;i+=4){
+    const a = mask[i+3] / 255;              // feathered mouth coverage
+    if (a < 0.05) continue;
+    const r=d[i], g=d[i+1], b=d[i+2];
+    // Tooth heuristic: bright enough, and not reddish (skip gums/tongue/lips + dark interior).
+    const luma = 0.299*r + 0.587*g + 0.114*b;
+    if (luma < 55 || (r - g) > 30) continue;
+    // Whiten: neutralize yellow + lift brightness.
+    const yellow = Math.max(0, (r+g)/2 - b);
+    let nb = b + yellow * S.YELLOW;
+    const nr = Math.min(255, r * S.BRIGHT);
+    const ng = Math.min(255, g * S.BRIGHT);
+    nb = Math.min(255, nb * S.BRIGHT);
+    const wgt = a * S.STRENGTH;
+    d[i]   = r + (nr  - r) * wgt;
+    d[i+1] = g + (ng  - g) * wgt;
+    d[i+2] = b + (nb  - b) * wgt;
+  }
+  ctx.putImageData(id, bx, by);
+}
+
+// Controls
+document.getElementById('start').addEventListener('click', start);
+document.getElementById('toggle').addEventListener('click', e => {
+  effectOn = !effectOn; e.target.textContent = 'Effect: ' + (effectOn ? 'On' : 'Off');
+  badge.style.display = effectOn ? '' : 'none';
+});
+const cmp = document.getElementById('cmp');
+const press = v => () => { showBefore = v; };
+cmp.addEventListener('mousedown', press(true));   cmp.addEventListener('mouseup', press(false)); cmp.addEventListener('mouseleave', press(false));
+cmp.addEventListener('touchstart', e=>{e.preventDefault();showBefore=true;}, {passive:false});
+cmp.addEventListener('touchend', e=>{e.preventDefault();showBefore=false;}, {passive:false});
+document.querySelectorAll('.chip').forEach(c => c.addEventListener('click', () => {
+  document.querySelectorAll('.chip').forEach(x=>x.classList.remove('on'));
+  c.classList.add('on'); shade = c.dataset.shade;
+}));
+</script>
+</body>
+</html>
