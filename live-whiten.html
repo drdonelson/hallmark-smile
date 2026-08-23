@@ -123,9 +123,9 @@ async function geminiMakeover(dataUrl) {
 // the result toward neutral grey (kills any pink/yellow tint → whiter without an
 // opaque slab), STRENGTH blends against the original (keeps enamel translucency).
 const SHADES = {
-  a2:  { BRIGHT:1.08, YELLOW:0.60, DESAT:0.15, STRENGTH:0.60 },  // "Whiter"
-  b1:  { BRIGHT:1.15, YELLOW:0.80, DESAT:0.28, STRENGTH:0.78 },  // "Whitest"
-  bl2: { BRIGHT:1.20, YELLOW:0.90, DESAT:0.45, STRENGTH:0.85 },  // "Whitest+"
+  a2:  { BRIGHT:1.10, YELLOW:0.60, DESAT:0.06, STRENGTH:0.70 },  // "Whiter"
+  b1:  { BRIGHT:1.16, YELLOW:0.80, DESAT:0.12, STRENGTH:0.84 },  // "Whitest"
+  bl2: { BRIGHT:1.22, YELLOW:0.90, DESAT:0.30, STRENGTH:0.94 },  // "Whitest+"
 };
 
 const vid = document.getElementById('vid');
@@ -231,7 +231,7 @@ function whitenTeeth(lm, w, h) {
     // Tooth heuristic: bright enough, and not reddish (skip gums/tongue/lips + dark
     // interior). Tighter redness gate (20) keeps pink lip/gum edges out.
     const luma = 0.299*r + 0.587*g + 0.114*b;
-    if (luma < 55 || (r - g) > 20) continue;
+    if (luma < 42 || (r - g) > 40) continue;   // include shadowed lower teeth + discolored/imperfect teeth; still skip dark interior + clearly-red gums/lips
     // Whiten: neutralize yellow, lift brightness, then pull toward neutral grey so
     // no pink/yellow tint survives and it reads white without going opaque.
     const yellow = Math.max(0, (r+g)/2 - b);

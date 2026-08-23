@@ -4356,7 +4356,7 @@ if (window.parent !== window) {
   const vid = $('arVideo'), cvs = $('arCanvas'), statusEl = $('arStatus');
   const ctx = cvs.getContext('2d', { willReadFrequently:true });
   const maskC = document.createElement('canvas'), mctx = maskC.getContext('2d', { willReadFrequently:true });
-  const SH = { a2:{B:1.08,Y:.6,D:.15,S:.6}, b1:{B:1.15,Y:.8,D:.28,S:.78}, bl2:{B:1.2,Y:.9,D:.45,S:.85} };
+  const SH = { a2:{B:1.10,Y:.6,D:.06,S:.7}, b1:{B:1.16,Y:.8,D:.12,S:.84}, bl2:{B:1.22,Y:.9,D:.30,S:.94} };
   let vlm=null, stream=null, running=false, effect=true, shade='b1', lastTs=0;
 
   async function initVideoLandmarker(){
@@ -4391,7 +4391,7 @@ if (window.parent !== window) {
     maskC.width=bw; maskC.height=bh; mctx.clearRect(0,0,bw,bh); mctx.filter='blur(1px)'; mctx.fillStyle='#fff';
     mctx.beginPath(); mctx.moveTo(pts[0].x-bx,pts[0].y-by); for(let i=1;i<pts.length;i++) mctx.lineTo(pts[i].x-bx,pts[i].y-by); mctx.closePath(); mctx.fill(); mctx.filter='none';
     const mask=mctx.getImageData(0,0,bw,bh).data, id=ctx.getImageData(bx,by,bw,bh), d=id.data, S=SH[shade];
-    for(let i=0;i<d.length;i+=4){ const a=mask[i+3]/255; if(a<.05)continue; const r=d[i],g=d[i+1],b=d[i+2]; const luma=.299*r+.587*g+.114*b; if(luma<55||(r-g)>20)continue; const yellow=Math.max(0,(r+g)/2-b); let nr=Math.min(255,r*S.B),ng=Math.min(255,g*S.B),nb=Math.min(255,(b+yellow*S.Y)*S.B); const avg=(nr+ng+nb)/3; nr+=(avg-nr)*S.D; ng+=(avg-ng)*S.D; nb+=(avg-nb)*S.D; const wg=a*S.S; d[i]=r+(nr-r)*wg; d[i+1]=g+(ng-g)*wg; d[i+2]=b+(nb-b)*wg; }
+    for(let i=0;i<d.length;i+=4){ const a=mask[i+3]/255; if(a<.05)continue; const r=d[i],g=d[i+1],b=d[i+2]; const luma=.299*r+.587*g+.114*b; if(luma<42||(r-g)>40)continue; const yellow=Math.max(0,(r+g)/2-b); let nr=Math.min(255,r*S.B),ng=Math.min(255,g*S.B),nb=Math.min(255,(b+yellow*S.Y)*S.B); const avg=(nr+ng+nb)/3; nr+=(avg-nr)*S.D; ng+=(avg-ng)*S.D; nb+=(avg-nb)*S.D; const wg=a*S.S; d[i]=r+(nr-r)*wg; d[i+1]=g+(ng-g)*wg; d[i+2]=b+(nb-b)*wg; }
     ctx.putImageData(id,bx,by);
   }
   function snap(){
