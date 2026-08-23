@@ -609,11 +609,10 @@
     /* Embedded in the widget popup = bitebot-style TWO-STEP flow:
        (1) intro: before/after hero + heading + "Get Started"
        (2) upload: clean dropzone + single "Continue" (no step title, no 2 buttons). */
-    /* Fill the iframe and vertically center the content (so a short card isn't
-       stuck at the top of a taller iframe). The popup stays snug because reportH
-       measures the real content height, not this stretched container. */
-    body.embedded { min-height: 100dvh; display: flex; flex-direction: column; }
-    body.embedded .main { padding: 12px 14px 14px !important; flex: 1 1 auto; display: flex; flex-direction: column; justify-content: safe center; }
+    /* Let the popup shrink to actual content — body min-height:100vh otherwise
+       forces the reported height to the full viewport (popup stays tall). */
+    body.embedded { min-height: 0; }
+    body.embedded .main { padding: 12px 14px 14px !important; }
     body.embedded #headerBadge { display: none; }
     body.embedded .hero-badge, body.embedded .hero-steps { display: none; }
     /* Bitebot-style intro: before/after VIDEO first (fills width), then heading,
@@ -4406,16 +4405,7 @@ if (window.parent !== window) {
   document.body.classList.add('embedded');
   let lastH = 0;
   const reportH = () => {
-    // Measure the REAL content height (header + visible cards), not the stretched
-    // flex body — so the popup sizes snug even though body is min-height:100dvh.
-    let h = 0;
-    const hdr = document.querySelector('.site-header'); if (hdr) h += hdr.offsetHeight;
-    const main = document.querySelector('.main');
-    if (main) {
-      [...main.children].forEach(c => { if (c.offsetParent !== null) h += c.offsetHeight; });
-      const cs = getComputedStyle(main); h += parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
-    }
-    h = Math.ceil(h) + 8;
+    const h = document.documentElement.scrollHeight;
     if (Math.abs(h - lastH) > 4) { lastH = h; window.parent.postMessage({ lucidSimHeight: h }, '*'); }
   };
   try { new ResizeObserver(reportH).observe(document.body); } catch {}
