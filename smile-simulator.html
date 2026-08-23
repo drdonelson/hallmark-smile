@@ -609,10 +609,11 @@
     /* Embedded in the widget popup = bitebot-style TWO-STEP flow:
        (1) intro: before/after hero + heading + "Get Started"
        (2) upload: clean dropzone + single "Continue" (no step title, no 2 buttons). */
-    /* Let the popup shrink to actual content — body min-height:100vh otherwise
-       forces the reported height to the full viewport (popup stays tall). */
-    body.embedded { min-height: 0; }
-    body.embedded .main { padding: 12px 14px 14px !important; }
+    /* Fill the iframe and vertically center the content (so a short card isn't
+       stuck at the top of a taller iframe). The popup stays snug because reportH
+       measures the real content height, not this stretched container. */
+    body.embedded { min-height: 100dvh; display: flex; flex-direction: column; }
+    body.embedded .main { padding: 12px 14px 14px !important; flex: 1 1 auto; display: flex; flex-direction: column; justify-content: safe center; }
     body.embedded #headerBadge { display: none; }
     body.embedded .hero-badge, body.embedded .hero-steps { display: none; }
     /* Bitebot-style intro: before/after VIDEO first (fills width), then heading,
@@ -1289,7 +1290,14 @@
   .ar-shades{display:flex;gap:8px;justify-content:center;margin:12px 0 2px}
   .ar-chip{border:1.5px solid var(--light-grey);background:#fff;color:var(--navy);font-weight:700;font-size:13px;padding:8px 18px;border-radius:99px;cursor:pointer}
   .ar-chip.on{border-color:var(--gold);background:rgba(var(--gold-rgb),.12);color:var(--gold-dark)}
-  .ar-cmp{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:rgba(255,255,255,.92);color:var(--navy);font-weight:700;font-size:12px;padding:9px 16px;border-radius:20px;z-index:3;border:none;user-select:none;cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,.2)}
+  .ar-cmp{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:rgba(255,255,255,.92);color:#12203a;font-weight:700;font-size:12px;padding:9px 16px;border-radius:20px;z-index:3;border:none;user-select:none;cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,.2)}
+  /* The AR modal is dark — force legible, dark-safe controls (don't inherit the
+     light-theme btn-outline navy-on-dark, which is illegible). */
+  #arOverlay .cam-hint{color:#c3d0f0}
+  #arOverlay #arToggle{color:#fff;border:1.5px solid rgba(255,255,255,.5);background:transparent}
+  #arOverlay #arToggle:hover{background:rgba(255,255,255,.14);color:#fff}
+  #arOverlay .ar-chip{background:#fff;color:#12203a}
+  #arOverlay .ar-chip.on{background:#fff;border-color:var(--gold);color:var(--gold-dark)}
 </style>
 <div class="cam-overlay" id="arOverlay">
   <div class="cam-modal">
@@ -4398,7 +4406,16 @@ if (window.parent !== window) {
   document.body.classList.add('embedded');
   let lastH = 0;
   const reportH = () => {
-    const h = document.documentElement.scrollHeight;
+    // Measure the REAL content height (header + visible cards), not the stretched
+    // flex body — so the popup sizes snug even though body is min-height:100dvh.
+    let h = 0;
+    const hdr = document.querySelector('.site-header'); if (hdr) h += hdr.offsetHeight;
+    const main = document.querySelector('.main');
+    if (main) {
+      [...main.children].forEach(c => { if (c.offsetParent !== null) h += c.offsetHeight; });
+      const cs = getComputedStyle(main); h += parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom);
+    }
+    h = Math.ceil(h) + 8;
     if (Math.abs(h - lastH) > 4) { lastH = h; window.parent.postMessage({ lucidSimHeight: h }, '*'); }
   };
   try { new ResizeObserver(reportH).observe(document.body); } catch {}
@@ -4436,7 +4453,7 @@ if (window.parent !== window) {
   async function openAr(){
     ov.classList.add('open'); statusEl.style.display=''; statusEl.textContent='Loading…';
     try { if (!vlm) await initVideoLandmarker(); } catch(e){ statusEl.textContent='Live try-on isn’t available on this device — use “Choose a Photo”.'; return; }
-    try { stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'user', width:{ideal:640}, height:{ideal:480} }, audio:false }); }
+    try { stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'user', width:{ideal:480}, height:{ideal:360}, frameRate:{ideal:30} }, audio:false }); }
     catch(e){ statusEl.textContent='Camera blocked — allow access or use “Choose a Photo”.'; return; }
     vid.srcObject = stream; await vid.play().catch(()=>{});
     cvs.width = vid.videoWidth; cvs.height = vid.videoHeight; statusEl.style.display='none';
