@@ -1109,21 +1109,10 @@
           <label for="fPhone">Phone Number</label>
           <input type="tel" id="fPhone" placeholder="(555) 123-4567" autocomplete="tel">
         </div>
-        <div class="form-group full-width">
-          <div class="checkbox-wrap" id="disclaimerWrap">
-            <input type="checkbox" id="fDisclaimer">
-            <label class="checkbox-label" for="fDisclaimer">
-              I consent to my photo being processed by AI to create a cosmetic smile visualization, and to my before/after result being emailed to me and shared with the dental practice for review. I understand this is a simulation for cosmetic education only &mdash; not a medical diagnosis, treatment plan, or guarantee &mdash; and that actual results depend on a licensed dentist. I have read the
-              <a href="legal/privacy.html" target="_blank" rel="noopener">Privacy Policy</a>,
-              <a href="legal/terms.html" target="_blank" rel="noopener">Terms</a>, and
-              <a href="legal/disclaimer.html" target="_blank" rel="noopener">Disclaimer</a>.
-            </label>
-          </div>
-          <span class="ferr hidden" id="errDisclaimer">You must consent to continue</span>
-        </div>
+        <p class="form-consent-note" style="font-size:.78rem;color:var(--mid-grey,#6b7280);line-height:1.5;grid-column:1/-1;margin:2px 0 0">By continuing you agree to have your photo processed to create your smile preview, per the consent shown earlier. <a href="legal/privacy.html" target="_blank" rel="noopener" style="color:var(--navy);font-weight:600">Privacy</a> · <a href="legal/terms.html" target="_blank" rel="noopener" style="color:var(--navy);font-weight:600">Terms</a> · <a href="legal/disclaimer.html" target="_blank" rel="noopener" style="color:var(--navy);font-weight:600">Disclaimer</a></p>
       </div>
       <div id="formError" class="error-banner hidden"></div>
-      <button type="submit" class="btn-primary" id="generateBtn" disabled>
+      <button type="submit" class="btn-primary" id="generateBtn">
         Generate My Smile Transformation
       </button>
     </form>
@@ -1243,6 +1232,34 @@
     <div class="powered-by"><a href="https://lucidroi.com" target="_blank" rel="noopener">Powered by LucidROI</a></div>
   </footer>
 </main>
+
+<!-- Consent gate (Phase 3): shown before the first upload / camera / live try-on -->
+<style>
+  #consentOverlay .modal{max-width:380px}
+  #consentOverlay .modal-head{font-weight:800;font-size:1.05rem;color:var(--navy);margin-bottom:10px}
+  #consentOverlay p{font-size:.86rem;color:var(--dark-grey);line-height:1.6;margin-bottom:12px}
+  #consentOverlay .legal{font-size:.78rem;color:var(--mid-grey,#6b7280);margin-bottom:16px}
+  #consentOverlay .legal a{color:var(--navy);font-weight:600}
+  #consentOverlay .c-actions{display:flex;flex-direction:column;gap:9px}
+  #consentOverlay .c-actions .btn-primary{width:100%}
+  #consentOverlay .c-decline{background:none;border:none;color:var(--mid-grey,#6b7280);font-size:.82rem;font-weight:600;cursor:pointer;padding:6px}
+</style>
+<div class="modal-overlay" id="consentOverlay">
+  <div class="modal">
+    <div class="modal-head">Before we create your smile preview</div>
+    <p>We process your photo with AI to generate your before &amp; after. Your photo and result are stored securely for <strong>up to 30 days</strong>, then automatically deleted — and shared only with the practice for your consultation. You can request deletion at any time.</p>
+    <p>This is a cosmetic simulation for education only — not a medical diagnosis, treatment plan, or guarantee. Actual results depend on a licensed dentist.</p>
+    <div class="legal">By continuing you agree to our
+      <a id="cLinkPrivacy" href="legal/privacy.html" target="_blank" rel="noopener">Privacy Policy</a>,
+      <a id="cLinkTerms" href="legal/terms.html" target="_blank" rel="noopener">Terms</a> &amp;
+      <a id="cLinkDisc" href="legal/disclaimer.html" target="_blank" rel="noopener">Disclaimer</a>.
+    </div>
+    <div class="c-actions">
+      <button class="btn-primary" id="consentAgree" type="button">I agree &amp; continue</button>
+      <button class="c-decline" id="consentDecline" type="button">Not now</button>
+    </div>
+  </div>
+</div>
 
 <!-- Camera capture modal -->
 <div class="cam-overlay" id="camOverlay">
@@ -1516,20 +1533,39 @@ function compressImage(file, maxBytes) {
   });
 }
 
+/* ── Consent gate (Phase 3) — shown before the first upload/camera/AR ─ */
+let consentGiven = false;
+let pendingConsentAction = null;
+function requireConsent(next) {
+  if (consentGiven) { if (next) next(); return; }
+  pendingConsentAction = next || null;
+  $('consentOverlay').classList.add('open');
+}
+$('consentAgree').addEventListener('click', () => {
+  consentGiven = true;
+  $('consentOverlay').classList.remove('open');
+  const a = pendingConsentAction; pendingConsentAction = null;
+  if (a) a();
+});
+$('consentDecline').addEventListener('click', () => {
+  pendingConsentAction = null;
+  $('consentOverlay').classList.remove('open');
+});
+
 /* ── Upload handling ───────────────────────────────────────────── */
 const uploadArea = $('uploadArea');
 const fileInput  = $('fileInput');
 
 uploadArea.addEventListener('click', e => {
   if (e.target.id === 'changePhotoBtn') return;
-  fileInput.click();
+  requireConsent(() => fileInput.click());
 });
 uploadArea.addEventListener('dragover', e => { e.preventDefault(); uploadArea.classList.add('dragover'); });
 uploadArea.addEventListener('dragleave', () => uploadArea.classList.remove('dragover'));
 uploadArea.addEventListener('drop', e => {
   e.preventDefault(); uploadArea.classList.remove('dragover');
   const f = e.dataTransfer.files[0];
-  if (f && f.type.startsWith('image/')) processFile(f);
+  if (f && f.type.startsWith('image/')) requireConsent(() => processFile(f));
 });
 fileInput.addEventListener('change', () => { if (fileInput.files[0]) processFile(fileInput.files[0]); });
 $('changePhotoBtn').addEventListener('click', e => { e.stopPropagation(); fileInput.click(); });
@@ -1550,7 +1586,7 @@ async function processFile(file) {
 /* ── Camera capture (getUserMedia) ─────────────────────────────── */
 let camStream = null;
 let camFacing = 'user';
-$('chooseFileBtn').addEventListener('click', e => { e.stopPropagation(); fileInput.click(); });
+$('chooseFileBtn').addEventListener('click', e => { e.stopPropagation(); requireConsent(() => fileInput.click()); });
 
 async function openCamera() {
   if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -1581,7 +1617,7 @@ function stopCamStream() {
 }
 function closeCamera() { stopCamStream(); $('camOverlay').classList.remove('open'); }
 
-$('openCameraBtn').addEventListener('click', e => { e.stopPropagation(); openCamera(); });
+$('openCameraBtn').addEventListener('click', e => { e.stopPropagation(); requireConsent(openCamera); });
 $('camClose').addEventListener('click', closeCamera);
 $('camOverlay').addEventListener('click', e => { if (e.target.id === 'camOverlay') closeCamera(); });
 $('camFlipBtn').addEventListener('click', () => { camFacing = camFacing === 'user' ? 'environment' : 'user'; startCamStream(); });
@@ -1638,10 +1674,6 @@ function buildConcerns(list) {
 buildConcerns();   // default set; applyConfig re-renders from config.treatments if present
 
 /* ── Form validation ───────────────────────────────────────────── */
-$('fDisclaimer').addEventListener('change', () => {
-  $('generateBtn').disabled = !$('fDisclaimer').checked;
-});
-
 function validateForm() {
   let ok = true;
   const set = (id, errId, invalid) => {
@@ -1652,10 +1684,7 @@ function validateForm() {
   set('fFirstName', 'errFirstName', !$('fFirstName').value.trim());
   set('fLastName',  'errLastName',  !$('fLastName').value.trim());
   set('fEmail',     'errEmail',     !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test($('fEmail').value.trim()));
-  const dc = $('fDisclaimer').checked;
-  if (!dc) { $('disclaimerWrap').classList.add('err'); show($('errDisclaimer')); ok = false; }
-  else { $('disclaimerWrap').classList.remove('err'); hide($('errDisclaimer')); }
-  return ok;
+  return ok;   // consent is captured up front by the consent modal (Phase 3)
 }
 
 /* ── Helper: load an Image from a data URL ─────────────────────── */
@@ -4436,7 +4465,7 @@ if (window.parent !== window) {
     o.setTransform(-1,0,0,1,oc.width,0); o.drawImage(vid,0,0,oc.width,oc.height); o.setTransform(1,0,0,1,0,0);
     oc.toBlob(blob=>{ if(!blob) return; const f=new File([blob],'ar-photo.jpg',{type:'image/jpeg'}); closeAr(); processFile(f); }, 'image/jpeg', 0.92);
   }
-  btn.addEventListener('click', e=>{ e.stopPropagation(); openAr(); });
+  btn.addEventListener('click', e=>{ e.stopPropagation(); requireConsent(openAr); });
   $('arClose').addEventListener('click', closeAr);
   ov.addEventListener('click', e=>{ if(e.target.id==='arOverlay') closeAr(); });
   $('arSnap').addEventListener('click', snap);
