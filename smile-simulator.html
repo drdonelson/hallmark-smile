@@ -1069,9 +1069,25 @@
     <button class="btn-gold" id="tryArBtn" type="button" style="display:none;width:100%;margin-top:10px">✨ Try it live on camera</button>
   </div>
 
-  <!-- Step 2: Lead Form -->
+  <!-- Step 2: Concern chooser — drives the targeted makeover -->
+  <style>
+    .concern-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+    @media(max-width:520px){.concern-grid{grid-template-columns:repeat(2,1fr)}}
+    .concern-card{background:var(--off-white);border:2px solid var(--light-grey);border-radius:16px;padding:18px 10px;text-align:center;cursor:pointer;transition:all .15s}
+    .concern-card:hover{border-color:var(--gold)}
+    .concern-card.on{border-color:var(--gold);box-shadow:0 6px 18px rgba(var(--gold-rgb),.18)}
+    .concern-ic{width:48px;height:48px;border-radius:50%;background:rgba(var(--gold-rgb),.12);color:var(--navy);display:flex;align-items:center;justify-content:center;margin:0 auto 10px}
+    .concern-ic svg{width:26px;height:26px}
+    .concern-card .cn{font-weight:700;font-size:13.5px;color:var(--navy);line-height:1.25}
+  </style>
+  <div class="card hidden" id="moduleCard">
+    <h2 class="card-title"><span class="step-badge">2</span> What would you like to improve?</h2>
+    <div class="concern-grid" id="concernGrid"></div>
+  </div>
+
+  <!-- Step 3: Lead Form -->
   <div class="card hidden" id="formCard">
-    <h2 class="card-title"><span class="step-badge">2</span> Tell Us About You</h2>
+    <h2 class="card-title"><span class="step-badge">3</span> Tell Us About You</h2>
     <form id="leadForm" novalidate>
       <div class="form-grid">
         <div class="form-group">
@@ -1092,18 +1108,6 @@
         <div class="form-group full-width">
           <label for="fPhone">Phone Number</label>
           <input type="tel" id="fPhone" placeholder="(555) 123-4567" autocomplete="tel">
-        </div>
-        <div class="form-group full-width">
-          <label for="fInterest">What are you most interested in? <span class="req">*</span></label>
-          <select id="fInterest">
-            <option value="">— Select an option —</option>
-            <option value="Veneers">Veneers</option>
-            <option value="Dental Implants">Dental Implants</option>
-            <option value="Teeth Whitening">Teeth Whitening</option>
-            <option value="Full Smile Makeover">Full Smile Makeover</option>
-            <option value="Not Sure Yet">Not Sure Yet</option>
-          </select>
-          <span class="ferr hidden" id="errInterest">Please select an option</span>
         </div>
         <div class="form-group full-width">
           <div class="checkbox-wrap" id="disclaimerWrap">
@@ -1127,7 +1131,7 @@
 
   <!-- Step 3: Shade Selection -->
   <div class="card hidden" id="shadeCard">
-    <h2 class="card-title"><span class="step-badge">3</span> Choose Your Shade</h2>
+    <h2 class="card-title"><span class="step-badge">4</span> Choose Your Shade</h2>
     <p class="shade-subtitle">How bright would you like your new smile?</p>
     <div class="shade-options">
       <button class="shade-opt" id="shadeNatural" type="button">
@@ -1394,6 +1398,8 @@ let usedGptEngine  = false;       // true when the server-side GPT/Modal path pr
 let simMetered     = false;       // true once THIS attempt has counted a sim (prevents double-charge on GPT→Ideogram fallback)
 let beforeDataUrl  = null;        // original input, kept for feedback capture
 let selectedShade  = 'natural';   // 'natural' | 'hollywood'
+let selectedTreatment = '';        // concern id → targets the generative makeover
+let selectedTreatmentLabel = '';   // human label → captured on the lead
 let currentLeadId  = null;
 let serverLeadId   = null;   // shared id tying the lead record to its media (dashboard)
 let msgInterval    = null;
@@ -1534,8 +1540,8 @@ async function processFile(file) {
     $('previewImg').src = imgDataUrl;
     hide($('uploadPrompt'));
     show($('previewWrap'));
-    show($('formCard'));
-    $('formCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    show($('moduleCard'));
+    $('moduleCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   } catch {
     alert('Could not process this image. Please try a different photo.');
   }
@@ -1595,6 +1601,42 @@ $('camSnapBtn').addEventListener('click', () => {
   }, 'image/jpeg', 0.92);
 });
 
+/* ── Concern chooser (Phase 2) — drives the targeted makeover ───── */
+const DEFAULT_CONCERNS = [
+  { id: 'whitening',     label: 'Whitening' },
+  { id: 'veneers',       label: 'Veneers' },
+  { id: 'straightening', label: 'Straightening' },
+  { id: 'missing-teeth', label: 'Missing Teeth' },
+  { id: 'makeover',      label: 'Full Makeover' },
+];
+const CONCERN_ICONS = {
+  whitening:      '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><path d="M12 3l1.7 4.8L18.5 9l-4.8 1.2L12 15l-1.7-4.8L5.5 9l4.8-1.2z"/></svg>',
+  veneers:        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M7 4c-2 0-3.2 1.6-3.2 4.2 0 3.1 1 5.2 1.7 8.3.4 1.9.9 2.9 1.5 2.9s.9-1.3 1.1-2.8c.2-1.3.5-2 1.1-2s.9.7 1.1 2c.2 1.5.5 2.8 1.1 2.8s1.1-1 1.5-2.9c.7-3.1 1.7-5.2 1.7-8.3C17.2 5.6 16 4 14 4c-1.3 0-2.1.7-3 .7S8.3 4 7 4z"/></svg>',
+  straightening:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18M7 8l-4 4 4 4M17 8l4 4-4 4"/></svg>',
+  'missing-teeth':'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 6v12M6 12h12"/></svg>',
+  implants:       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M12 6v12M6 12h12"/></svg>',
+  makeover:       '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M12 3l2.5 5 5.5.8-4 3.9.9 5.5L12 16.6 7.1 18.2 8 12.7 4 8.8 9.5 8z"/></svg>',
+};
+function buildConcerns(list) {
+  const grid = $('concernGrid'); if (!grid) return;
+  const items = (Array.isArray(list) && list.length ? list : DEFAULT_CONCERNS).filter(t => t && t.enabled !== false);
+  grid.innerHTML = items.map(t => {
+    const id = String(t.id || '').toLowerCase();
+    const ic = CONCERN_ICONS[id] || CONCERN_ICONS.makeover;
+    return `<button type="button" class="concern-card" data-id="${escAttr(id)}" data-label="${escAttr(t.label)}"><div class="concern-ic">${ic}</div><div class="cn">${escHtml(t.label)}</div></button>`;
+  }).join('');
+  grid.querySelectorAll('.concern-card').forEach(el => el.addEventListener('click', () => {
+    grid.querySelectorAll('.concern-card').forEach(x => x.classList.remove('on'));
+    el.classList.add('on');
+    selectedTreatment = el.dataset.id;
+    selectedTreatmentLabel = el.dataset.label;
+    hide($('moduleCard'));
+    show($('formCard'));
+    $('formCard').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }));
+}
+buildConcerns();   // default set; applyConfig re-renders from config.treatments if present
+
 /* ── Form validation ───────────────────────────────────────────── */
 $('fDisclaimer').addEventListener('change', () => {
   $('generateBtn').disabled = !$('fDisclaimer').checked;
@@ -1610,7 +1652,6 @@ function validateForm() {
   set('fFirstName', 'errFirstName', !$('fFirstName').value.trim());
   set('fLastName',  'errLastName',  !$('fLastName').value.trim());
   set('fEmail',     'errEmail',     !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test($('fEmail').value.trim()));
-  set('fInterest',  'errInterest',  !$('fInterest').value);
   const dc = $('fDisclaimer').checked;
   if (!dc) { $('disclaimerWrap').classList.add('err'); show($('errDisclaimer')); ok = false; }
   else { $('disclaimerWrap').classList.remove('err'); hide($('errDisclaimer')); }
@@ -3129,7 +3170,7 @@ async function geminiMakeover(dataUrl) {
   try {
     res = await fetch(`${PROXY_URL}/api/gemini/edit?tenant=${encodeURIComponent(TENANT)}${simMetered ? '&metered=1' : ''}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ image: dataUrl, tenant: TENANT, shade: selectedShade }), signal: ctrl.signal,
+      body: JSON.stringify({ image: dataUrl, tenant: TENANT, shade: selectedShade, treatment: selectedTreatment }), signal: ctrl.signal,
     });
   } finally { clearTimeout(timer); }
   if (res.status === 429) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'limit reached'); }
@@ -3654,7 +3695,7 @@ $('leadForm').addEventListener('submit', async e => {
     lastName:  $('fLastName').value.trim(),
     email:     $('fEmail').value.trim(),
     phone:     $('fPhone').value.trim(),
-    interest:  $('fInterest').value,
+    interest:  selectedTreatmentLabel,
   });
   serverLeadId = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2));
 
@@ -3686,7 +3727,7 @@ $('leadForm').addEventListener('submit', async e => {
       lastName:  $('fLastName').value.trim(),
       email:     $('fEmail').value.trim(),
       phone:     $('fPhone').value.trim(),
-      interest:  $('fInterest').value,
+      interest:  selectedTreatmentLabel,
     }),
   }).catch(() => {}); // silently ignore — lead is already saved to localStorage
 
@@ -4208,14 +4249,9 @@ function applyConfig(cfg) {
   const emails = (cfg.leads && cfg.leads.notifyEmails) || [];
   if (emails.length) PRACTICE.notifyEmail = emails[0];
 
-  // Treatments → interest dropdown
+  // Treatments → concern chooser cards (drives the targeted makeover)
   if (Array.isArray(cfg.treatments) && cfg.treatments.length) {
-    const sel = $('fInterest');
-    const enabled = cfg.treatments.filter(t => t.enabled !== false);
-    if (sel && enabled.length) {
-      sel.innerHTML = '<option value="">— Select an option —</option>' +
-        enabled.map(t => `<option value="${escAttr(t.label)}">${escHtml(t.label)}</option>`).join('');
-    }
+    buildConcerns(cfg.treatments);
   }
 
   // Shades → relabel the two shade buttons. The AI pipeline only distinguishes

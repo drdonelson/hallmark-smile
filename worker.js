@@ -2624,23 +2624,32 @@ const GEMINI_MODEL = 'gemini-3-pro-image';
 // clearly visible several-shades-whiter result even when teeth are already good —
 // otherwise already-white smiles produce a no-change before/after. Shape is the
 // only thing guarded against distortion: good teeth keep their exact geometry.
-function geminiPrompt(shade) {
+// Treatment-specific SHAPE instruction (whitening to `shade` is always applied on
+// top). Lets the patient's chosen concern target the makeover — e.g. missing teeth
+// get filled, veneers get reshaped — while `whitening` stays a safe recolor-only.
+const GEMINI_TREATMENT = {
+  whitening: 'KEEP the exact tooth shape, size, alignment, and position — do NOT reshape, realign, resize, or move any tooth. Whiten only.',
+  veneers: 'Reshape the visible upper teeth into ideal cosmetic VENEERS: even widths in natural golden proportion (central incisors dominant, laterals slightly narrower, canines tapered), smooth incisal edges, close small gaps, and gently straighten into a flawless-but-natural veneer smile.',
+  straightening: 'STRAIGHTEN and align the teeth into an even, well-arched smile; close gaps and level the incisal edges. Keep each tooth a natural size and do NOT add or remove teeth.',
+  implants: 'FILL any gaps or MISSING teeth to restore a complete, healthy upper arch — add natural-looking teeth where they are missing, matching the size, shape, and shade of the neighboring teeth, with healthy pink gums.',
+  'missing-teeth': 'FILL any gaps or MISSING teeth to restore a complete, healthy upper arch — add natural-looking teeth where they are missing, matching the size, shape, and shade of the neighboring teeth, with healthy pink gums.',
+  makeover: 'Perform a FULL smile makeover: straighten and even the teeth, close gaps, fill any missing teeth into a complete arch, and refine each tooth shape into a natural cosmetic ideal (golden proportion).',
+};
+function geminiPrompt(shade, treatment) {
   const white = shade === 'hollywood'
     ? 'an ultra-bright, brilliant Hollywood white — the whitest natural-looking shade (BL1+), dramatically whiter and brighter than the original'
     : 'a bright, clean, natural white — dental shade BL1, clearly several shades whiter and brighter than the original';
+  const shape = GEMINI_TREATMENT[treatment] ||
+    // Default / "not sure": assess and improve conservatively (the safe floor).
+    'FIRST assess the shape: if the teeth are ALREADY straight, even, and healthy, KEEP their exact shape and position (whiten only). Only if teeth are crooked, chipped, worn, decayed, gapped, or missing, gently correct them into a straight, even, complete healthy arch.';
   return (
     'Edit this portrait photograph. Change ONLY the teeth visible in the mouth. ALWAYS whiten the teeth to ' + white +
-    ', so the improvement is obviously visible in a before/after — NEVER leave the teeth the same shade, even if ' +
-    'they already look healthy or fairly white; brighten them further. FIRST assess the shape: if the teeth are ' +
-    'ALREADY straight, even, and healthy, KEEP their exact shape, size, alignment, and position — do NOT reshape, ' +
-    'realign, resize, or move any tooth (whiten only). Only if teeth are crooked, chipped, worn, decayed, gapped, ' +
-    'or missing, gently correct them into a straight, even, complete healthy arch. Make the enamel individually ' +
-    'defined with subtle inter-dental shadows and natural incisal translucency, with healthy pink gums. Keep ' +
-    'EVERYTHING else exactly the same and pixel-identical: face, lip shape and position, skin texture, freckles, ' +
-    'wrinkles, facial hair, eyes, hair, head angle, framing, lighting, shadows, background. Do NOT beautify or ' +
-    'smooth skin. Do NOT change smile width or how open the mouth is. The teeth must look natural and realistic ' +
-    'and NEVER distorted, warped, melted, or misaligned in SHAPE — but the COLOR must be distinctly, noticeably ' +
-    'whiter than the original. Photorealistic, the same photograph, only the teeth improved.'
+    ', so the improvement is obviously visible in a before/after — NEVER leave the teeth the same shade. ' + shape + ' ' +
+    'Make the enamel individually defined with subtle inter-dental shadows and natural incisal translucency, with healthy ' +
+    'pink gums. Keep EVERYTHING else exactly the same and pixel-identical: face, lip shape and position, skin texture, ' +
+    'freckles, wrinkles, facial hair, eyes, hair, head angle, framing, lighting, shadows, background. Do NOT beautify or ' +
+    'smooth skin. Do NOT change smile width or how open the mouth is. The teeth must look natural and realistic and NEVER ' +
+    'distorted, warped, or melted. Photorealistic, the same photograph, only the teeth improved.'
   );
 }
 async function handleGeminiEdit(request, env, origin) {
@@ -2657,13 +2666,14 @@ async function handleGeminiEdit(request, env, origin) {
   if (!m) return j({ error: 'bad or missing image' }, 400);
   const [, mime, b64] = m;
   const shade = (body.shade === 'hollywood' || url.searchParams.get('shade') === 'hollywood') ? 'hollywood' : 'natural';
+  const treatment = String(body.treatment || url.searchParams.get('treatment') || '').toLowerCase();
   let gres;
   try {
     gres = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY },
       body: JSON.stringify({
-        contents: [{ parts: [{ text: geminiPrompt(shade) }, { inline_data: { mime_type: mime, data: b64 } }] }],
+        contents: [{ parts: [{ text: geminiPrompt(shade, treatment) }, { inline_data: { mime_type: mime, data: b64 } }] }],
         generationConfig: { responseModalities: ['IMAGE'] },
       }),
     });
