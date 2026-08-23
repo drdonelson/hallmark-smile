@@ -722,6 +722,8 @@ function defaultConfig(rec = {}) {
       colors: {},   // empty → simulator uses its built-in default palette
     },
     booking: { url: '', ctaLabel: 'Book Your Consultation', ctaFallback: 'lead-capture' },
+    // Opt-in live-AR try-on in the simulator (default off; practice enables it).
+    arEnabled: false,
     // Where to send the patient after they finish (post-result). Blank = stay.
     thankYouUrl: '',
     // Floating popup / CTA widget (cta-widget.js) customization. ctaUrl overrides
@@ -807,6 +809,7 @@ function sanitizeConfig(input, rec = {}) {
       ctaLabel: str(bk.ctaLabel, 60, d.booking.ctaLabel),
       ctaFallback: (bk.ctaFallback === 'hidden') ? 'hidden' : 'lead-capture',
     },
+    arEnabled: c.arEnabled === true,
     thankYouUrl: str(c.thankYouUrl, 400, ''),
     widget: {
       heading:    str(w.heading, 80, d.widget.heading),

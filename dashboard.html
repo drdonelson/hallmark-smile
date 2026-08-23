@@ -322,6 +322,8 @@
             </div>
             <div class="field"><label>Thank-you page URL <span class="hint" style="display:inline;text-transform:none;font-weight:400">(a “Continue →” button after the result sends the patient here)</span></label>
               <input type="url" id="ty-url" placeholder="https://…/thank-you"></div>
+            <div class="field"><label>Live AR try-on <span class="hint" style="display:inline;text-transform:none;font-weight:400">(adds an instant on-camera whitening preview before the photo; the real result is still generated after capture)</span></label>
+              <label style="display:flex;align-items:center;gap:8px;font-weight:400;text-transform:none;cursor:pointer"><input type="checkbox" id="ar-enabled" style="width:auto"> Enable live AR try-on in the simulator</label></div>
           </div>
           <div class="card2">
             <h3>Popup / website widget</h3>
@@ -999,6 +1001,7 @@ function populateSettings(d){
   $('bk-url').value = bk.url||''; $('bk-cta').value = bk.ctaLabel||'';
   $('bk-fallback').value = bk.ctaFallback==='hidden' ? 'hidden' : 'lead-capture';
   $('ty-url').value = config.thankYouUrl||'';
+  if ($('ar-enabled')) $('ar-enabled').checked = !!config.arEnabled;
   const w = config.widget || {};
   $('w-heading').value = w.heading||''; $('w-sub').value = w.sub||'';
   $('w-cta-label').value = w.ctaLabel||''; $('w-hero').value = w.heroUrl||'';
@@ -1036,6 +1039,7 @@ function gatherConfig(){
   c.branding.logoUrl = $('b-logoUrl').value || '';
   c.branding.colors = gatherColors();
   c.booking = { url:$('bk-url').value.trim(), ctaLabel:$('bk-cta').value.trim(), ctaFallback:$('bk-fallback').value };
+  c.arEnabled = !!($('ar-enabled') && $('ar-enabled').checked);
   c.thankYouUrl = $('ty-url').value.trim();
   c.widget = { heading:$('w-heading').value.trim(), sub:$('w-sub').value.trim(), ctaLabel:$('w-cta-label').value.trim(), heroUrl:$('w-hero').value.trim(), bookingUrl:$('w-booking').value.trim(), sideTab:$('w-sidetab').value.trim(), theme:$('w-theme').value, ctaUrl:$('w-cta').value.trim() };
   const g = gatherLists();
