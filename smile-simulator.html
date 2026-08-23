@@ -4405,7 +4405,13 @@ if (window.parent !== window) {
   document.body.classList.add('embedded');
   let lastH = 0;
   const reportH = () => {
-    const h = document.documentElement.scrollHeight;
+    // Measure the BODY, not documentElement: html.scrollHeight is clamped to the
+    // iframe viewport, so once the parent grows the frame the report can never
+    // shrink (ratchet → dead space below short steps like the upload card).
+    // body has min-height:0 when embedded, so its height tracks real content
+    // both ways. Pure measurement change — no layout impact.
+    const b = document.body;
+    const h = Math.max(b.scrollHeight, Math.ceil(b.getBoundingClientRect().height)) + 8;
     if (Math.abs(h - lastH) > 4) { lastH = h; window.parent.postMessage({ lucidSimHeight: h }, '*'); }
   };
   try { new ResizeObserver(reportH).observe(document.body); } catch {}
