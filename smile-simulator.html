@@ -4476,6 +4476,10 @@ if (window.parent !== window) {
   }
   async function openAr(){
     ov.classList.add('open'); statusEl.style.display=''; statusEl.textContent='Loading…';
+    // Grow the embedding frame (widget popup / lucidroi modal both listen to
+    // lucidSimHeight) so the live camera gets near-full height — otherwise the AR
+    // is confined to the short upload-card frame and the video is tiny.
+    if (window.parent !== window) { window.__lucidMinH = 900; if (window.__lucidReportH) window.__lucidReportH(); }
     try { if (!vlm) await initVideoLandmarker(); } catch(e){ statusEl.textContent='Live try-on isn’t available on this device — use “Choose a Photo”.'; return; }
     try { stream = await navigator.mediaDevices.getUserMedia({ video:{ facingMode:'user', width:{ideal:480}, height:{ideal:360}, frameRate:{ideal:30} }, audio:false }); }
     catch(e){ statusEl.textContent='Camera blocked — allow access or use “Choose a Photo”.'; return; }
@@ -4483,7 +4487,7 @@ if (window.parent !== window) {
     cvs.width = vid.videoWidth; cvs.height = vid.videoHeight; statusEl.style.display='none';
     running = true; loop();
   }
-  function closeAr(){ running=false; if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;} ov.classList.remove('open'); }
+  function closeAr(){ running=false; if(stream){stream.getTracks().forEach(t=>t.stop());stream=null;} ov.classList.remove('open'); if (window.parent !== window) { window.__lucidMinH = 0; if (window.__lucidReportH) window.__lucidReportH(); } }
   function loop(){
     if(!running) return;
     const w=cvs.width,h=cvs.height;
