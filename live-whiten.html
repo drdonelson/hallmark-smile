@@ -96,6 +96,7 @@ import { FaceLandmarker, FilesetResolver } from 'https://cdn.jsdelivr.net/npm/@m
 
 // Inner-lip ring — SAME indices the production simulator uses (INNER_LIP).
 const INNER_LIP = [78,191,80,81,82,13,312,311,310,415,308,324,318,402,317,14,87,178,88,95];
+const OUTER_LIP = [61,146,91,181,84,17,314,405,321,375,291,409,270,269,267,0,37,39,40,185];
 
 // Hybrid: on capture we send the RAW frame to the real generative engine.
 const PROXY_URL = 'https://quiet-forest-e1f8.david-d73.workers.dev';
@@ -202,7 +203,7 @@ function loop() {
 
 function whitenTeeth(lm, w, h) {
   // Mirrored pixel coords for the inner-lip polygon.
-  const pts = INNER_LIP.map(i => ({ x: (1 - lm[i].x) * w, y: lm[i].y * h }));
+  const pts = OUTER_LIP.map(i => ({ x: (1 - lm[i].x) * w, y: lm[i].y * h }));  // outer lip → both arches
   let xMin=1e9,yMin=1e9,xMax=-1e9,yMax=-1e9;
   for (const p of pts){ if(p.x<xMin)xMin=p.x; if(p.y<yMin)yMin=p.y; if(p.x>xMax)xMax=p.x; if(p.y>yMax)yMax=p.y; }
   const pad = 6;
@@ -231,7 +232,7 @@ function whitenTeeth(lm, w, h) {
     // Tooth heuristic: bright enough, and not reddish (skip gums/tongue/lips + dark
     // interior). Tighter redness gate (20) keeps pink lip/gum edges out.
     const luma = 0.299*r + 0.587*g + 0.114*b;
-    if (luma < 42 || (r - g) > 40) continue;   // include shadowed lower teeth + discolored/imperfect teeth; still skip dark interior + clearly-red gums/lips
+    if (luma < 30 || (r - g) > 40) continue;   // include shadowed lower teeth; skip dark interior + red lips/gums (outer-lip mask covers both arches)
     // Whiten: neutralize yellow, lift brightness, then pull toward neutral grey so
     // no pink/yellow tint survives and it reads white without going opaque.
     const yellow = Math.max(0, (r+g)/2 - b);

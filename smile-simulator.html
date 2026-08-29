@@ -4485,14 +4485,14 @@ if (window.parent !== window) {
     if('requestVideoFrameCallback' in HTMLVideoElement.prototype) vid.requestVideoFrameCallback(loop); else requestAnimationFrame(loop);
   }
   function whiten(lm,w,h){
-    const pts=INNER_LIP.map(i=>({x:(1-lm[i].x)*w,y:lm[i].y*h}));
+    const pts=OUTER_LIP.map(i=>({x:(1-lm[i].x)*w,y:lm[i].y*h}));  // outer lip → covers BOTH arches; heuristic keeps it to teeth
     let x0=1e9,y0=1e9,x1=-1e9,y1=-1e9; for(const p of pts){if(p.x<x0)x0=p.x;if(p.y<y0)y0=p.y;if(p.x>x1)x1=p.x;if(p.y>y1)y1=p.y;}
     const pad=6, bx=Math.max(0,(x0-pad)|0), by=Math.max(0,(y0-pad)|0), bw=Math.min(w-bx,(x1-x0+pad*2)|0), bh=Math.min(h-by,(y1-y0+pad*2)|0);
     if(bw<4||bh<4) return;
     maskC.width=bw; maskC.height=bh; mctx.clearRect(0,0,bw,bh); mctx.filter='blur(1px)'; mctx.fillStyle='#fff';
     mctx.beginPath(); mctx.moveTo(pts[0].x-bx,pts[0].y-by); for(let i=1;i<pts.length;i++) mctx.lineTo(pts[i].x-bx,pts[i].y-by); mctx.closePath(); mctx.fill(); mctx.filter='none';
     const mask=mctx.getImageData(0,0,bw,bh).data, id=ctx.getImageData(bx,by,bw,bh), d=id.data, S=SH[shade];
-    for(let i=0;i<d.length;i+=4){ const a=mask[i+3]/255; if(a<.05)continue; const r=d[i],g=d[i+1],b=d[i+2]; const luma=.299*r+.587*g+.114*b; if(luma<42||(r-g)>40)continue; const yellow=Math.max(0,(r+g)/2-b); let nr=Math.min(255,r*S.B),ng=Math.min(255,g*S.B),nb=Math.min(255,(b+yellow*S.Y)*S.B); const avg=(nr+ng+nb)/3; nr+=(avg-nr)*S.D; ng+=(avg-ng)*S.D; nb+=(avg-nb)*S.D; const wg=a*S.S; d[i]=r+(nr-r)*wg; d[i+1]=g+(ng-g)*wg; d[i+2]=b+(nb-b)*wg; }
+    for(let i=0;i<d.length;i+=4){ const a=mask[i+3]/255; if(a<.05)continue; const r=d[i],g=d[i+1],b=d[i+2]; const luma=.299*r+.587*g+.114*b; if(luma<30||(r-g)>40)continue; const yellow=Math.max(0,(r+g)/2-b); let nr=Math.min(255,r*S.B),ng=Math.min(255,g*S.B),nb=Math.min(255,(b+yellow*S.Y)*S.B); const avg=(nr+ng+nb)/3; nr+=(avg-nr)*S.D; ng+=(avg-ng)*S.D; nb+=(avg-nb)*S.D; const wg=a*S.S; d[i]=r+(nr-r)*wg; d[i+1]=g+(ng-g)*wg; d[i+2]=b+(nb-b)*wg; }
     ctx.putImageData(id,bx,by);
   }
   function snap(){
