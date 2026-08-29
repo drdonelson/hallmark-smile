@@ -1235,7 +1235,7 @@
 
 <!-- Consent gate (Phase 3): shown before the first upload / camera / live try-on -->
 <style>
-  #consentOverlay .modal{max-width:380px}
+  #consentOverlay .modal{max-width:380px;max-height:calc(100% - 20px);overflow-y:auto;-webkit-overflow-scrolling:touch}
   #consentOverlay .modal-head{font-weight:800;font-size:1.05rem;color:var(--navy);margin-bottom:10px}
   #consentOverlay p{font-size:.86rem;color:var(--dark-grey);line-height:1.6;margin-bottom:12px}
   #consentOverlay .legal{font-size:.78rem;color:var(--mid-grey,#6b7280);margin-bottom:16px}
@@ -1545,20 +1545,38 @@ function compressImage(file, maxBytes) {
 /* ── Consent gate (Phase 3) — shown before the first upload/camera/AR ─ */
 let consentGiven = false;
 let pendingConsentAction = null;
+function growPopupForConsent() {
+  // In the widget popup, grow the frame to fit the consent modal (a fixed overlay
+  // that would otherwise be clipped by the short popup).
+  if (window.parent === window) return;
+  requestAnimationFrame(() => {
+    const m = document.querySelector('#consentOverlay .modal');
+    window.__lucidMinH = m ? Math.ceil(m.scrollHeight) + 40 : 560;
+    if (window.__lucidReportH) window.__lucidReportH();
+  });
+}
+function releasePopupHeight() {
+  if (window.parent === window) return;
+  window.__lucidMinH = 0;
+  if (window.__lucidReportH) window.__lucidReportH();
+}
 function requireConsent(next) {
   if (consentGiven) { if (next) next(); return; }
   pendingConsentAction = next || null;
   $('consentOverlay').classList.add('open');
+  growPopupForConsent();
 }
 $('consentAgree').addEventListener('click', () => {
   consentGiven = true;
   $('consentOverlay').classList.remove('open');
+  releasePopupHeight();
   const a = pendingConsentAction; pendingConsentAction = null;
   if (a) a();
 });
 $('consentDecline').addEventListener('click', () => {
   pendingConsentAction = null;
   $('consentOverlay').classList.remove('open');
+  releasePopupHeight();
 });
 
 /* ── Upload handling ───────────────────────────────────────────── */
@@ -4411,9 +4429,12 @@ if (window.parent !== window) {
     // body has min-height:0 when embedded, so its height tracks real content
     // both ways. Pure measurement change — no layout impact.
     const b = document.body;
-    const h = Math.max(b.scrollHeight, Math.ceil(b.getBoundingClientRect().height)) + 8;
+    // __lucidMinH lets a fixed overlay (e.g. the consent modal) grow the popup to
+    // fit it, since fixed elements don't contribute to body height.
+    const h = Math.max(b.scrollHeight, Math.ceil(b.getBoundingClientRect().height), window.__lucidMinH || 0) + 8;
     if (Math.abs(h - lastH) > 4) { lastH = h; window.parent.postMessage({ lucidSimHeight: h }, '*'); }
   };
+  window.__lucidReportH = reportH;
   try { new ResizeObserver(reportH).observe(document.body); } catch {}
   window.addEventListener('load', reportH);
   setInterval(reportH, 900);
