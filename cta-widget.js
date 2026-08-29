@@ -25,6 +25,8 @@
     return scripts[scripts.length - 1];
   })();
 
+  var BUILD = '2026-08-29-01'; // bump on every simulator/widget deploy
+
   var ext = window.LucidCTA || {};
   function opt(attr, key, def) {
     var v = script.getAttribute(attr);
@@ -56,6 +58,10 @@
       if (cfg.tenant    && !u.searchParams.get('tenant'))    u.searchParams.set('tenant', cfg.tenant);
       if (cfg.practice  && !u.searchParams.get('practice'))  u.searchParams.set('practice', cfg.practice);
       if (cfg.leadEmail && !u.searchParams.get('leadEmail')) u.searchParams.set('leadEmail', cfg.leadEmail);
+      // Cache-bust the simulator (served with max-age=600) with this widget's
+      // build id — bump BUILD on every sim/widget deploy so all embeds pick up
+      // the newest simulator within one widget-cache window, no site edits.
+      if (!u.searchParams.get('v')) u.searchParams.set('v', BUILD);
       cfg.simUrl = u.toString();
     } catch (e) { /* leave simUrl as-is */ }
   })();
