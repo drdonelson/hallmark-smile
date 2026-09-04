@@ -119,6 +119,8 @@ if (q.get('done') === '1') {
   } else {
     $('planName').textContent = 'Your Plan';
     $('planPrice').innerHTML = '&hellip;';
+    var agLink = document.querySelector('.agree a[href*="service-agreement"]');
+    if (agLink) { agLink.href = '/partners/lucid-service-agreement.html'; agLink.textContent = 'Lucid ROI Service Agreement'; }
   }
   if (tenant) {
     fetch(`${API}/api/config?tenant=${encodeURIComponent(tenant)}`)

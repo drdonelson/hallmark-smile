@@ -863,6 +863,9 @@ function publicConfig(env, slug, rec) {
 // Checkout uses inline price_data so no pre-created Stripe Products needed.
 const STRIPE_API = 'https://api.stripe.com/v1';
 const AGREEMENT_VERSION = 'sa-v1-2026-07-06';
+// Custom-priced (partner-quoted / full-service) activations accept the broader
+// Lucid ROI Service Agreement instead of the sim-only agreement.
+const LUCID_AGREEMENT_VERSION = 'lsa-v1-2026-09-04';
 const BILLING_PLANS = {
   starter: { label: 'Lucid Smile Simulator — Starter', amount: 19700, sims: 500,  videos: 0  },
   growth:  { label: 'Lucid Smile Simulator — Growth',  amount: 29700, sims: 1500, videos: 50 },
@@ -917,14 +920,14 @@ async function handleBillingCheckout(request, env, origin) {
   const acceptId = randomToken();
   await env.TEMP_IMAGES.put(`agreements/${slug}/${acceptId}.json`, JSON.stringify({
     tenant: slug, plan, email,
-    agreementVersion: AGREEMENT_VERSION,
+    agreementVersion: plan === 'custom' ? LUCID_AGREEMENT_VERSION : AGREEMENT_VERSION,
     ts: new Date().toISOString(),
     ip: request.headers.get('CF-Connecting-IP') || '',
     ua: request.headers.get('User-Agent') || '',
   }), { httpMetadata: { contentType: 'application/json' } });
 
   const P = plan === 'custom'
-    ? { amount: rec.billing.amount, label: `Lucid Smile Simulator — ${rec.name || prettyTenant(slug)}` }
+    ? { amount: rec.billing.amount, label: rec.billing.label || `Lucid ROI — ${rec.name || prettyTenant(slug)}` }
     : BILLING_PLANS[plan];
   const trialDays = plan === 'custom' ? (rec.billing.trialDays || 0) : 0;
   let session;
