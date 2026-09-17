@@ -1491,6 +1491,33 @@ async function conciergeSuppressed(env, tenant, email) {
   catch { return false; }
 }
 
+
+// POST /api/deo-lead — DEO conference landing page capture (lucidroi.com/deo).
+// Stores to R2 and emails David. Not a patient lead: no concierge, no tenant.
+async function handleDeoLead(request, env, origin) {
+  const json = (obj, status = 200) => new Response(JSON.stringify(obj), {
+    status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+  let b; try { b = await request.json(); } catch { b = {}; }
+  const name = String(b.name || '').trim().slice(0, 120);
+  const email = String(b.email || '').trim().slice(0, 200);
+  const practice = String(b.practice || '').trim().slice(0, 160);
+  const locations = String(b.locations || '').trim().slice(0, 40);
+  if (!name || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json({ error: 'Name and a valid email are required' }, 400);
+  const rec = { name, email, practice, locations, source: String(b.source || 'deo-2026').slice(0, 60), ts: new Date().toISOString(), ip: request.headers.get('CF-Connecting-IP') || '', ua: (request.headers.get('User-Agent') || '').slice(0, 200) };
+  await env.TEMP_IMAGES.put(`deo-leads/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`, JSON.stringify(rec), { httpMetadata: { contentType: 'application/json' } });
+  await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: 'Lucid ROI <leads@lucidroi.com>', to: ['david@lucidroi.com'], reply_to: email,
+      subject: `DEO lead: ${name}${practice ? ' — ' + practice : ''}`,
+      html: `<div style="font-family:sans-serif;font-size:14px;line-height:1.7"><b>DEO conference lead</b><br>Name: ${name}<br>Email: ${email}<br>Practice: ${practice || '—'}<br>Locations: ${locations || '—'}<br>Source: ${rec.source}<br>${rec.ts}</div>`,
+    }),
+  }).catch(() => {});
+  return json({ ok: true });
+}
+
 async function sendConciergeEmail(env, { from, to, replyTo, subject, html }) {
   const r = await fetch('https://api.resend.com/emails', {
     method: 'POST',
@@ -2726,6 +2753,9 @@ export default {
     }
 
     // Stripe webhook — no Origin header; HMAC signature is the auth.
+    if (url.pathname === '/api/deo-lead' && request.method === 'POST') {
+      return handleDeoLead(request, env, origin);
+    }
     if (url.pathname === '/api/billing/webhook' && request.method === 'POST') {
       return handleBillingWebhook(request, env);
     }
