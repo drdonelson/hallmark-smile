@@ -2753,9 +2753,6 @@ export default {
     }
 
     // Stripe webhook — no Origin header; HMAC signature is the auth.
-    if (url.pathname === '/api/deo-lead' && request.method === 'POST') {
-      return handleDeoLead(request, env, origin);
-    }
     if (url.pathname === '/api/billing/webhook' && request.method === 'POST') {
       return handleBillingWebhook(request, env);
     }
@@ -2791,6 +2788,9 @@ export default {
 
     if (url.pathname === '/api/billing/checkout' && request.method === 'POST') {
       return handleBillingCheckout(request, env, origin);
+    }
+    if (url.pathname === '/api/deo-lead' && request.method === 'POST') {
+      return handleDeoLead(request, env, origin);
     }
     if (url.pathname === '/api/dashboard/login' && request.method === 'POST') {
       return handleDashLogin(request, env, origin);
