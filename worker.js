@@ -1967,7 +1967,7 @@ async function handleDashResetPassword(request, env, origin) {
   let emailed = false;
   if (env.RESEND_API_KEY && rec.email) {
     try {
-      const dashUrl = `https://drdonelson.github.io/hallmark-smile/dashboard.html?t=${slug}&email=${encodeURIComponent(rec.email)}`;
+      const dashUrl = `https://app.lucidroi.com/dashboard.html?t=${slug}&email=${encodeURIComponent(rec.email)}`;
       const res = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
@@ -2293,10 +2293,10 @@ async function createPractice(env, body) {
     ]);
   }
 
-  const base    = 'https://drdonelson.github.io/hallmark-smile';
-  const simUrl  = `${base}/smile-simulator.html?leadEmail=${encodeURIComponent(leadEmail)}&practice=${encodeURIComponent(practiceName)}&tenant=${slug}`;
+  const base    = 'https://app.lucidroi.com';
+  const simUrl  = `${base}/smile-simulator.html?tenant=${slug}`;
   const dashUrl = `${base}/dashboard.html?t=${slug}&email=${encodeURIComponent(loginEmail)}`;
-  const embedCode = `<iframe\n  src="${simUrl}"\n  width="100%" height="900"\n  allow="camera"\n  style="border:none;display:block"\n></iframe>`;
+  const embedCode = `<iframe\n  src="${simUrl}"\n  width="100%" height="760"\n  allow="camera"\n  style="border:none;display:block"\n></iframe>\n` + `<script>window.addEventListener("message",function(e){if(e.origin!=="https://app.lucidroi.com")return;var h=e.data&&e.data.lucidSimHeight;if(h>0){var f=document.querySelector('iframe[src*="app.lucidroi.com/smile-simulator"]');if(f)f.style.height=Math.ceil(h)+"px"}});<\/script>`;
 
   if (env.RESEND_API_KEY) {
     const welcomeHtml = `

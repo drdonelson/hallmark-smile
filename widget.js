@@ -17,7 +17,7 @@
   var DISMISSED_KEY = 'lucid_widget_dismissed';
   if (sessionStorage.getItem(DISMISSED_KEY)) return;
 
-  var SIM_BASE = 'https://drdonelson.github.io/hallmark-smile/smile-simulator.html';
+  var SIM_BASE = 'https://app.lucidroi.com/smile-simulator.html';
   var simSrc = SIM_BASE
     + '?leadEmail=' + encodeURIComponent(leadEmail)
     + '&practice='  + encodeURIComponent(practice)

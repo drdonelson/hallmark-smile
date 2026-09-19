@@ -797,7 +797,7 @@ $('lbDl').addEventListener('click',async e=>{
 });
 
 /* ═══════════════ Settings suite ═══════════════ */
-const SIM_BASE = 'https://drdonelson.github.io/hallmark-smile/smile-simulator.html';
+const SIM_BASE = 'https://app.lucidroi.com/smile-simulator.html';
 // Unversioned: Cloudflare Browser Cache TTL is "Respect Existing Headers", so the
 // origin's max-age=600 means widget updates propagate in ~10 min automatically —
 // practices paste once and never re-paste. (For an instant push, append ?v=<date>.)
@@ -1302,8 +1302,9 @@ if($('deletePractice')) $('deletePractice').addEventListener('click',async()=>{
 function updateEmbed(){
   const slug = currentSettingsTenant();
   const name = encodeURIComponent(settingsName || config?.branding?.name || '');
-  const simUrl = `${SIM_BASE}?tenant=${slug}&practice=${name}`;
-  $('snipIframe').textContent = `<iframe src="${simUrl}" width="100%" height="900" allow="camera" style="border:none;display:block"></iframe>`;
+  const simUrl = `${SIM_BASE}?tenant=${slug}`;
+  $('snipIframe').textContent = `<iframe src="${simUrl}" width="100%" height="760" allow="camera" style="border:none;display:block"></iframe>\n` +
+    `<script>window.addEventListener("message",function(e){if(e.origin!=="https://app.lucidroi.com")return;var h=e.data&&e.data.lucidSimHeight;if(h>0){var f=document.querySelector('iframe[src*="app.lucidroi.com/smile-simulator"]');if(f)f.style.height=Math.ceil(h)+"px"}});<\/script>`;
   // Widget snippet carries the practice's popup customization (heading/sub/
   // avatar/theme, and an optional link override).
   const w = (config && config.widget) || {};
