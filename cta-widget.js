@@ -25,7 +25,7 @@
     return scripts[scripts.length - 1];
   })();
 
-  var BUILD = '2026-08-29-01'; // bump on every simulator/widget deploy
+  var BUILD = '2026-09-19-01'; // bump on every simulator/widget deploy
 
   var ext = window.LucidCTA || {};
   function opt(attr, key, def) {
@@ -55,6 +55,13 @@
   (function () {
     try {
       var u = new URL(cfg.simUrl, location.href);
+      // Heal stale installs: github.io 301s to http:// and gets Mixed-Content
+      // blocked (blank popup). Rewrite any legacy/insecure sim URL in place.
+      if (/github\.io$/.test(u.hostname) || u.protocol === 'http:') {
+        u.protocol = 'https:';
+        u.hostname = 'app.lucidroi.com';
+        u.pathname = u.pathname.replace(/^\/hallmark-smile/, '');
+      }
       if (cfg.tenant    && !u.searchParams.get('tenant'))    u.searchParams.set('tenant', cfg.tenant);
       if (cfg.practice  && !u.searchParams.get('practice'))  u.searchParams.set('practice', cfg.practice);
       if (cfg.leadEmail && !u.searchParams.get('leadEmail')) u.searchParams.set('leadEmail', cfg.leadEmail);
