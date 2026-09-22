@@ -1046,6 +1046,18 @@ async function usageRead(env, key) {
     return o ? await o.json() : { sims: 0, videos: 0 };
   } catch { return { sims: 0, videos: 0 }; }
 }
+// Rollover (advertised on the rate card and service agreement): unused SIMS
+// from last month carry forward, capped at one month's allowance in reserve.
+// Only sims roll over — videos/shares do not.
+function prevMonthOf(month) {
+  const [y, m] = month.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 7);
+}
+async function rolloverFor(env, tenant, kind, cap, month) {
+  if (kind !== 'sims' || cap == null) return 0;
+  const last = await usageRead(env, `usage/${tenant}/${prevMonthOf(month)}.json`);
+  return Math.min(cap, Math.max(0, cap - (last.sims || 0)));
+}
 // Returns null when allowed (and records the use), or a 429 Response.
 async function meter(env, request, tenant, kind, origin) {
   try {
@@ -1055,9 +1067,14 @@ async function meter(env, request, tenant, kind, origin) {
     const [tUse, ipUse, caps] = await Promise.all([usageRead(env, tKey), usageRead(env, ipKey), tenantCaps(env, tenant)]);
     const tCap = caps[kind];   // may be undefined (e.g. 'shares' is IP-only)
     if (tCap != null && (tUse[kind] || 0) >= tCap) {
-      return new Response(JSON.stringify({ error: 'This site has reached its monthly simulation limit. Please contact the practice.' }), {
-        status: 429, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
-      });
+      // Base cap reached — check the rollover reserve before blocking. The extra
+      // R2 read only happens at/over cap, so the common path costs nothing.
+      const reserve = await rolloverFor(env, tenant, kind, tCap, now.slice(0, 7));
+      if ((tUse[kind] || 0) >= tCap + reserve) {
+        return new Response(JSON.stringify({ error: 'This site has reached its monthly simulation limit. Please contact the practice.' }), {
+          status: 429, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+        });
+      }
     }
     if (IP_DAILY[kind] != null && (ipUse[kind] || 0) >= IP_DAILY[kind]) {
       return new Response(JSON.stringify({ error: 'Daily limit reached for this device. Please try again tomorrow.' }), {
@@ -1086,7 +1103,8 @@ async function handleUsage(request, env, origin) {
   const caps = await tenantCaps(env, tenant);
   const month = new Date().toISOString().slice(0, 7);
   const use = await usageRead(env, `usage/${tenant}/${month}.json`);
-  return new Response(JSON.stringify({ tenant, month, used: use, caps }), {
+  const rollover = await rolloverFor(env, tenant, 'sims', caps.sims, month);
+  return new Response(JSON.stringify({ tenant, month, used: use, caps, rollover }), {
     headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
   });
 }
