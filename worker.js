@@ -1521,18 +1521,43 @@ async function handleDeoLead(request, env, origin) {
   const email = String(b.email || '').trim().slice(0, 200);
   const practice = String(b.practice || '').trim().slice(0, 160);
   const locations = String(b.locations || '').trim().slice(0, 40);
-  if (!name || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json({ error: 'Name and a valid email are required' }, 400);
-  const rec = { name, email, practice, locations, source: String(b.source || 'deo-2026').slice(0, 60), ts: new Date().toISOString(), ip: request.headers.get('CF-Connecting-IP') || '', ua: (request.headers.get('User-Agent') || '').slice(0, 200) };
+  const mobile = String(b.mobile || '').trim().slice(0, 40);
+  const emailOk = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
+  const mobileOk = mobile.replace(/\D/g, '').length >= 7;
+  if (!name || (!emailOk && !mobileOk)) return json({ error: 'Name and an email or mobile number are required' }, 400);
+  const rec = { name, email: emailOk ? email : '', mobile: mobileOk ? mobile : '', practice, locations, source: String(b.source || 'deo-2026').slice(0, 60), sid: String(b.sid || '').slice(0, 40), utm: String(b.utm || '').slice(0, 300), ts: new Date().toISOString(), ip: request.headers.get('CF-Connecting-IP') || '', ua: (request.headers.get('User-Agent') || '').slice(0, 200) };
   await env.TEMP_IMAGES.put(`deo-leads/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`, JSON.stringify(rec), { httpMetadata: { contentType: 'application/json' } });
   await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      from: 'Lucid ROI <leads@lucidroi.com>', to: ['david@lucidroi.com'], reply_to: email,
-      subject: `DEO lead: ${name}${practice ? ' — ' + practice : ''}`,
-      html: `<div style="font-family:sans-serif;font-size:14px;line-height:1.7"><b>DEO conference lead</b><br>Name: ${name}<br>Email: ${email}<br>Practice: ${practice || '—'}<br>Locations: ${locations || '—'}<br>Source: ${rec.source}<br>${rec.ts}</div>`,
+      from: 'Lucid ROI <leads@lucidroi.com>', to: ['david@lucidroi.com'], ...(emailOk ? { reply_to: email } : {}),
+      subject: `DEO lead (${rec.source}): ${name}${practice ? ' — ' + practice : ''}`,
+      html: `<div style="font-family:sans-serif;font-size:14px;line-height:1.7"><b>DEO conference lead</b><br>Name: ${name}<br>Email: ${rec.email || '—'}<br>Mobile: ${rec.mobile || '—'}<br>Practice: ${practice || '—'}<br>Locations: ${locations || '—'}<br>Source: ${rec.source}<br>${rec.ts}</div>`,
     }),
   }).catch(() => {});
+  return json({ ok: true });
+}
+
+// POST /api/deo-event — anonymous conference funnel telemetry (DEO 2026).
+// Allowlisted event names only; no PII for anonymous events. R2 deo-events/.
+const DEO_EVENTS = new Set(['deo_page_view', 'deo_smile_sim_started', 'deo_smile_sim_completed', 'deo_ruler_claimed', 'deo_post_sim_cta_clicked', 'deo_lucid_demo_clicked', 'deo_meeting_clicked']);
+async function handleDeoEvent(request, env, origin) {
+  const json = (obj, status = 200) => new Response(JSON.stringify(obj), {
+    status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+  let b; try { b = await request.json(); } catch { b = {}; }
+  const event = String(b.event || '');
+  if (!DEO_EVENTS.has(event)) return json({ error: 'Unknown event' }, 400);
+  const rec = {
+    event,
+    ts: new Date().toISOString(),
+    sid: String(b.sid || '').slice(0, 40),
+    source: String(b.source || 'deo-direct').slice(0, 60),
+    utm: String(b.utm || '').slice(0, 300),
+    ref: String(b.ref || '').slice(0, 200),
+  };
+  await env.TEMP_IMAGES.put(`deo-events/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`, JSON.stringify(rec), { httpMetadata: { contentType: 'application/json' } });
   return json({ ok: true });
 }
 
@@ -2806,6 +2831,9 @@ export default {
 
     if (url.pathname === '/api/billing/checkout' && request.method === 'POST') {
       return handleBillingCheckout(request, env, origin);
+    }
+    if (url.pathname === '/api/deo-event' && request.method === 'POST') {
+      return handleDeoEvent(request, env, origin);
     }
     if (url.pathname === '/api/deo-lead' && request.method === 'POST') {
       return handleDeoLead(request, env, origin);
