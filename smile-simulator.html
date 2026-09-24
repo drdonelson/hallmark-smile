@@ -1392,7 +1392,7 @@ const _lp = new URLSearchParams(location.search);
 const DEO_MODE = _lp.get('deo') === '1' && TENANT === 'deo';
 const DEO_SRC  = (_lp.get('src') || 'deo-direct').slice(0, 60);
 const DEO_SID  = (_lp.get('sid') || '').slice(0, 40);
-const DEO_BOOK_URL = ''; // PENDING: dedicated 15-min DEO Calendly event — set before launch
+const DEO_BOOK_URL = 'https://calendly.com/show-me-my-numbers/15min'; // SHOW ME MY NUMBERS — 15 MIN
 function deoEvent(event) {
   if (!DEO_MODE) return;
   try {
@@ -3772,7 +3772,7 @@ function showDeoCta() {
       <div id="deoCtaErr" class="error-banner hidden" style="margin-top:10px"></div>
     </form>
     <div id="deoCtaBookWrap" style="text-align:center;margin-top:12px;display:none">
-      <a id="deoCtaBook" href="#" target="_blank" rel="noopener" style="color:var(--navy);font-weight:700">or book 15 minutes with Dr. Donelson &rarr;</a>
+      <a id="deoCtaBook" href="#" target="_blank" rel="noopener" style="color:var(--navy);font-weight:700">or Show Me My Numbers &mdash; 15 min with David &rarr;</a>
     </div>
     <div id="deoCtaDone" style="display:none;text-align:center;padding:14px 6px">
       <div style="font-size:30px;color:#0DB862">&#10003;</div>
