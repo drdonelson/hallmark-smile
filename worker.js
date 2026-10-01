@@ -875,7 +875,7 @@ const BILLING_PLANS = {
   // $100 off the first invoice only ($97, then $197). Not a DEO rate — must
   // stay less favorable than DEO Member pricing (DEO agreement §4.4).
   rami:    { label: 'Lucid Smile Simulator — Starter (Dental Drugs Partner Offer)', amount: 19700, sims: 500, videos: 10,
-             partner: 'rami', firstMonthOff: { id: 'lucid-rami-first-month', cents: 10000, name: 'Dental Drugs Partner Offer — $97 first month' } },
+             partner: 'rami', firstMonthOff: { id: 'lucid-rami-first-month', cents: 10000, name: 'Dental Drugs Partner: $97 first month' } },
 };
 
 // Idempotent: returns the coupon id, creating the once-only coupon on first use.
