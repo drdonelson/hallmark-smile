@@ -101,6 +101,7 @@ const API = 'https://quiet-forest-e1f8.david-d73.workers.dev';
 const PLANS = {
   starter: { name:'Starter', price:'$197', features:['500 AI simulations / month','Unused simulations roll over','White-label branding','Lead dashboard & notifications'] },
   growth:  { name:'Growth',  price:'$297', features:['1,500 AI simulations / month','50 shareable smile videos / month','Unused simulations roll over','White-label branding','Lead dashboard & notifications'] },
+  rami:    { name:'Starter — Dental Drugs Partner Offer', price:'$97', suffix:' first month, then $197/month', features:['500 AI simulations / month','10 shareable smile videos / month','Unused simulations roll over','White-label branding','Lead dashboard & notifications'] },
 };
 const q = new URLSearchParams(location.search);
 const tenant = (q.get('t')||'').toLowerCase().replace(/[^a-z0-9-]/g,'');
@@ -114,7 +115,7 @@ if (q.get('done') === '1') {
   if (plan !== 'custom') {
     const P = PLANS[plan];
     $('planName').textContent = P.name;
-    $('planPrice').innerHTML = P.price + '<span> /month</span>';
+    $('planPrice').innerHTML = P.price + '<span>' + (P.suffix || ' /month') + '</span>';
     $('planFeatures').innerHTML = P.features.map(f=>`<li>${f}</li>`).join('');
   } else {
     $('planName').textContent = 'Your Plan';

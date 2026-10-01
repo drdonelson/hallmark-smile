@@ -1385,20 +1385,40 @@ const LS_URL     = 'hd_booking_url';
 
 // Lead routing — read from iframe URL params, default to hallmarkdds.com
 const _lp = new URLSearchParams(location.search);
-// ── DEO Fall 2026 conference mode ─────────────────────────────────
-// Ungated flow (no marketing lead gate) ONLY for the dedicated 'deo'
-// tenant AND ?deo=1 — both required so a practice's lead gate can never
+// ── Partner demo modes (DEO Fall 2026 conference, Rami / Dental Drugs) ──
+// Ungated flow (no marketing lead gate) ONLY for a dedicated demo tenant
+// AND its URL flag — both required so a practice's lead gate can never
 // be bypassed by appending the param. Legal consent overlay stays.
-const DEO_MODE = _lp.get('deo') === '1' && TENANT === 'deo';
-const DEO_SRC  = (_lp.get('src') || 'deo-direct').slice(0, 60);
-const DEO_SID  = (_lp.get('sid') || '').slice(0, 40);
-const DEO_BOOK_URL = 'https://calendly.com/show-me-my-numbers/15min'; // SHOW ME MY NUMBERS — 15 MIN
-function deoEvent(event) {
-  if (!DEO_MODE) return;
+const DEMO_MODES = {
+  deo: {
+    flag: 'deo', defaultSrc: 'deo-direct', anon: 'deo-anon', consentPractice: 'DEO Conference',
+    leadSource: 'deo-sim-postresult:', campaign: 'deo2026',
+    bookUrl: 'https://calendly.com/show-me-my-numbers/15min', // SHOW ME MY NUMBERS — 15 MIN
+    bookLabel: 'or Show Me My Numbers &mdash; 15 min with David &rarr;',
+    ctaSub: 'This exact experience — white-labeled to your practice, turning visitors into booked cosmetic consults.',
+    doneSub: 'Come find him at DEO and mention the simulator.',
+    errText: 'Hiccup — try again, or just come find David.',
+  },
+  'rami-demo': {
+    flag: 'rami', defaultSrc: 'rami-direct', anon: 'rami-anon', consentPractice: 'Rami Partner Demo',
+    leadSource: 'rami-sim-postresult:', campaign: 'rami-dentaldrugs',
+    bookUrl: 'https://calendly.com/dr-donelson/30min',
+    bookLabel: 'or book 30 minutes with Dr. Donelson &rarr;',
+    ctaSub: 'Dental Drugs Partner Offer: first month $97, then $197/mo — smile videos included, free setup.',
+    doneSub: 'Dr. Donelson will reach out personally within one business day.',
+    errText: 'Hiccup — try again, or email david@lucidroi.com.',
+  },
+};
+const DEMO = (DEMO_MODES[TENANT] && _lp.get(DEMO_MODES[TENANT].flag) === '1') ? DEMO_MODES[TENANT] : null;
+const DEMO_MODE = !!DEMO;
+const DEMO_SRC  = (_lp.get('src') || (DEMO ? DEMO.defaultSrc : '')).slice(0, 60);
+const DEMO_SID  = (_lp.get('sid') || '').slice(0, 40);
+function demoEvent(event) {
+  if (!DEMO_MODE) return;
   try {
     fetch(`${PROXY_URL}/api/deo-event`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event, sid: DEO_SID, source: DEO_SRC, utm: location.search.slice(1, 300), ref: document.referrer.slice(0, 200) }),
+      body: JSON.stringify({ event, sid: DEMO_SID, source: DEMO_SRC, utm: location.search.slice(1, 300), ref: document.referrer.slice(0, 200) }),
     }).catch(() => {});
   } catch (e) {}
 }
@@ -1592,12 +1612,12 @@ function requireConsent(next) {
 }
 $('consentAgree').addEventListener('click', () => {
   consentGiven = true;
-  if (DEO_MODE) {
-    deoEvent('deo_smile_sim_started');
+  if (DEMO_MODE) {
+    demoEvent('deo_smile_sim_started');
     // Anonymous legal-consent audit record (ai_processing only — no email share)
     fetch(`${PROXY_URL}/api/consent`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tenant: TENANT, practice: 'DEO Conference', version: CONSENT_VERSION, scope: ['ai_processing'], patientEmail: `deo-anon:${DEO_SID || 'session'}` }),
+      body: JSON.stringify({ tenant: TENANT, practice: DEMO.consentPractice, version: CONSENT_VERSION, scope: ['ai_processing'], patientEmail: `${DEMO.anon}:${DEMO_SID || 'session'}` }),
     }).catch(() => {});
   }
   $('consentOverlay').classList.remove('open');
@@ -1726,9 +1746,9 @@ function buildConcerns(list) {
     selectedTreatment = el.dataset.id;
     selectedTreatmentLabel = el.dataset.label;
     hide($('moduleCard'));
-    if (DEO_MODE) {
-      // Conference mode: no marketing gate, no /api/lead, no nurture.
-      serverLeadId = 'deo-anon-' + (DEO_SID || Math.random().toString(36).slice(2, 8));
+    if (DEMO_MODE) {
+      // Partner demo mode: no marketing gate, no /api/lead, no nurture.
+      serverLeadId = DEMO.anon + '-' + (DEMO_SID || Math.random().toString(36).slice(2, 8));
       show($('shadeCard'));
       $('shadeCard').scrollIntoView({ behavior: 'smooth', block: 'center' });
       return;
@@ -3754,15 +3774,15 @@ async function watermarkResult(url) {
 }
 
 let lastShareKey = null;   // dedupe guard so a result is shared once
-/* ── DEO post-result CTA (conference mode only) ─────────────────── */
-function showDeoCta() {
+/* ── Partner demo post-result CTA (demo modes only) ─────────────── */
+function showDemoCta() {
   if ($('deoCtaCard')) { show($('deoCtaCard')); return; }
   const div = document.createElement('div');
   div.className = 'card';
   div.id = 'deoCtaCard';
   div.innerHTML = `
     <h2 class="card-title" style="justify-content:center;text-align:center">Want this on your practice website?</h2>
-    <p style="text-align:center;color:var(--dark-grey);font-size:.95rem;margin:0 0 14px">This exact experience — white-labeled to your practice, turning visitors into booked cosmetic consults.</p>
+    <p style="text-align:center;color:var(--dark-grey);font-size:.95rem;margin:0 0 14px">${DEMO.ctaSub}</p>
     <form id="deoCtaForm" novalidate>
       <div class="form-grid">
         <div class="form-group"><label for="deoCtaName">Name</label><input type="text" id="deoCtaName" autocomplete="name" placeholder="Dr. Jane Smith"></div>
@@ -3772,24 +3792,24 @@ function showDeoCta() {
       <div id="deoCtaErr" class="error-banner hidden" style="margin-top:10px"></div>
     </form>
     <div id="deoCtaBookWrap" style="text-align:center;margin-top:12px;display:none">
-      <a id="deoCtaBook" href="#" target="_blank" rel="noopener" style="color:var(--navy);font-weight:700">or Show Me My Numbers &mdash; 15 min with David &rarr;</a>
+      <a id="deoCtaBook" href="#" target="_blank" rel="noopener" style="color:var(--navy);font-weight:700">${DEMO.bookLabel}</a>
     </div>
     <div id="deoCtaDone" style="display:none;text-align:center;padding:14px 6px">
       <div style="font-size:30px;color:#0DB862">&#10003;</div>
       <p style="font-weight:700;color:var(--navy)">You're set — David will reach out.</p>
-      <p style="font-size:.9rem;color:var(--dark-grey)">Come find him at DEO and mention the simulator.</p>
+      <p style="font-size:.9rem;color:var(--dark-grey)">${DEMO.doneSub}</p>
     </div>`;
   $('resultsCard').after(div);
-  if (DEO_BOOK_URL) {
+  if (DEMO.bookUrl) {
     const w = div.querySelector('#deoCtaBookWrap');
     w.style.display = 'block';
     const bk = div.querySelector('#deoCtaBook');
-    bk.href = DEO_BOOK_URL + (DEO_BOOK_URL.includes('?') ? '&' : '?') + 'utm_source=' + encodeURIComponent(DEO_SRC) + '&utm_campaign=deo2026';
-    bk.addEventListener('click', () => deoEvent('deo_meeting_clicked'));
+    bk.href = DEMO.bookUrl + (DEMO.bookUrl.includes('?') ? '&' : '?') + 'utm_source=' + encodeURIComponent(DEMO_SRC) + '&utm_campaign=' + DEMO.campaign;
+    bk.addEventListener('click', () => demoEvent('deo_meeting_clicked'));
   }
   div.querySelector('#deoCtaForm').addEventListener('submit', e => {
     e.preventDefault();
-    deoEvent('deo_post_sim_cta_clicked');
+    demoEvent('deo_post_sim_cta_clicked');
     const name = div.querySelector('#deoCtaName').value.trim();
     const email = div.querySelector('#deoCtaEmail').value.trim();
     const err = div.querySelector('#deoCtaErr');
@@ -3801,14 +3821,14 @@ function showDeoCta() {
     err.classList.add('hidden');
     fetch(`${PROXY_URL}/api/deo-lead`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email, practice: '', source: 'deo-sim-postresult:' + DEO_SRC, sid: DEO_SID, utm: location.search.slice(1, 300) }),
+      body: JSON.stringify({ name, email, practice: '', source: DEMO.leadSource + DEMO_SRC, sid: DEMO_SID, utm: location.search.slice(1, 300) }),
     }).then(r => r.json()).then(d => {
       if (d && d.ok) {
         div.querySelector('#deoCtaForm').style.display = 'none';
         div.querySelector('#deoCtaDone').style.display = 'block';
       } else { throw new Error('failed'); }
     }).catch(() => {
-      err.textContent = 'Hiccup — try again, or just come find David.';
+      err.textContent = DEMO.errText;
       err.classList.remove('hidden');
     });
   });
@@ -3816,7 +3836,7 @@ function showDeoCta() {
 
 // Email the before/after to the patient and dentist for review (consent given).
 function shareResult(beforeUrl, afterUrl) {
-  if (DEO_MODE) return; // anonymous conference session — nothing to email
+  if (DEMO_MODE) return; // anonymous demo session — nothing to email
   const key = afterUrl.slice(-48);
   if (key === lastShareKey) return;
   lastShareKey = key;
@@ -3995,8 +4015,8 @@ async function startGeneration() {
     beforeDataUrl = imgDataUrl;
     setupGptFeedback(imgDataUrl, afterWm);
     $('resultsCard').scrollIntoView({ behavior: 'smooth', block: 'start' });
-    deoEvent('deo_smile_sim_completed');
-    if (DEO_MODE) showDeoCta();
+    demoEvent('deo_smile_sim_completed');
+    if (DEMO_MODE) showDemoCta();
     shareResult(imgDataUrl, afterWm);
     // If this was a normal patient sim (Ideogram shown, not the GPT engine),
     // ALSO generate the GPT version in the background and file it for clinical

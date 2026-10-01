@@ -667,6 +667,7 @@ const WORKER_HOST = 'quiet-forest-e1f8.david-d73.workers.dev';
 const TENANTS = {
   hallmark:     { sims: 2000, videos: 100 },   // ≈1000 simulations/mo
   lucid:        { sims: 1000, videos: 50 },    // ≈500 simulations/mo
+  'rami-demo':  { sims: 1000, videos: 30 },    // lucidroi.com/rami ungated dentist demo (≈500 runs/mo)
   unknown:      { sims: 200,  videos: 10 },    // direct opens / unrecognized embeds
 };
 const IP_DAILY = { sims: 30, videos: 6, shares: 12 };  // per-visitor abuse stop (≈15 sims/day)
@@ -705,6 +706,7 @@ const KNOWN_TENANT_NAMES = {
   hallmark: 'Hallmark Dental',
   lucid: 'Lucid ROI',
   sevenbridges: 'Seven Bridges Dental Studio',
+  'rami-demo':  'Your Practice',   // lucidroi.com/rami demo — shows where the practice name goes
 };
 function prettyTenant(slug) {
   return KNOWN_TENANT_NAMES[slug] || (slug ? slug.charAt(0).toUpperCase() + slug.slice(1) : 'Your Practice');
@@ -869,7 +871,26 @@ const LUCID_AGREEMENT_VERSION = 'lsa-v1-2026-09-04';
 const BILLING_PLANS = {
   starter: { label: 'Lucid Smile Simulator — Starter', amount: 19700, sims: 500,  videos: 0  },
   growth:  { label: 'Lucid Smile Simulator — Growth',  amount: 29700, sims: 1500, videos: 50 },
+  // Dental Drugs Partner Offer (lucidroi.com/rami): Starter + 10 videos/mo,
+  // $100 off the first invoice only ($97, then $197). Not a DEO rate — must
+  // stay less favorable than DEO Member pricing (DEO agreement §4.4).
+  rami:    { label: 'Lucid Smile Simulator — Starter (Dental Drugs Partner Offer)', amount: 19700, sims: 500, videos: 10,
+             partner: 'rami', firstMonthOff: { id: 'lucid-rami-first-month', cents: 10000, name: 'Dental Drugs Partner Offer — $97 first month' } },
 };
+
+// Idempotent: returns the coupon id, creating the once-only coupon on first use.
+async function ensureCoupon(env, c) {
+  const r = await fetch(`${STRIPE_API}/coupons/${encodeURIComponent(c.id)}`, {
+    headers: { 'Authorization': `Bearer ${env.STRIPE_SECRET_KEY}` },
+  });
+  if (r.ok) return c.id;
+  try {
+    await stripePost(env, 'coupons', { id: c.id, amount_off: c.cents, currency: 'usd', duration: 'once', name: c.name });
+  } catch (err) {
+    if (!/already exists/i.test(err.message)) throw err;
+  }
+  return c.id;
+}
 
 async function stripePost(env, path, params) {
   const body = Object.entries(params)
@@ -932,10 +953,13 @@ async function handleBillingCheckout(request, env, origin) {
   const trialDays = plan === 'custom' ? (rec.billing.trialDays || 0) : 0;
   let session;
   try {
+    const couponId = P.firstMonthOff ? await ensureCoupon(env, P.firstMonthOff) : null;
     session = await stripePost(env, 'checkout/sessions', {
       mode: 'subscription',
       customer_email: email,
       ...(trialDays > 0 ? { 'subscription_data[trial_period_days]': trialDays } : {}),
+      ...(couponId ? { 'discounts[0][coupon]': couponId } : {}),
+      ...(P.partner ? { 'subscription_data[metadata][partner]': P.partner } : {}),
       'line_items[0][quantity]': 1,
       'line_items[0][price_data][currency]': 'usd',
       'line_items[0][price_data][unit_amount]': P.amount,
@@ -1510,7 +1534,15 @@ async function conciergeSuppressed(env, tenant, email) {
 }
 
 
-// POST /api/deo-lead — DEO conference landing page capture (lucidroi.com/deo).
+// Partner channels that reuse /api/deo-lead, keyed by source prefix. Their
+// leads are NOT DEO members — stored apart from deo-leads/ (DEO Member Data
+// terms) and labeled so DEO pricing is never applied by mistake.
+const PARTNER_LEAD_CHANNELS = {
+  rami: { prefix: 'partner-leads/rami/', label: 'Rami / Dental Drugs lead', note: 'NOT a DEO member. Dental Drugs Partner Offer: first month $97, then $197/mo Starter + 10 videos/mo, free setup.' },
+};
+
+// POST /api/deo-lead — DEO conference landing page capture (lucidroi.com/deo),
+// plus partner landing pages (lucidroi.com/rami) via PARTNER_LEAD_CHANNELS.
 // Stores to R2 and emails David. Not a patient lead: no concierge, no tenant.
 async function handleDeoLead(request, env, origin) {
   const json = (obj, status = 200) => new Response(JSON.stringify(obj), {
@@ -1526,14 +1558,15 @@ async function handleDeoLead(request, env, origin) {
   const mobileOk = mobile.replace(/\D/g, '').length >= 7;
   if (!name || (!emailOk && !mobileOk)) return json({ error: 'Name and an email or mobile number are required' }, 400);
   const rec = { name, email: emailOk ? email : '', mobile: mobileOk ? mobile : '', practice, locations, source: String(b.source || 'deo-2026').slice(0, 60), sid: String(b.sid || '').slice(0, 40), utm: String(b.utm || '').slice(0, 300), ts: new Date().toISOString(), ip: request.headers.get('CF-Connecting-IP') || '', ua: (request.headers.get('User-Agent') || '').slice(0, 200) };
-  await env.TEMP_IMAGES.put(`deo-leads/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`, JSON.stringify(rec), { httpMetadata: { contentType: 'application/json' } });
+  const partner = PARTNER_LEAD_CHANNELS[rec.source.split(/[-:]/)[0]] || null;
+  await env.TEMP_IMAGES.put(`${partner ? partner.prefix : 'deo-leads/'}${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`, JSON.stringify(rec), { httpMetadata: { contentType: 'application/json' } });
   await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({
       from: 'Lucid ROI <leads@lucidroi.com>', to: ['david@lucidroi.com'], ...(emailOk ? { reply_to: email } : {}),
-      subject: `DEO lead (${rec.source}): ${name}${practice ? ' — ' + practice : ''}`,
-      html: `<div style="font-family:sans-serif;font-size:14px;line-height:1.7"><b>DEO conference lead</b><br>Name: ${name}<br>Email: ${rec.email || '—'}<br>Mobile: ${rec.mobile || '—'}<br>Practice: ${practice || '—'}<br>Locations: ${locations || '—'}<br>Source: ${rec.source}<br>${rec.ts}</div>`,
+      subject: `${partner ? partner.label : 'DEO lead'} (${rec.source}): ${name}${practice ? ' — ' + practice : ''}`,
+      html: `<div style="font-family:sans-serif;font-size:14px;line-height:1.7"><b>${partner ? partner.label : 'DEO conference lead'}</b><br>${partner ? partner.note + '<br>' : ''}Name: ${name}<br>Email: ${rec.email || '—'}<br>Mobile: ${rec.mobile || '—'}<br>Practice: ${practice || '—'}<br>Locations: ${locations || '—'}<br>Source: ${rec.source}<br>${rec.ts}</div>`,
     }),
   }).catch(() => {});
   return json({ ok: true });
