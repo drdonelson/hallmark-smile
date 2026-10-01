@@ -1303,8 +1303,8 @@ function updateEmbed(){
   const slug = currentSettingsTenant();
   const name = encodeURIComponent(settingsName || config?.branding?.name || '');
   const simUrl = `${SIM_BASE}?tenant=${slug}`;
-  $('snipIframe').textContent = `<iframe src="${simUrl}" width="100%" height="760" allow="camera" style="border:none;display:block"></iframe>\n` +
-    `<script>window.addEventListener("message",function(e){if(e.origin!=="https://app.lucidroi.com")return;var h=e.data&&e.data.lucidSimHeight;if(h>0){var f=document.querySelector('iframe[src*="app.lucidroi.com/smile-simulator"]');if(f)f.style.height=Math.ceil(h)+"px"}});<\/script>`;
+  $('snipIframe').textContent = `<iframe src="${simUrl}" width="100%" height="760" allow="camera" scrolling="no" style="border:none;display:block"></iframe>\n` +
+    `<script src="https://app.lucidroi.com/sim-embed.js" async><\/script>`;
   // Widget snippet carries the practice's popup customization (heading/sub/
   // avatar/theme, and an optional link override).
   const w = (config && config.widget) || {};
