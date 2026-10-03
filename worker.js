@@ -668,6 +668,7 @@ const TENANTS = {
   hallmark:     { sims: 2000, videos: 100 },   // ≈1000 simulations/mo
   lucid:        { sims: 1000, videos: 50 },    // ≈500 simulations/mo
   'rami-demo':  { sims: 1000, videos: 30 },    // lucidroi.com/rami ungated dentist demo (≈500 runs/mo)
+  'ig-demo':    { sims: 1000, videos: 30 },    // lucidroi.com/ig ungated dentist demo (≈500 runs/mo)
   unknown:      { sims: 200,  videos: 10 },    // direct opens / unrecognized embeds
 };
 const IP_DAILY = { sims: 30, videos: 6, shares: 12 };  // per-visitor abuse stop (≈15 sims/day)
@@ -707,6 +708,7 @@ const KNOWN_TENANT_NAMES = {
   lucid: 'Lucid ROI',
   sevenbridges: 'Seven Bridges Dental Studio',
   'rami-demo':  'Your Practice',   // lucidroi.com/rami demo — shows where the practice name goes
+  'ig-demo':    'Your Practice',   // lucidroi.com/ig demo
 };
 function prettyTenant(slug) {
   return KNOWN_TENANT_NAMES[slug] || (slug ? slug.charAt(0).toUpperCase() + slug.slice(1) : 'Your Practice');
@@ -1539,6 +1541,7 @@ async function conciergeSuppressed(env, tenant, email) {
 // terms) and labeled so DEO pricing is never applied by mistake.
 const PARTNER_LEAD_CHANNELS = {
   rami: { prefix: 'partner-leads/rami/', label: 'Rami / Dental Drugs lead', note: 'NOT a DEO member. Dental Drugs Partner Offer: first month $97, then $197/mo Starter + 10 videos/mo, free setup.' },
+  ig:   { prefix: 'partner-leads/instagram/', label: 'Instagram lead', note: 'From lucidroi.com/ig. Standard pricing (Starter $197 / Growth $297). NOT a DEO member.' },
 };
 
 // POST /api/deo-lead — DEO conference landing page capture (lucidroi.com/deo),
@@ -1554,10 +1557,11 @@ async function handleDeoLead(request, env, origin) {
   const practice = String(b.practice || '').trim().slice(0, 160);
   const locations = String(b.locations || '').trim().slice(0, 40);
   const mobile = String(b.mobile || '').trim().slice(0, 40);
+  const plan = String(b.plan || '').trim().slice(0, 40);
   const emailOk = /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
   const mobileOk = mobile.replace(/\D/g, '').length >= 7;
   if (!name || (!emailOk && !mobileOk)) return json({ error: 'Name and an email or mobile number are required' }, 400);
-  const rec = { name, email: emailOk ? email : '', mobile: mobileOk ? mobile : '', practice, locations, source: String(b.source || 'deo-2026').slice(0, 60), sid: String(b.sid || '').slice(0, 40), utm: String(b.utm || '').slice(0, 300), ts: new Date().toISOString(), ip: request.headers.get('CF-Connecting-IP') || '', ua: (request.headers.get('User-Agent') || '').slice(0, 200) };
+  const rec = { name, email: emailOk ? email : '', mobile: mobileOk ? mobile : '', practice, locations, plan, source: String(b.source || 'deo-2026').slice(0, 60), sid: String(b.sid || '').slice(0, 40), utm: String(b.utm || '').slice(0, 300), ts: new Date().toISOString(), ip: request.headers.get('CF-Connecting-IP') || '', ua: (request.headers.get('User-Agent') || '').slice(0, 200) };
   const partner = PARTNER_LEAD_CHANNELS[rec.source.split(/[-:]/)[0]] || null;
   await env.TEMP_IMAGES.put(`${partner ? partner.prefix : 'deo-leads/'}${Date.now()}-${Math.random().toString(36).slice(2, 8)}.json`, JSON.stringify(rec), { httpMetadata: { contentType: 'application/json' } });
   await fetch('https://api.resend.com/emails', {
@@ -1566,7 +1570,7 @@ async function handleDeoLead(request, env, origin) {
     body: JSON.stringify({
       from: 'Lucid ROI <leads@lucidroi.com>', to: ['david@lucidroi.com'], ...(emailOk ? { reply_to: email } : {}),
       subject: `${partner ? partner.label : 'DEO lead'} (${rec.source}): ${name}${practice ? ' — ' + practice : ''}`,
-      html: `<div style="font-family:sans-serif;font-size:14px;line-height:1.7"><b>${partner ? partner.label : 'DEO conference lead'}</b><br>${partner ? partner.note + '<br>' : ''}Name: ${name}<br>Email: ${rec.email || '—'}<br>Mobile: ${rec.mobile || '—'}<br>Practice: ${practice || '—'}<br>Locations: ${locations || '—'}<br>Source: ${rec.source}<br>${rec.ts}</div>`,
+      html: `<div style="font-family:sans-serif;font-size:14px;line-height:1.7"><b>${partner ? partner.label : 'DEO conference lead'}</b><br>${partner ? partner.note + '<br>' : ''}Name: ${name}<br>Email: ${rec.email || '—'}<br>Mobile: ${rec.mobile || '—'}<br>Practice: ${practice || '—'}<br>Locations: ${locations || '—'}${plan ? '<br>Plan: ' + plan : ''}<br>Source: ${rec.source}<br>${rec.ts}</div>`,
     }),
   }).catch(() => {});
   return json({ ok: true });

@@ -1385,7 +1385,7 @@ const LS_URL     = 'hd_booking_url';
 
 // Lead routing — read from iframe URL params, default to hallmarkdds.com
 const _lp = new URLSearchParams(location.search);
-// ── Partner demo modes (DEO Fall 2026 conference, Rami / Dental Drugs) ──
+// ── Partner demo modes (DEO Fall 2026 conference, Rami / Dental Drugs, Instagram) ──
 // Ungated flow (no marketing lead gate) ONLY for a dedicated demo tenant
 // AND its URL flag — both required so a practice's lead gate can never
 // be bypassed by appending the param. Legal consent overlay stays.
@@ -1405,6 +1405,15 @@ const DEMO_MODES = {
     bookUrl: 'https://calendly.com/dr-donelson/30min',
     bookLabel: 'or book 30 minutes with Dr. Donelson &rarr;',
     ctaSub: 'Dental Drugs Partner Offer: first month $97, then $197/mo — smile videos included, free setup.',
+    doneSub: 'Dr. Donelson will reach out personally within one business day.',
+    errText: 'Hiccup — try again, or email david@lucidroi.com.',
+  },
+  'ig-demo': {
+    flag: 'ig', defaultSrc: 'ig-direct', anon: 'ig-anon', consentPractice: 'Instagram Demo',
+    leadSource: 'ig-sim-postresult:', campaign: 'instagram',
+    bookUrl: 'https://calendly.com/dr-donelson/30min',
+    bookLabel: 'or book 30 minutes with Dr. Donelson &rarr;',
+    ctaSub: 'This exact experience on your practice website. Starter $197/mo, Growth $297/mo. No setup fee, cancel anytime.',
     doneSub: 'Dr. Donelson will reach out personally within one business day.',
     errText: 'Hiccup — try again, or email david@lucidroi.com.',
   },
