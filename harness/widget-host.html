@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Widget UI harness</title>
+  <!-- Local stand-in for a practice site (hallmarkdds.com). Serves the REAL
+       cta-widget.js against the LOCAL smile-simulator.html so widget/sim
+       interactions can be exercised without deploying. -->
+</head>
+<body style="min-height:1600px;margin:0;font-family:sans-serif">
+  <h1 style="padding:40px 20px">Practice page (widget host)</h1>
+  <p style="padding:0 20px">Background content so outer-page scroll is observable.</p>
+  <!-- cta-widget.local.js = byte-identical copy of /cta-widget.js with ONLY the
+       "heal http→app.lucidroi.com" rewrite disabled (line 60) so the widget can
+       point at the localhost sim for UI testing. To refresh after editing
+       cta-widget.js: re-copy and replace the heal condition with `if (false)`. -->
+  <script src="/harness/cta-widget.local.js"
+    data-sim-url="/smile-simulator.html?tenant=hallmark"
+    data-delay="100"></script>
+</body>
+</html>
