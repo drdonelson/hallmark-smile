@@ -118,7 +118,8 @@ async function handleKlingStart(request, env, origin) {
     });
   }
 
-  const blockedVid = await meter(env, request, tenantOf(body), 'videos', origin);
+  const tenant = tenantOf(body);
+  const blockedVid = await meter(env, request, tenant, 'videos', origin);
   if (blockedVid) return blockedVid;
 
   // Video line is configurable per request (?videoLine=); defaults to "this is amazing".
@@ -154,9 +155,12 @@ async function handleKlingStart(request, env, origin) {
   // The talklaugh arc (turn to profile → talk → laugh) needs room; default it to
   // 10s so the beats don't feel rushed. Other styles stay at 5s. An explicit
   // body.duration always wins. (10s ≈ $0.70 vs 5s ≈ $0.35; video is opt-in.)
-  const duration = (body.duration === '10' || body.duration === '5')
-    ? body.duration
-    : (style === 'talklaugh' ? '10' : KLING_DURATION);
+  // DEO conference booth: always the 5s cut so the demo never waits 2 minutes.
+  const duration = tenant === 'deo'
+    ? '5'
+    : (body.duration === '10' || body.duration === '5')
+      ? body.duration
+      : (style === 'talklaugh' ? '10' : KLING_DURATION);
 
   let fal;
   try {
@@ -669,6 +673,10 @@ const TENANTS = {
   lucid:        { sims: 1000, videos: 50 },    // ≈500 simulations/mo
   'rami-demo':  { sims: 1000, videos: 30 },    // lucidroi.com/rami ungated dentist demo (≈500 runs/mo)
   'ig-demo':    { sims: 1000, videos: 30 },    // lucidroi.com/ig ungated dentist demo (≈500 runs/mo)
+  // DEO conference booth (Oct 2026): effectively unlimited — the demo flow is
+  // already gated by its own flag, and the show dies if a cap 429s mid-pitch.
+  // Remove or trim after the conference.
+  deo:          { sims: 100000, videos: 5000 },
   unknown:      { sims: 200,  videos: 10 },    // direct opens / unrecognized embeds
 };
 const IP_DAILY = { sims: 30, videos: 6, shares: 12 };  // per-visitor abuse stop (≈15 sims/day)
@@ -1216,7 +1224,10 @@ async function meter(env, request, tenant, kind, origin) {
         });
       }
     }
-    if (IP_DAILY[kind] != null && (ipUse[kind] || 0) >= IP_DAILY[kind]) {
+    // Conference booth exemption: one demo device legitimately burns through
+    // more than the per-visitor stop during a show day. Tenant cap (generous)
+    // still applies. DEO-only; remove after the conference.
+    if (tenant !== 'deo' && IP_DAILY[kind] != null && (ipUse[kind] || 0) >= IP_DAILY[kind]) {
       return new Response(JSON.stringify({ error: 'Daily limit reached for this device. Please try again tomorrow.' }), {
         status: 429, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
       });

@@ -25,7 +25,7 @@
     return scripts[scripts.length - 1];
   })();
 
-  var BUILD = '2026-10-01-01'; // bump on every simulator/widget deploy
+  var BUILD = '2026-10-03-01'; // bump on every simulator/widget deploy
 
   var ext = window.LucidCTA || {};
   function opt(attr, key, def) {

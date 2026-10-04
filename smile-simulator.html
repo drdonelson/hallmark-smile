@@ -541,7 +541,9 @@
       position: absolute; top: 0; right: 0; height: 100%; width: 50%;
       overflow: hidden; will-change: width;
     }
-    .ba-after { position: absolute; top: 0; right: 0; height: 100%; width: auto; display: block; object-fit: cover; object-position: center top; }
+    /* max-width:none: the global img{max-width:100%} would clamp this image to
+       the half-width reveal clip, breaking pixel alignment with the before. */
+    .ba-after { position: absolute; top: 0; right: 0; height: 100%; width: auto; max-width: none; display: block; object-fit: cover; object-position: center top; }
     .ba-label {
       position: absolute; bottom: 10px;
       background: rgba(0,0,0,0.55); color: #fff;
@@ -627,6 +629,16 @@
     body.embedded #uploadCard .upload-area { padding: 40px 20px; }
     body.embedded #uploadCard .upload-text { font-size: 1.05rem; }
     body.embedded #uploadCtaRow { display: none; }           /* dropzone tap opens the picker; selecting auto-advances */
+    /* Results step in the popup: a phone selfie is 3:4 portrait, so at popup
+       width the before/after fills the ENTIRE first screen and pushes every CTA
+       below the fold — plus its height jumps when the images load. Cap the
+       slider (object-fit keeps the smile framed; both images get the identical
+       crop so they stay pixel-aligned) and let the step fit the popup. */
+    body.embedded .ba-slider { height: min(340px, 45vh); margin-bottom: 12px; }
+    body.embedded .ba-base,
+    body.embedded .ba-after { height: 100%; object-fit: cover; object-position: center 18%; }
+    body.embedded #resultsCard { padding: 20px 18px; }
+    body.embedded .results-actions { margin-top: 14px; gap: 10px; }
     /* Phones: shrink the popup to a compact bottom-card (~bitebot size). Cap the
        before/after video height and tighten spacing so the intro fits without a
        tall takeover. object-position keeps the smiles in frame when cropped. */
@@ -4027,6 +4039,12 @@ async function startGeneration() {
     demoEvent('deo_smile_sim_completed');
     if (DEMO_MODE) showDemoCta();
     shareResult(imgDataUrl, afterWm);
+    // DEO SHOW ONLY (remove after the conference): start the shareable video
+    // generating in the BACKGROUND the moment the result appears, so the booth
+    // pitch overlaps the AI wait. Demo mode forces the 5s 'laugh' cut — see
+    // runVideoGeneration. Costs ~$0.35 per demo run; normal patients never hit
+    // this path (pregen was deliberately left off in normal mode to save cost).
+    if (DEMO_MODE) { hide($('videoStyleRow')); startVideoPregen(afterWm); }
     // If this was a normal patient sim (Ideogram shown, not the GPT engine),
     // ALSO generate the GPT version in the background and file it for clinical
     // review in the dashboard. Fire-and-forget — never blocks or affects the UI.
@@ -4078,18 +4096,58 @@ function showAfter()  { setSliderPos(50); }
 (function wireSlider() {
   const slider = $('baSlider');
   if (!slider) return;
-  let dragging = false;
-  const posFromEvent = e => {
+  let dragging = false;   // mouse/pen drag in progress
+  let touch = null;       // active touch gesture { x0, y0, dragging, moved }
+  const posFromClientX = clientX => {
     const rect = slider.getBoundingClientRect();
-    const x = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
-    return (x / rect.width) * 100;
+    return ((clientX - rect.left) / rect.width) * 100;
   };
-  const start = e => { dragging = true; setSliderPos(posFromEvent(e)); e.preventDefault(); };
-  const move  = e => { if (dragging) setSliderPos(posFromEvent(e)); };
+  // Mouse / pen: jump the handle to the pointer and follow it. preventDefault
+  // here only stops native image-drag ghosting — it never fires for touch
+  // (start ignores touch pointers), so it cannot block touch scrolling.
+  const start = e => {
+    if (e.pointerType === 'touch') return;   // touch is handled below
+    dragging = true; setSliderPos(posFromClientX(e.clientX)); e.preventDefault();
+  };
+  const move  = e => { if (dragging) setSliderPos(posFromClientX(e.clientX)); };
   const end   = () => { dragging = false; };
   slider.addEventListener('pointerdown', start);
   window.addEventListener('pointermove', move);
   window.addEventListener('pointerup', end);
+  // Touch: arbitrate scroll-vs-compare PER GESTURE. The slider covers most of
+  // the results screen in the popup, so vertical swipes must scroll the page
+  // (never preventDefaulted — on iOS Safari, canceling the gesture's default
+  // is what made the screen feel frozen). Horizontal drags take over the
+  // handle; the first qualifying touchmove is preventDefaulted BEFORE the
+  // browser can claim the gesture for scrolling.
+  slider.addEventListener('touchstart', e => {
+    const t = e.touches[0];
+    touch = { x0: t.clientX, y0: t.clientY, dragging: false, moved: false };
+  }, { passive: true });
+  slider.addEventListener('touchmove', e => {
+    if (!touch) return;
+    const t = e.touches[0];
+    const dx = t.clientX - touch.x0, dy = t.clientY - touch.y0;
+    if (!touch.dragging) {
+      if (Math.abs(dx) < 9 && Math.abs(dy) < 9) return;            // dead zone — undecided
+      if (Math.abs(dy) >= Math.abs(dx)) { touch = null; return; }  // vertical → page scrolls, handle stays
+      touch.dragging = true;
+    }
+    touch.moved = true;
+    e.preventDefault();
+    setSliderPos(posFromClientX(t.clientX));
+  }, { passive: false });
+  const touchEnd = e => {
+    // Plain tap (no drag): move the handle to the tapped point.
+    if (touch && !touch.moved && e.changedTouches.length) {
+      setSliderPos(posFromClientX(e.changedTouches[0].clientX));
+    }
+    touch = null;
+  };
+  slider.addEventListener('touchend', touchEnd);
+  slider.addEventListener('touchcancel', () => { touch = null; });
+  // Keep the browser's native image-drag from competing with the slider.
+  slider.querySelectorAll('img').forEach(im => { im.draggable = false; });
   $('baHandle').addEventListener('keydown', e => {
     if (e.key === 'ArrowLeft')  { setSliderPos(sliderPos - 4); e.preventDefault(); }
     if (e.key === 'ArrowRight') { setSliderPos(sliderPos + 4); e.preventDefault(); }
@@ -4234,10 +4292,16 @@ async function runVideoGeneration(afterSrc, onProgress = () => {}) {
   const croppedImage = await prepareImageForRunway(afterSrc);
   onProgress(8, 'Sending to AI…');
 
+  // DEO SHOW ONLY (remove after the conference): the booth needs the video in
+  // ~60s, not 2min — the default 'talklaugh' arc is a 10s cut; force the 5s
+  // 'laugh' cut (half the frames ≈ half the render) and pin duration to 5s.
+  const selStyle = (($('videoStyle') || {}).value || 'talklaugh');
+  const style = DEMO_MODE ? (selStyle === 'talklaugh' ? 'laugh' : selStyle) : selStyle;
+
   const startRes = await fetch(`${PROXY_URL}/api/kling/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ image: croppedImage, tenant: TENANT, style: (($('videoStyle') || {}).value || 'talklaugh') }),
+    body: JSON.stringify({ image: croppedImage, tenant: TENANT, style, ...(DEMO_MODE ? { duration: '5' } : {}) }),
   });
   const startData = await startRes.json();
   if (!startRes.ok || !startData.request_id) {
@@ -4250,8 +4314,8 @@ async function runVideoGeneration(afterSrc, onProgress = () => {}) {
 
   let elapsed = 0;
   while (true) {
-    await new Promise(r => setTimeout(r, 4000));
-    elapsed += 4;
+    await new Promise(r => setTimeout(r, 2000));
+    elapsed += 2;
     const pollRes  = await fetch(`${PROXY_URL}/api/kling/status?falUrl=${encodeURIComponent(statusUrl)}`);
     const pollData = await pollRes.json();
     const status   = (pollData.status || '').toUpperCase();
