@@ -987,6 +987,116 @@ async function handleBillingCheckout(request, env, origin) {
   });
 }
 
+// POST /api/billing/signup  { plan, practiceName, email, website?, source?, agree, returnUrl? }
+// Self-serve purchase from a public page (lucidroi.com/ig). No practice exists
+// yet: the webhook creates the account only after payment clears, so abandoned
+// checkouts leave nothing behind. Standard list pricing only.
+const SELF_SERVE_PLANS = new Set(['starter', 'growth']);
+async function handleBillingSignup(request, env, origin) {
+  const json = (obj, status = 200) => new Response(JSON.stringify(obj), {
+    status, headers: { 'Content-Type': 'application/json', ...corsHeaders(origin) },
+  });
+  if (!env.STRIPE_SECRET_KEY) return json({ error: 'Billing not configured' }, 503);
+  let b; try { b = await request.json(); } catch { b = {}; }
+  const plan = SELF_SERVE_PLANS.has(b.plan) ? b.plan : null;
+  const practiceName = String(b.practiceName || '').trim().slice(0, 120);
+  const email = String(b.email || '').trim().toLowerCase().slice(0, 120);
+  let website = String(b.website || '').trim().slice(0, 200);
+  if (website && !/^https?:\/\//i.test(website)) website = 'https://' + website;
+  if (website) { try { website = new URL(website).origin; } catch { website = ''; } }
+  const source = String(b.source || 'self-serve').replace(/[^a-z0-9:_-]/gi, '').slice(0, 60);
+  if (!plan || !practiceName || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+    return json({ error: 'Plan, practice name and a valid email are required' }, 400);
+  }
+  if (b.agree !== true) return json({ error: 'Please accept the Service Agreement to continue' }, 400);
+
+  // Click-accept record — the "signature". Copied under the practice's slug on activation.
+  const acceptId = randomToken();
+  await env.TEMP_IMAGES.put(`agreements/_signup/${acceptId}.json`, JSON.stringify({
+    plan, email, practiceName, website, source, agreementVersion: AGREEMENT_VERSION,
+    ts: new Date().toISOString(),
+    ip: request.headers.get('CF-Connecting-IP') || '',
+    ua: request.headers.get('User-Agent') || '',
+  }), { httpMetadata: { contentType: 'application/json' } });
+
+  const P = BILLING_PLANS[plan];
+  const back = /^https:\/\/www\.lucidroi\.com\//.test(String(b.returnUrl || '')) ? String(b.returnUrl).slice(0, 300) : 'https://www.lucidroi.com/ig/';
+  let session;
+  try {
+    session = await stripePost(env, 'checkout/sessions', {
+      mode: 'subscription',
+      customer_email: email,
+      'line_items[0][quantity]': 1,
+      'line_items[0][price_data][currency]': 'usd',
+      'line_items[0][price_data][unit_amount]': P.amount,
+      'line_items[0][price_data][recurring][interval]': 'month',
+      'line_items[0][price_data][product_data][name]': P.label,
+      'subscription_data[metadata][plan]': plan,
+      'subscription_data[metadata][signup]': '1',
+      'subscription_data[metadata][source]': source,
+      'metadata[signup]': '1',
+      'metadata[plan]': plan,
+      'metadata[practiceName]': practiceName,
+      'metadata[email]': email,
+      'metadata[website]': website,
+      'metadata[source]': source,
+      'metadata[acceptId]': acceptId,
+      success_url: 'https://app.lucidroi.com/activate.html?done=1',
+      cancel_url: back,
+    });
+  } catch (err) {
+    return json({ error: err.message }, 502);
+  }
+  return json({ url: session.url });
+}
+
+// Creates + activates the practice for a paid self-serve checkout. Idempotent
+// per Checkout Session (Stripe retries webhooks). createPractice sends the
+// welcome email (login, embed code, dashboard) and notifies David.
+async function activateSelfServeSignup(env, s) {
+  const marker = `signups/${s.id}.json`;
+  if (await env.TEMP_IMAGES.head(marker)) return;
+  const m = s.metadata || {};
+  const P = BILLING_PLANS[m.plan];
+  const email = String((s.customer_details && s.customer_details.email) || m.email || '').toLowerCase();
+  const base = String(m.practiceName || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20) || 'practice';
+  let result = null;
+  for (let i = 0; i < 4; i++) {
+    const slug = i === 0 ? base : base + Math.random().toString(36).slice(2, 6);
+    result = await createPractice(env, { practiceName: m.practiceName, leadEmail: email, website: m.website || undefined, slug, simsPerMonth: P.sims, videosPerMonth: P.videos });
+    if (result.ok || result.status !== 409) break;
+  }
+  if (!result || !result.ok) {
+    await env.TEMP_IMAGES.put(marker, JSON.stringify({ error: (result && result.error) || 'unknown', ts: new Date().toISOString() }), { httpMetadata: { contentType: 'application/json' } });
+    if (env.RESEND_API_KEY) {
+      await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ from: 'Lucid ROI <onboarding@lucidroi.com>', to: ['david@lucidroi.com'], subject: `ACTION NEEDED: paid signup could not be auto-created — ${m.practiceName}`, html: `<p>${m.practiceName} (${email}) paid for ${m.plan} via ${m.source}, but the practice account could not be created: ${(result && result.error) || 'unknown'}. Create it manually and link Stripe subscription ${s.subscription}.</p>` }),
+      }).catch(() => {});
+    }
+    return;
+  }
+  const rec = await registryGet(env, result.slug);
+  if (rec) {
+    Object.assign(rec, {
+      plan: m.plan, sims: P.sims, videos: P.videos, active: true, agency: '', source: m.source || '',
+      stripeCustomerId: s.customer || '', stripeSubscriptionId: s.subscription || '',
+      activatedAt: new Date().toISOString(),
+    });
+    await env.TEMP_IMAGES.put(`registry/${result.slug}.json`, JSON.stringify(rec), { httpMetadata: { contentType: 'application/json' } });
+  }
+  await env.TEMP_IMAGES.put(marker, JSON.stringify({ slug: result.slug, ts: new Date().toISOString() }), { httpMetadata: { contentType: 'application/json' } });
+  // Tag the subscription so customer.subscription.deleted deactivates this practice.
+  if (s.subscription && env.STRIPE_SECRET_KEY) {
+    await stripePost(env, `subscriptions/${s.subscription}`, { 'metadata[tenant]': result.slug }).catch(() => {});
+  }
+  if (m.acceptId) {
+    const a = await env.TEMP_IMAGES.get(`agreements/_signup/${m.acceptId}.json`).catch(() => null);
+    if (a) await env.TEMP_IMAGES.put(`agreements/${result.slug}/${m.acceptId}.json`, await a.text(), { httpMetadata: { contentType: 'application/json' } });
+  }
+}
+
 // POST /api/billing/webhook — Stripe posts here (no Origin header; the
 // signature is the auth). Activates/deactivates the tenant registry.
 async function handleBillingWebhook(request, env) {
@@ -1008,6 +1118,10 @@ async function handleBillingWebhook(request, env) {
 
   let event; try { event = JSON.parse(payload); } catch { return new Response('Bad JSON', { status: 400 }); }
 
+  if (event.type === 'checkout.session.completed' && event.data.object.metadata?.signup === '1'
+      && BILLING_PLANS[event.data.object.metadata?.plan]) {
+    await activateSelfServeSignup(env, event.data.object);
+  }
   if (event.type === 'checkout.session.completed') {
     const s = event.data.object;
     const slug = s.metadata?.tenant;
@@ -2868,6 +2982,9 @@ export default {
 
     if (url.pathname === '/api/billing/checkout' && request.method === 'POST') {
       return handleBillingCheckout(request, env, origin);
+    }
+    if (url.pathname === '/api/billing/signup' && request.method === 'POST') {
+      return handleBillingSignup(request, env, origin);
     }
     if (url.pathname === '/api/deo-event' && request.method === 'POST') {
       return handleDeoEvent(request, env, origin);
