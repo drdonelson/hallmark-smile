@@ -1095,6 +1095,7 @@ async function activateSelfServeSignup(env, s) {
     await env.TEMP_IMAGES.put(`registry/${result.slug}.json`, JSON.stringify(rec), { httpMetadata: { contentType: 'application/json' } });
   }
   await env.TEMP_IMAGES.put(marker, JSON.stringify({ slug: result.slug, ts: new Date().toISOString() }), { httpMetadata: { contentType: 'application/json' } });
+  await conciergeEnroll(env, result.slug);
   // Tag the subscription so customer.subscription.deleted deactivates this practice.
   if (s.subscription && env.STRIPE_SECRET_KEY) {
     await stripePost(env, `subscriptions/${s.subscription}`, { 'metadata[tenant]': result.slug }).catch(() => {});
@@ -1145,6 +1146,7 @@ async function handleBillingWebhook(request, env) {
         rec.stripeCustomerId = s.customer || '';
         rec.stripeSubscriptionId = s.subscription || '';
         rec.activatedAt = rec.activatedAt || new Date().toISOString();
+        await conciergeEnroll(env, slug);
         await env.TEMP_IMAGES.put(`registry/${slug}.json`, JSON.stringify(rec),
           { httpMetadata: { contentType: 'application/json' } });
       }
@@ -1158,6 +1160,7 @@ async function handleBillingWebhook(request, env) {
       if (rec) {
         rec.active = false;
         rec.deactivatedAt = new Date().toISOString();
+        await env.TEMP_IMAGES.delete(`concierge-tenants/${slug}`).catch(() => {});
         await env.TEMP_IMAGES.put(`registry/${slug}.json`, JSON.stringify(rec),
           { httpMetadata: { contentType: 'application/json' } });
       }
@@ -1648,6 +1651,20 @@ async function updateLead(env, tenant, id, patch) {
 // practice moves the lead past "new" in the dashboard. Unsubscribes are
 // honored via an HMAC-signed link → R2 suppression record.
 const CONCIERGE_TENANTS = ['hallmark', 'lucid', 'sevenbridges', 'madison', 'richmond'];   // pilot allowlist — add slugs as pilots onboard
+// Paid Stripe activations join automatically: a marker at concierge-tenants/<slug>
+// (written on checkout activation) adds the practice to the sequence.
+async function conciergeTenantList(env) {
+  const extra = [];
+  try {
+    const l = await env.TEMP_IMAGES.list({ prefix: 'concierge-tenants/', limit: 1000 });
+    for (const o of l.objects) extra.push(o.key.slice('concierge-tenants/'.length));
+  } catch { /* fall back to the allowlist */ }
+  return [...new Set([...CONCIERGE_TENANTS, ...extra.filter(Boolean)])];
+}
+async function conciergeEnroll(env, slug) {
+  if (!slug) return;
+  await env.TEMP_IMAGES.put(`concierge-tenants/${slug}`, new Date().toISOString()).catch(() => {});
+}
 const CONCIERGE_TOUCHES = [
   { key: 'nudge1h', afterMin: 60,    audience: 'practice' },
   { key: 'day1',    afterMin: 1440,  audience: 'patient'  },
@@ -1838,7 +1855,7 @@ async function runConcierge(env, opts = {}) {
   const report = !!opts.report;
   const out = { scanned: 0, sent: 0, skipped: 0, deduped: 0, errors: 0, ...(report ? { leads: [] } : {}) };
   const now = Date.now();
-  for (const tenant of CONCIERGE_TENANTS) {
+  for (const tenant of await conciergeTenantList(env)) {
     const rec = await registryGet(env, tenant);
     const cfg = (rec && rec.config) || {};
     const brand = conciergeBrand(cfg, tenant);
